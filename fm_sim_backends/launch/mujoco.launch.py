@@ -17,42 +17,39 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-
-# Vendored MJCF path inside the container (src/external is gitignored, mounted at
-# /ws). Override with mujoco_model:= for an out-of-container layout.
-_DEFAULT_MJCF = "/ws/src/external/openarm_mujoco/v2/openarm_bimanual.xml"
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    robot_description = LaunchConfiguration("robot_description")
+    # value_type=str: the description is XML, not yaml — stop the param loader
+    # from trying to parse it.
+    robot_description = ParameterValue(
+        LaunchConfiguration("robot_description"), value_type=str
+    )
     controllers_file = LaunchConfiguration("controllers_file")
-    mujoco_model = LaunchConfiguration("mujoco_model")
 
     return LaunchDescription(
         [
             DeclareLaunchArgument(
                 "robot_description",
                 description="Robot description XML with the MujocoSystemInterface "
-                "<ros2_control> system.",
+                "<ros2_control> system (carries the mujoco_model param).",
             ),
             DeclareLaunchArgument(
                 "controllers_file",
                 description="Path to the controllers.yaml for the active preset.",
             ),
-            DeclareLaunchArgument(
-                "mujoco_model",
-                default_value=_DEFAULT_MJCF,
-                description="MJCF scene to simulate. Defaults to the vendored "
-                "openarm_mujoco v2 bimanual model.",
-            ),
             # controller_manager hosted inside MuJoCo. Steps physics + serves the
             # hardware interfaces; controllers are spawned separately by sim.launch.py.
+            # MuJoCo's GLFW viewer needs a display, so run it under a virtual one
+            # (xvfb-run) — this is what makes the headless Mac container the daily
+            # driver. The MJCF path comes from the description's mujoco_model param.
             Node(
                 package="mujoco_ros2_control",
                 executable="ros2_control_node",
+                prefix="xvfb-run -a",
                 parameters=[
                     {"robot_description": robot_description},
-                    {"mujoco_model": mujoco_model},
                     controllers_file,
                 ],
                 output="screen",

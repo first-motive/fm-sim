@@ -18,10 +18,15 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    robot_description = LaunchConfiguration("robot_description")
+    # value_type=str: the description is XML, not yaml — stop the param loader
+    # from trying to parse it.
+    robot_description = ParameterValue(
+        LaunchConfiguration("robot_description"), value_type=str
+    )
     controllers_file = LaunchConfiguration("controllers_file")
 
     return LaunchDescription(
