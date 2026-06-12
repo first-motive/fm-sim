@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fm_sim</name>
+  <version>0.0.0</version>
+  <description>First Motive simulation layer: metapackage grouping the headless dev loop, backend hosts, and the MJCF model registry (split-ready)</description>
+  <maintainer email="nish@ubundi.co.za">First Motive</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>fm_sim_core</exec_depend>
+  <exec_depend>fm_sim_backends</exec_depend>
+  <exec_depend>fm_sim_models</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

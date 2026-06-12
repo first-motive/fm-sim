@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fm_sim_core</name>
+  <version>0.0.0</version>
+  <description>Simulation core: ROS-free MuJoCo stepper plus the headless sim_loop node that publishes joint states</description>
+  <maintainer email="nish@ubundi.co.za">First Motive</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <!-- mujoco is a pip dep (arm64 CPU wheel), installed via the base image -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
