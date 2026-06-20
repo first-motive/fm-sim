@@ -1,0 +1,22 @@
+# Vendored external sources + vcs-imported siblings (pulled via vcs import)
+external/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node (foxglove panel)
+node_modules/
+dist/
+
+# MuJoCo runtime log
+MUJOCO_LOG.TXT
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

@@ -1,0 +1,16 @@
+# vcs import < fm-sim.repos   (run from the workspace root)
+#
+# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree).
+repositories:
+  external/so_arm:
+    type: git
+    url: https://github.com/TheRobotStudio/SO-ARM100.git
+    version: fda892cba81032c46c40976a48c9ceadbf40a9ca
+  external/openarm_mujoco:
+    type: git
+    url: https://github.com/enactic/openarm_mujoco.git
+    version: 5c6e1b4c71cbe27c6a4b58c7f198f080449e1b9c
+  external/unitree_mujoco:
+    type: git
+    url: https://github.com/unitreerobotics/unitree_mujoco.git
+    version: ae6a8403e272733e9996ef59990880330496177f

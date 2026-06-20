@@ -1,46 +1,37 @@
-# fm_sim
+# fm-sim
 
-Simulation layer for the fm_ros2 workspace. Groups the headless dev loop, the
-per-engine backend hosts, and the MJCF model registry. Split-ready: this whole
-group extracts cleanly into its own repo later.
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-blue.svg)](LICENSE)
 
-There are two distinct simulation paths, and they do not include one another:
+Simulation layer for First Motive's ROS2 stack. Groups the headless dev loop, the
+backend hosts, and the MJCF model registry — the packages that run the robot in
+simulation.
 
-```
-headless path   fm_sim_core/sim.launch.py
-                  └─ sim_loop node → MuJoCo stepper → /joint_states
-                  no controllers, no ros2_control — control / orchestration dev
+Part of First Motive's ROS2 (Humble) stack. Builds standalone here; assembled
+with the other six package repos by
+[`fm-ros2`](https://github.com/first-motive/fm-ros2).
 
-stack path      fm_bringup/sim.launch.py        (the TUI's full sim)
-                  ├─ controllers.launch.py
-                  └─ fm_sim_backends/<engine>.launch.py   (mujoco | gazebo | isaac)
-                       └─ hosts controller_manager inside the sim
-```
-
-The headless path is one node stepping physics — fast, no control stack, runs
-native arm64 on the M5. The stack path is the full `ros2_control` graph, where the
-chosen engine hosts the `controller_manager`. Both launch files are named
-`sim.launch.py`; neither includes the other. See
-[docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#launch-dependency-graph) for the
-full launch graph.
-
-## Sub-Packages
+## Packages
 
 | Package | Build | Role |
 |---------|-------|------|
-| [`fm_sim_core`](fm_sim_core/README.md) | ament_python | ROS-free MuJoCo stepper + headless `sim_loop` node |
-| [`fm_sim_backends`](fm_sim_backends/README.md) | ament_python | Per-engine launch hosts (mujoco, gazebo, isaac) for the `ros2_control` stack |
-| [`fm_sim_models`](fm_sim_models/README.md) | ament_python | MJCF model registry: robot key → MuJoCo model path |
+| `fm_sim_core` | ament_python | Headless dev loop, launch, and shared sim config |
+| `fm_sim_backends` | ament_python | Backend hosts (MuJoCo and others) behind one interface |
+| `fm_sim_models` | ament_python | MJCF model registry |
+| `fm_sim` | ament_cmake | Metapackage tying the three together for a single install |
 
-## How the Pieces Connect
+## Standalone Build
 
-`fm_sim_backends/mujoco.launch.py` runs the `ros2_control` stack against a MuJoCo
-model. `fm_bringup` looks the model path up in `fm_sim_models` and injects it into
-the robot description as the `mujoco_model` xacro arg, so the path lives in one
-place rather than being hardcoded per robot. `fm_sim_core` is independent of both —
-it loads its own MJCF (or a built-in fallback) directly.
+Clone into a colcon workspace's `src/`, pull dependencies, then build:
 
-## Build Type
+```bash
+mkdir -p ws/src && cd ws/src
+git clone https://github.com/first-motive/fm-sim.git
+vcs import < fm-sim/fm-sim.repos     # externals (MJCF model sources)
+cd .. && colcon build --symlink-install
+colcon test && colcon test-result --verbose
+```
 
-`ament_cmake` metapackage (exec-depends on the three sub-packages). The package
-itself builds nothing; it ties the group together for a single install.
+## Governance
+
+Owner-free-on-main — see [CONTRIBUTING.md](CONTRIBUTING.md) and
+[`.github/CODEOWNERS`](.github/CODEOWNERS).
