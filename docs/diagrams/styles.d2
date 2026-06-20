@@ -1,0 +1,23 @@
+# Shared block grammar + First Motive palette (mirrors firstmotive.ai). Import
+# with `...@styles`. Build a block as a grid-rows container holding banded rows:
+#   role → human label (plum)   pkg → package (lavender)   art → artifact / node (cream)
+# Use `class: block` for a normal block, `class: zoom` for one expanded in a
+# deeper diagram (dashed border). For node/topic graphs use `node` + `topic`.
+#
+# theme-overrides recolours d2's primary stroke (B1) to plum, so every shape
+# border and edge is plum without per-edge styling. This spreads through the
+# import — set it once here.
+vars: {
+  d2-config: {
+    theme-overrides: { B1: "#3B3443" }
+  }
+}
+classes: {
+  block: { grid-gap: 0; style.fill: transparent; style.stroke: "#3B3443" }
+  zoom: { grid-gap: 0; style.fill: transparent; style.stroke: "#3B3443"; style.stroke-dash: 4 }
+  role: { style.fill: "#3B3443"; style.font-color: "#ECE2CF" }
+  pkg: { style.fill: "#B6A5C6"; style.font-color: "#342E3B" }
+  art: { style.fill: "#E7DDC8"; style.font-color: "#342E3B" }
+  node: { height: 48; style.fill: "#3B3443"; style.font-color: "#ECE2CF" }
+  topic: { style.fill: "#E7DDC8"; style.font-color: "#342E3B"; style.border-radius: 20 }
+}

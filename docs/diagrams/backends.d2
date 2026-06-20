@@ -1,0 +1,59 @@
+# fm-sim backend hosts. fm_bringup/sim.launch.py picks a backend by the
+# sim_backend arg and includes the matching fm_sim_backends launch file. Each
+# launch file hosts a controller_manager inside its engine, so the same
+# controllers drive any backend. fm_sim_models injects the MJCF path for the
+# mujoco backend. Each block: engine (role), package, launch + node (art).
+...@styles
+direction: right
+
+arg: "" {
+  grid-rows: 2
+  class: block
+  r: Backend Select { class: role }
+  a: sim_backend { class: art }
+}
+models: "" {
+  grid-rows: 3
+  class: block
+  r: MJCF Registry { class: role }
+  p: fm_sim_models { class: pkg }
+  a: mjcf_path(robot) { class: art }
+}
+mujoco: "" {
+  grid-rows: 4
+  class: block
+  r: MuJoCo { class: role }
+  p: fm_sim_backends { class: pkg }
+  a1: mujoco.launch.py { class: art }
+  a2: "mujoco_ros2_control · xvfb-run" { class: art }
+}
+gazebo: "" {
+  grid-rows: 4
+  class: block
+  r: Gazebo { class: role }
+  p: fm_sim_backends { class: pkg }
+  a1: gazebo.launch.py { class: art }
+  a2: "gz_sim · ros_gz_bridge" { class: art }
+}
+isaac: "" {
+  grid-rows: 4
+  class: block
+  r: Isaac { class: role }
+  p: fm_sim_backends { class: pkg }
+  a1: isaac.launch.py { class: art }
+  a2: "topic_based · isaac_joint_*" { class: art }
+}
+cm: "" {
+  grid-rows: 2
+  class: zoom
+  r: controller_manager { class: role }
+  a: hosted in-engine { class: art }
+}
+
+models -> mujoco: injects MJCF
+arg -> mujoco
+arg -> gazebo
+arg -> isaac
+mujoco -> cm
+gazebo -> cm
+isaac -> cm

@@ -31,6 +31,18 @@ cd .. && colcon build --symlink-install
 colcon test && colcon test-result --verbose
 ```
 
+## Architecture
+
+Each engine hosts a `controller_manager` behind one interface, so the same
+controllers drive any backend. `fm_sim_models` keeps the single map from robot to
+MuJoCo model; `fm_sim_core` runs a headless dev loop split from ROS comms for
+testability.
+
+![backends](docs/diagrams/backends.svg)
+
+Full backend table, MJCF registry, and dev loop:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Governance
 
 Owner-free-on-main — see [CONTRIBUTING.md](CONTRIBUTING.md) and

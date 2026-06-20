@@ -1,0 +1,22 @@
+# fm_sim_core headless dev loop — separate from the full bringup sim stack. The
+# MujocoStepper (ROS-free, testable) steps an MJCF at a fixed rate; the sim_loop
+# node wraps it and publishes /joint_states. No controllers, no ros2_control.
+# Nodes are plum boxes, topics cream pills. The stepper is a basic block (no ROS).
+...@styles
+direction: right
+
+mjcf: model_path (MJCF) { class: art; shape: page }
+
+stepper: "" {
+  grid-rows: 2
+  class: block
+  r: MujocoStepper { class: role }
+  a: "ROS-free · rate_hz" { class: art }
+}
+
+loop: sim_loop { class: node }
+js: /joint_states { class: topic }
+
+mjcf -> stepper
+stepper -> loop: JointSample
+loop -> js
