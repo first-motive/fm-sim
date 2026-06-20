@@ -5,9 +5,10 @@ on:
     branches: ["**"]
   pull_request:
 
-# Standalone build: clone this repo, pull its .repos siblings + externals, then
-# colcon build + test in a Humble container. Proves the package stands on its own
-# outside the fm-ros2 monorepo.
+# Standalone build (hybrid CI): fm-sim builds its own packages. Its externals are
+# MJCF model sources (SO-ARM, OpenArm, Unitree) — file-vendored, not colcon
+# packages — so they are COLCON_IGNORE'd. The full integration build lives in
+# fm-ros2.
 jobs:
   build-test:
     name: build + test (humble)
@@ -21,16 +22,18 @@ jobs:
         with:
           path: src/fm-sim
 
-      - name: Import siblings + externals
+      - name: Import + mark externals
         run: |
           apt-get update && apt-get install -y python3-vcstool
           vcs import < src/fm-sim/fm-sim.repos
+          # Externals are MJCF/file-only — not colcon packages. Keep them out.
+          for d in external/*/; do touch "${d}COLCON_IGNORE"; done
 
       - name: Install ROS deps
         run: |
           source /opt/ros/humble/setup.bash
           rosdep update
-          rosdep install --from-paths src --ignore-src -y -r || true
+          rosdep install --from-paths src --ignore-src -y -r
 
       - name: colcon build
         run: |
