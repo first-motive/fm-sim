@@ -1,6 +1,6 @@
 # fm-sim
 
-[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Simulation layer for First Motive's ROS2 stack. Groups the headless dev loop, the
 backend hosts, and the MJCF model registry — the packages that run the robot in
