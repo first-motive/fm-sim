@@ -3,7 +3,9 @@ name: CI
 on:
   push:
     branches: ["**"]
+    paths-ignore: ["**.md", "docs/**", "LICENSE", ".gitignore"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE", ".gitignore"]
 
 # Standalone build (hybrid CI): fm-sim builds its own packages. Its externals are
 # MJCF model sources (SO-ARM, OpenArm, Unitree) — file-vendored, not colcon
