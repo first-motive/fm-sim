@@ -47,3 +47,59 @@ jobs:
           source /opt/ros/humble/setup.bash
           colcon test
           colcon test-result --verbose
+
+  image:
+    name: build image (FROM fm-robot layer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The fm-robot layer lives in a private-by-default GHCR package; log in to
+      # pull it (the Dockerfile is FROM ghcr.io/first-motive/fm-robot:humble).
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the sim image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: fm-sim:humble
+
+  smoke:
+    name: smoke run.sh (native headless)
+    runs-on: ubuntu-latest
+    container: ros:humble
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tooling + ROS deps
+        run: |
+          apt-get update && apt-get install -y python3-vcstool
+          source /opt/ros/humble/setup.bash
+          vcs import < fm-sim.repos
+          # Externals are MJCF/file-only (so_arm, openarm_mujoco, unitree_mujoco) —
+          # not colcon packages. Keep them out so only the ament packages build.
+          for d in external/*/; do touch "${d}COLCON_IGNORE"; done
+          rosdep update
+          rosdep install --from-paths . --ignore-src -y -r
+
+      - name: Launch headless, bounded
+        run: |
+          # run.sh native builds in place, then launches the sim — bound it so the
+          # headless launch is a smoke check. The mock backend needs no sim engine
+          # (no MuJoCo/Gazebo to stand up in CI), so it exercises run.sh end to end
+          # while staying light. timeout SIGTERM (143) / timeout-reached (124) both
+          # mean it came up; anything else is a fail.
+          set +e
+          timeout --preserve-status 90 \
+            ./run.sh --native --backend mock
+          code=$?
+          [ "$code" -eq 124 ] || [ "$code" -eq 143 ] || [ "$code" -eq 0 ]
