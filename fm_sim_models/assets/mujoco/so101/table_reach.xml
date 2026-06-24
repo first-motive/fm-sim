@@ -1,0 +1,22 @@
+<mujoco model="so101_table_reach">
+    <include file="scene.xml" />
+
+    <asset>
+        <material name="table_top" rgba="0.62 0.52 0.42 1" />
+        <material name="target_green" rgba="0.1 0.8 0.3 1" />
+    </asset>
+
+    <worldbody>
+        <body name="table" pos="0.22 0 0.19">
+            <geom name="table_top" type="box" size="0.18 0.24 0.02" material="table_top" />
+            <geom name="table_leg_fl" type="box" pos="0.14 0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_fr" type="box" pos="0.14 -0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_rl" type="box" pos="-0.14 0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_rr" type="box" pos="-0.14 -0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+        </body>
+
+        <body name="reach_target" pos="0.25 0.0 0.255">
+            <geom name="target_marker" type="sphere" size="0.018" material="target_green" contype="0" conaffinity="0" />
+        </body>
+    </worldbody>
+</mujoco>

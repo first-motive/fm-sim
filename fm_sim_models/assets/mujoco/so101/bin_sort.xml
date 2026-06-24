@@ -1,0 +1,47 @@
+<mujoco model="so101_bin_sort">
+    <include file="scene.xml" />
+
+    <asset>
+        <material name="table_top" rgba="0.62 0.52 0.42 1" />
+        <material name="bin_red" rgba="0.82 0.25 0.25 1" />
+        <material name="bin_blue" rgba="0.22 0.45 0.88 1" />
+        <material name="cube_yellow" rgba="0.95 0.82 0.12 1" />
+        <material name="cube_teal" rgba="0.12 0.78 0.78 1" />
+    </asset>
+
+    <worldbody>
+        <body name="table" pos="0.22 0 0.19">
+            <geom name="table_top" type="box" size="0.18 0.24 0.02" material="table_top" />
+            <geom name="table_leg_fl" type="box" pos="0.14 0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_fr" type="box" pos="0.14 -0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_rl" type="box" pos="-0.14 0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_rr" type="box" pos="-0.14 -0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+        </body>
+
+        <body name="left_bin" pos="0.27 -0.10 0.215">
+            <geom type="box" size="0.045 0.045 0.01" material="bin_red" contype="0" conaffinity="0" />
+            <geom type="box" pos="0 0.04 0.03" size="0.045 0.005 0.03" material="bin_red" contype="0" conaffinity="0" />
+            <geom type="box" pos="0 -0.04 0.03" size="0.045 0.005 0.03" material="bin_red" contype="0" conaffinity="0" />
+            <geom type="box" pos="0.04 0 0.03" size="0.005 0.045 0.03" material="bin_red" contype="0" conaffinity="0" />
+            <geom type="box" pos="-0.04 0 0.03" size="0.005 0.045 0.03" material="bin_red" contype="0" conaffinity="0" />
+        </body>
+
+        <body name="right_bin" pos="0.27 0.10 0.215">
+            <geom type="box" size="0.045 0.045 0.01" material="bin_blue" contype="0" conaffinity="0" />
+            <geom type="box" pos="0 0.04 0.03" size="0.045 0.005 0.03" material="bin_blue" contype="0" conaffinity="0" />
+            <geom type="box" pos="0 -0.04 0.03" size="0.045 0.005 0.03" material="bin_blue" contype="0" conaffinity="0" />
+            <geom type="box" pos="0.04 0 0.03" size="0.005 0.045 0.03" material="bin_blue" contype="0" conaffinity="0" />
+            <geom type="box" pos="-0.04 0 0.03" size="0.005 0.045 0.03" material="bin_blue" contype="0" conaffinity="0" />
+        </body>
+
+        <body name="cube_yellow_body" pos="0.19 -0.03 0.225">
+            <freejoint />
+            <geom type="box" size="0.014 0.014 0.014" material="cube_yellow" mass="0.04" />
+        </body>
+
+        <body name="cube_teal_body" pos="0.19 0.05 0.225">
+            <freejoint />
+            <geom type="box" size="0.014 0.014 0.014" material="cube_teal" mass="0.04" />
+        </body>
+    </worldbody>
+</mujoco>
