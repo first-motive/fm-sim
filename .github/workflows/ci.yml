@@ -49,13 +49,22 @@ jobs:
           colcon test-result --verbose
 
   image:
-    name: build image (FROM fm-robot layer)
+    name: build + publish image (FROM fm-robot layer)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
 
-      # The fm-robot layer lives in a private-by-default GHCR package; log in to
-      # pull it (the Dockerfile is FROM ghcr.io/first-motive/fm-robot:humble).
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Log in to GHCR — to pull the private fm-robot base FROM and to push this
+      # layer (the Dockerfile is FROM ghcr.io/first-motive/fm-robot:humble).
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -63,12 +72,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build the sim image
+      # Build multi-arch (arm64 + amd64). Publish to GHCR only on main — branch and
+      # PR runs build to validate without pushing.
+      - name: Build + publish the sim image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: false
-          tags: fm-sim:humble
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/first-motive/fm-sim:humble
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   smoke:
     name: smoke run.sh (native headless)
