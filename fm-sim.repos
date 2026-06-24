@@ -1,7 +1,13 @@
 # vcs import < fm-sim.repos   (run from the workspace root)
 #
-# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree).
+# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree), plus the
+# shared fm-docker compose overlays (imported into docker/ so run.sh's container
+# path can `docker compose -f docker/compose.yaml ...`).
 repositories:
+  docker:
+    type: git
+    url: https://github.com/first-motive/fm-docker.git
+    version: main
   external/so_arm:
     type: git
     url: https://github.com/TheRobotStudio/SO-ARM100.git

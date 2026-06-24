@@ -31,6 +31,35 @@ cd .. && colcon build --symlink-install
 colcon test && colcon test-result --verbose
 ```
 
+## Run
+
+`run.sh` is the standalone front door: it builds the workspace and launches the
+headless sim loop that Foxglove Studio renders at `ws://localhost:8765`. The host
+OS picks the path, overridable with `--native` / `--container`:
+
+```text
+Linux  -> native     build + launch on the host (needs ROS2 Humble installed)
+Darwin -> container  build the fm-sim image, run it via the fm-docker overlays
+```
+
+`--backend` selects the host overlay — `mujoco` (the macOS default, CPU) and
+`mock` run under the macOS overlay, while `gazebo` and `isaac` run under the
+Linux/GPU overlay. The standalone launch here is the sim loop; the per-robot,
+per-backend orchestration lives in `fm-app`'s `fm_bringup`.
+
+```bash
+./run.sh                       # auto-detect path, macOS overlay (mujoco)
+./run.sh --backend gazebo      # force the Linux/GPU overlay
+./run.sh --container           # force the container path (macOS / OrbStack)
+./run.sh params_file:=my.yaml  # extra args pass through to ros2 launch
+```
+
+The container path imports the shared compose overlays from
+[`fm-docker`](https://github.com/first-motive/fm-docker) into `docker/` (via
+`fm-sim.repos`) and builds this repo's `Dockerfile`, which is `FROM` the
+`fm-robot` layer. Tear down the container with
+`docker compose -f docker/compose.yaml -f docker/compose.macos.yaml down`.
+
 ## Architecture
 
 Each engine hosts a `controller_manager` behind one interface, so the same

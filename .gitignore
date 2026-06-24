@@ -1,5 +1,12 @@
 # Vendored external sources + vcs-imported siblings (pulled via vcs import)
 external/
+# fm-docker compose overlays, imported by run.sh's container path
+docker/
+
+# colcon build artifacts (run.sh native path builds in place)
+build/
+install/
+log/
 
 # Python
 __pycache__/
