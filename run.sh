@@ -76,13 +76,17 @@ LAUNCH+=(${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"})
 
 if [[ "$MODE" == native ]]; then
   # Host path: pull externals once, build in place, launch on the host.
+  set +u  # ROS setup scripts reference unbound vars; nounset would abort the source
   source "/opt/ros/${ROS_DISTRO:-humble}/setup.bash"
+  set -u
   if [[ ! -d external ]]; then
     vcs import < fm-sim.repos
   fi
   rosdep install --from-paths . external --ignore-src -y -r 2>/dev/null || true
   colcon build --symlink-install
+  set +u
   source install/setup.bash
+  set -u
   echo ">> launching the sim loop on the host — Foxglove Studio: ws://localhost:8765"
   exec "${LAUNCH[@]}"
 fi
