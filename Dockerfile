@@ -10,9 +10,21 @@ FROM ghcr.io/first-motive/fm-robot:humble
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+# packages.ros.org currently ships libignition-gazebo6 6.18.0 (which needs
+# libignition-sensors6 >= 6.8.1) but only libignition-sensors6 6.8.0, so the gz
+# stack will not resolve from ros.org alone. Add the OSRF Gazebo repo, which
+# carries the matching 6.8.1 sensors libs. Drop this once ros.org is consistent.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      wget gnupg lsb-release \
+    && wget -qO /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
+         https://packages.osrfoundation.org/gazebo.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
+         > /etc/apt/sources.list.d/gazebo-stable.list \
+    && rm -rf /var/lib/apt/lists/*
+
 # Sim engines + their ros2_control bridges, plus the headless GL stack MuJoCo's
 # GLFW viewer needs under a virtual display (xvfb). All on the Humble apt mirror
-# for both arm64 and amd64, so no source builds.
+# (gz libs via the OSRF repo above) for both arm64 and amd64, so no source builds.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-mujoco-ros2-control \
       ros-humble-gz-ros2-control \
