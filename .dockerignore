@@ -1,0 +1,19 @@
+# Keep the build context lean: the image bakes only the package sources, so
+# colcon artifacts, vcs-imported siblings/externals, and editor/OS cruft must
+# never be copied in (they would bloat the image and shadow a clean build).
+.git/
+build/
+install/
+log/
+external/
+docker/
+node_modules/
+dist/
+plans/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.DS_Store
+MUJOCO_LOG.TXT
