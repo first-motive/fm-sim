@@ -83,23 +83,47 @@ load_lib() {
 }
 load_lib
 
-# The sim backend selects the host overlay only (the packaged sim.launch.py takes
-# params_file, not a backend switch — that orchestration is fm-app's fm_bringup).
+# The backend names the sim engine. sim.launch.py dispatches it (mujoco runs the
+# in-process sim_loop; gazebo/isaac delegate to fm_sim_backends). mock has no
+# sim.launch backend — it is the fm_bringup no-engine path — so it falls through
+# to the mujoco default below.
 VALID_BACKENDS=(mock mujoco gazebo isaac)
+# The interactive picker offers only the engines sim.launch.py dispatches.
+PICK_BACKENDS=(mujoco gazebo isaac)
 
 BACKEND=mujoco
+BACKEND_SET=false        # true once --backend is given; gates the picker
 MODE=""                  # "" = auto-detect; else native | container
 PASSTHROUGH=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --backend)   BACKEND="$2"; shift 2 ;;
-    --backend=*) BACKEND="${1#--backend=}"; shift ;;
+    --backend)   [[ $# -gt 1 ]] || { echo "error: --backend requires a value" >&2; exit 1; }
+                 BACKEND="$2"; BACKEND_SET=true; shift 2 ;;
+    --backend=*) BACKEND="${1#--backend=}"; BACKEND_SET=true; shift ;;
     --native)    MODE=native; shift ;;
     --container) MODE=container; shift ;;
     *)           PASSTHROUGH+=("$1"); shift ;;
   esac
 done
+
+# No --backend and a real terminal: offer a menu. Skips on --backend (explicit
+# choice) and on `curl | bash` (no TTY), so the curl-to-launch path is untouched.
+# Uses the fm-tools rich picker when uv can reach it; falls back to a plain bash
+# `select` otherwise. The chosen value flows through the same validation below.
+if [[ "$BACKEND_SET" != true ]] && [ -t 0 ] && [ -t 1 ]; then
+  picked=""
+  if command -v uv >/dev/null 2>&1; then
+    picked="$(uv run --quiet --no-project \
+      --with "fm-tools @ git+https://github.com/first-motive/fm-tools@3523b395365909d1b3b49e82f83cebc931910ae4" \
+      fm-pick "Select a sim backend" "${PICK_BACKENDS[@]}" 2>/dev/null)" || picked=""
+  fi
+  if [[ -z "$picked" ]]; then
+    PS3="Select a sim backend: "
+    select picked in "${PICK_BACKENDS[@]}"; do [[ -n "$picked" ]] && break; done
+  fi
+  [[ -n "$picked" ]] && BACKEND="$picked"
+fi
 
 # Normalize hyphen -> underscore and validate the backend.
 BACKEND="${BACKEND//-/_}"
@@ -132,7 +156,12 @@ if [ -n "${FM_SELFTEST:-}" ]; then
   exit 0
 fi
 
-# Only the passthrough args reach the launch — sim.launch.py declares params_file.
+# Forward the chosen engine to sim.launch.py's backend dispatch. mock has no
+# sim.launch backend, so it falls through to the default (mujoco = sim_loop).
+# Passthrough args (e.g. params_file:=my.yaml) reach the launch alongside it.
+if [[ "$BACKEND" != mock ]]; then
+  LAUNCH+=("backend:=$BACKEND")
+fi
 LAUNCH+=(${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"})
 
 if [[ "$MODE" == native ]]; then
