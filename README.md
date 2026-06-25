@@ -33,32 +33,66 @@ colcon test && colcon test-result --verbose
 
 ## Run
 
-`run.sh` is the standalone front door: it builds the workspace and launches the
-headless sim loop that Foxglove Studio renders at `ws://localhost:8765`. The host
-OS picks the path, overridable with `--native` / `--container`:
+`run.sh` is the standalone front door: it launches the headless sim loop that
+Foxglove Studio renders at `ws://localhost:8765`. ROS2 Humble has no macOS build,
+so on a Mac every backend runs inside the fm-docker Linux container (OrbStack) —
+there is no native-Mac path for any sim engine. Linux runs bare-metal native.
 
-```text
-Linux  -> native     build + launch on the host (needs ROS2 Humble installed)
-Darwin -> container  build the fm-sim image, run it via the fm-docker overlays
-```
+### Curl quickstart (macOS, no clone)
 
-`--backend` selects the host overlay — `mujoco` (the macOS default, CPU) and
-`mock` run under the macOS overlay, while `gazebo` and `isaac` run under the
-Linux/GPU overlay. The standalone launch here is the sim loop; the per-robot,
-per-backend orchestration lives in `fm-app`'s `fm_bringup`.
+The image is published to GHCR, so `curl | bash` reaches a running sim with no
+clone and no local build:
 
 ```bash
-./run.sh                       # auto-detect path, macOS overlay (mujoco)
-./run.sh --backend gazebo      # force the Linux/GPU overlay
-./run.sh --container           # force the container path (macOS / OrbStack)
+# Launch the baked mujoco demo straight from the published image:
+curl -fsSL https://raw.githubusercontent.com/first-motive/fm-sim/main/run.sh | bash
+
+# Or set the host up first (install OrbStack + pull the image), then launch:
+curl -fsSL https://raw.githubusercontent.com/first-motive/fm-sim/main/install.sh | bash
+```
+
+`install.sh` is macOS-only and idempotent; it delegates the OrbStack setup to
+fm-docker and pulls the `fm-sim` image. Install gets it running — clone is the
+dev path.
+
+### Clone (the dev loop)
+
+A clone mounts your working tree and rebuilds inside the container, so edits take
+effect; the no-clone path runs the image's prebuilt workspace as-is.
+
+```bash
+git clone https://github.com/first-motive/fm-sim.git && cd fm-sim
+./run.sh                       # mount source, rebuild, launch (mujoco, the Mac default)
+./run.sh --backend gazebo      # gazebo, headless in the Mac container
+./run.sh --native              # force the host path (Linux)
 ./run.sh params_file:=my.yaml  # extra args pass through to ros2 launch
 ```
 
-The container path imports the shared compose overlays from
+The standalone launch here is the sim loop; the per-robot, per-backend
+orchestration lives in `fm-app`'s `fm_bringup`. The clone container path imports
+the shared compose overlays from
 [`fm-docker`](https://github.com/first-motive/fm-docker) into `docker/` (via
 `fm-sim.repos`) and builds this repo's `Dockerfile`, which is `FROM` the
-`fm-robot` layer. Tear down the container with
+`fm-robot` layer. Tear it down with
 `docker compose -f docker/compose.yaml -f docker/compose.macos.yaml down`.
+
+### Backend × host
+
+Every Mac backend runs headless in the container; Linux runs native. `gazebo`
+runs server-only (`gz -s`) under software GL — proven on the amd64 CI lane, with
+arm64 captured by `scripts/smoke.sh` (a Mac smoke runner that drives the matrix
+below and prints a pass/skip/fail table).
+
+| Backend | macOS (container) | Linux (native) | Notes |
+|---------|-------------------|----------------|-------|
+| `mock` | headless | yes | sim loop, no engine |
+| `mujoco` | headless (xvfb) | yes | daily driver, CPU |
+| `gazebo` | headless (`gz -s`) | yes (GPU) | server-only, software GL |
+| `isaac` | — | yes (NVIDIA) | Isaac Sim app is Linux + NVIDIA only — never on macOS |
+
+`isaac` is documented out on macOS by design: its Sim application is Linux +
+NVIDIA only and never runs on Apple silicon or the container base image. Only its
+topic bridge node is portable, and that stays on the Linux/NVIDIA host.
 
 ## Architecture
 

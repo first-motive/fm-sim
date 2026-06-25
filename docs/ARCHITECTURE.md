@@ -41,6 +41,30 @@ The `mock` and `real` backends do not live here — they spawn a standalone
 backend binds to is defined in [`fm-robot`](https://github.com/first-motive/fm-robot)
 (`fm_control`); this layer provides the engine hosts, not the interface.
 
+## Host Verification
+
+ROS2 Humble has no native macOS build, so on a Mac every backend runs inside the
+fm-docker Linux container (OrbStack) — there is no native-Mac path for any sim
+engine. Linux runs bare-metal native. `run.sh` picks the path from the host OS;
+`scripts/smoke.sh` drives the matrix on a Mac and the `smoke-container` CI job
+drives it on amd64 ubuntu.
+
+| Backend | macOS (container) | Linux (native) | How it comes up headless |
+|---------|-------------------|----------------|--------------------------|
+| `mock` | headless | yes | `sim_loop`, no engine |
+| `mujoco` | headless | yes | `ros2_control_node` under `xvfb-run` |
+| `gazebo` | headless | yes (GPU) | `gz -s` server-only, software GL |
+| `isaac` | — | yes (NVIDIA) | not on macOS — Isaac Sim is Linux + NVIDIA |
+
+`gazebo` headless on arm64 under software GL is the genuine unknown — it had
+never been run, so `smoke.sh` captures PASS / SKIP / FAIL rather than assuming
+success, and the amd64 CI lane proves the launch logic regardless.
+
+`isaac` is out on macOS by design. The Isaac Sim application is Linux + NVIDIA
+only and never runs on Apple silicon or the container base image; only its topic
+bridge node is portable, and that stays on the Linux/NVIDIA host. There is no
+macOS isaac code, by intent — not an omission.
+
 ## MJCF Registry
 
 `fm_sim_models.mjcf_path(robot_key)` is the sole source of MuJoCo model paths — no
