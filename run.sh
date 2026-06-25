@@ -115,7 +115,7 @@ if [[ "$BACKEND_SET" != true ]] && [ -t 0 ] && [ -t 1 ]; then
   picked=""
   if command -v uv >/dev/null 2>&1; then
     picked="$(uv run --quiet --no-project \
-      --with "fm-tools @ git+https://github.com/first-motive/fm-tools@3523b395365909d1b3b49e82f83cebc931910ae4" \
+      --with "fm-tools @ git+https://github.com/first-motive/fm-tools@5d9ef62f9449321730b8ebcacef7be3bc13448f5" \
       fm-pick "Select a sim backend" "${PICK_BACKENDS[@]}" 2>/dev/null)" || picked=""
   fi
   if [[ -z "$picked" ]]; then
