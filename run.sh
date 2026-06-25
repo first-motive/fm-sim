@@ -32,8 +32,10 @@
 set -euo pipefail
 
 # --- Per-repo config (downstream repos retune these) --------------------------
-IMAGE=fm-sim:humble                                # local image tag for the container path
+LOCAL_IMAGE=fm-sim:humble                          # locally-built tag for the clone dev loop
+BAKED_IMAGE=ghcr.io/first-motive/fm-sim:humble     # published image for the no-clone baked path
 LAUNCH=(ros2 launch fm_sim_core sim.launch.py)     # what `run.sh` launches
+FM_SIM_RAW="https://raw.githubusercontent.com/first-motive/fm-sim/main"
 FM_DOCKER_RAW="https://raw.githubusercontent.com/first-motive/fm-docker/main"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fm-sim"
 # -----------------------------------------------------------------------------
@@ -151,19 +153,49 @@ if [[ "$MODE" == native ]]; then
   exec "${LAUNCH[@]}"
 fi
 
-# Container path: build the local image, bring it up, build + launch inside it.
+# Container path (macOS / OrbStack). Bring up a runtime if none is present, then
+# dispatch on clone vs pipe:
+#   pipe (no source on disk) -> pull the baked image and run it with no mount, so
+#                               the entrypoint sources the workspace baked in.
+#   clone (source on disk)   -> mount source at /ws, rebuild inside, launch, so
+#                               edits override the baked build (the dev loop).
+cd "$INVOKE_DIR"
+
+# Bring up a container runtime if missing — install + start OrbStack via install.sh.
+if ! has_docker; then
+  echo ">> no container runtime — setting up OrbStack via install.sh"
+  if [ -n "$REPO_DIR" ]; then
+    bash "$REPO_DIR/install.sh" --no-pull
+  else
+    curl -fsSL "$FM_SIM_RAW/install.sh" | bash -s -- --no-pull
+  fi
+  has_docker || { echo "error: container runtime still unavailable after setup." >&2; exit 1; }
+fi
+
+if [ -z "$REPO_DIR" ]; then
+  # Baked path: curl-to-launch, no clone, no mount. The image carries a built
+  # /ws/install overlay (see Dockerfile), so route through the entrypoint to
+  # source ROS + that overlay, then launch. --pull missing fetches on first run;
+  # arm64 matches the macOS overlay's platform pin. The mujoco launch wraps its
+  # node in `xvfb-run -a` itself, so no outer virtual display is needed here.
+  echo ">> running the baked image $BAKED_IMAGE (no clone, no mount)"
+  echo ">> launching the sim loop — Foxglove Studio: ws://localhost:8765"
+  exec docker run --rm --pull missing --platform linux/arm64 \
+    -p 8765:8765 "$BAKED_IMAGE" /ros_entrypoint.sh "${LAUNCH[@]}"
+fi
+
+# Mounted path: build the local image, bring it up, build + launch inside it.
 # The fm-docker compose overlays live in docker/, imported via fm-sim.repos —
 # pull them on first run so a fresh clone works with no manual setup.
-cd "$INVOKE_DIR"
 if [[ ! -d docker ]]; then
   vcs import < fm-sim.repos
 fi
 COMPOSE=(docker compose -f docker/compose.yaml -f "$OVERLAY")
-export FM_IMAGE="$IMAGE"
+export FM_IMAGE="$LOCAL_IMAGE"
 export FM_WS="$INVOKE_DIR"
 
-echo ">> building $IMAGE (FROM the fm-robot layer)"
-docker build -t "$IMAGE" .
+echo ">> building $LOCAL_IMAGE (FROM the fm-robot layer)"
+docker build -t "$LOCAL_IMAGE" .
 echo ">> bringing the container up (idempotent) — overlay $(basename "$OVERLAY")"
 "${COMPOSE[@]}" up -d
 echo ">> building the workspace inside the container"
