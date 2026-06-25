@@ -18,14 +18,16 @@
 # compose overlays are fetched from fm-docker and cached under ~/.cache/fm-sim,
 # so later runs work offline.
 #
-# --backend selects the host overlay (the standalone launch here is the sim loop;
-# the per-robot, per-backend orchestration lives in fm-app's fm_bringup):
-#   mock, mujoco   -> compose.macos   (Mac daily driver, CPU)
-#   gazebo, isaac  -> compose.linux   (Linux/GPU)
-# so --backend can override the OS auto-detect of the overlay.
+# --backend names the sim engine (the standalone launch here is the sim loop; the
+# per-robot, per-backend orchestration lives in fm-app's fm_bringup). On the
+# container path every backend runs under the one macOS overlay — mock, mujoco,
+# and gazebo all come up headless in the Mac container (gazebo server-only via
+# `gz -s` under software GL). Linux runs bare-metal native, so it takes no overlay
+# at all. isaac is documented out: its Sim app is Linux + NVIDIA only, never on
+# macOS or the container base image (see README / ARCHITECTURE).
 #
-#   ./run.sh                       # auto-detect path, macOS overlay (mujoco)
-#   ./run.sh --backend gazebo      # force the Linux/GPU overlay
+#   ./run.sh                       # auto-detect path (mujoco, the Mac default)
+#   ./run.sh --backend gazebo      # gazebo, headless in the Mac container
 #   ./run.sh --native              # force the host path (Linux)
 #   ./run.sh --container           # force the container path (macOS / OrbStack)
 #   ./run.sh params_file:=my.yaml  # extra args pass through to ros2 launch
@@ -118,11 +120,10 @@ if [[ -z "$MODE" ]]; then
   esac
 fi
 
-# The backend picks the compose overlay: CPU sim on macOS, GPU sim on Linux.
-case "$BACKEND" in
-  mock|mujoco)   OVERLAY=docker/compose.macos.yaml ;;
-  gazebo|isaac)  OVERLAY=docker/compose.linux.yaml ;;
-esac
+# The container path runs every backend under the one macOS overlay — compose.linux
+# was removed (Linux runs bare-metal native, never in a container), so there is no
+# per-backend overlay split anymore. The native path ignores this entirely.
+OVERLAY=docker/compose.macos.yaml
 
 # CI self-test hook: deps loaded, OS + backend resolved — stop before any runtime
 # work. Lets the curl-path test exercise the piped fetch without OrbStack.
