@@ -120,3 +120,63 @@ jobs:
           timeout 90 ./run.sh --native --backend mock
           code=$?
           [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
+
+  smoke-container:
+    name: smoke container (headless backends)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # Log in to GHCR to pull the private fm-robot base the Dockerfile is FROM.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build the baked amd64 image into the local daemon (single-arch, loaded; the
+      # multi-arch publish lives in the `image` job). It carries the colcon build,
+      # so `docker run` reaches a running sim with no in-container build. This is the
+      # amd64 lane proving the launch logic regardless of the arm64 smoke.sh result.
+      - name: Build the baked image
+        run: docker build -t fm-sim:smoke .
+
+      # Each backend runs bounded inside the image; the entrypoint sources ROS + the
+      # baked overlay. Software GL (LIBGL_ALWAYS_SOFTWARE=1) keeps gazebo + mujoco
+      # off a real GPU. 124 = ran the full window (came up), 0 = clean/bounded exit,
+      # 143 = SIGTERM. isaac is not smoked — Linux + NVIDIA only, never in this base.
+      - name: Smoke mock (sim loop)
+        run: |
+          set +e
+          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
+            /ros_entrypoint.sh bash -lc 'timeout 60 ros2 launch fm_sim_core sim.launch.py'
+          code=$?; echo "exit=$code"
+          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
+
+      - name: Smoke mujoco (xvfb headless)
+        run: |
+          # One-shot: boot the binding under a virtual display, step one frame.
+          # Expect a clean exit 0. Outer cmd single-quoted; the python string's
+          # inner quotes are escaped \" so they survive bash's double quotes.
+          set +e
+          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
+            /ros_entrypoint.sh bash -lc 'timeout 60 xvfb-run -a python3 -c "import mujoco; m = mujoco.MjModel.from_xml_string(\"<mujoco><worldbody/></mujoco>\"); mujoco.mj_step(m, mujoco.MjData(m)); print(\"mujoco stepped headless\")"'
+          code=$?; echo "exit=$code"
+          [ "$code" -eq 0 ]
+
+      - name: Smoke gazebo (gz -s server-only)
+        run: |
+          # Server-only headless: no GUI, bounded iterations on the empty world.
+          # `gz` (Garden+) or `ign` (Fortress) depending on the image's gz stack.
+          set +e
+          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
+            /ros_entrypoint.sh bash -lc 'timeout 90 sh -c "command -v gz >/dev/null 2>&1 && gz sim -s -r --iterations 200 empty.sdf || ign gazebo -s -r --iterations 200 empty.sdf"'
+          code=$?; echo "exit=$code"
+          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
