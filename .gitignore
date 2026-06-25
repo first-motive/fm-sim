@@ -22,6 +22,9 @@ dist/
 # MuJoCo runtime log
 MUJOCO_LOG.TXT
 
+# Planning artifacts (working docs, not committed history)
+plans/
+
 # Editor / OS
 .vscode/
 .idea/
