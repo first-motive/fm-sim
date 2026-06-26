@@ -14,8 +14,8 @@
 #   macos  -> container: run the fm-sim image via the fm-docker compose overlays,
 #                        build + launch inside it (OrbStack)
 #
-# Piped via curl, the shared host checks (fm-docker's scripts/lib.sh) and the
-# compose overlays are fetched from fm-docker and cached under ~/.cache/fm-sim,
+# Piped via curl, the shared host checks (fm-tools lib.sh) and the compose
+# overlays are fetched from their pinned tags and cached under ~/.cache/fm-sim,
 # so later runs work offline.
 #
 # --backend names the sim engine (the standalone launch here is the sim loop; the
@@ -38,7 +38,9 @@ LOCAL_IMAGE=fm-sim:humble                          # locally-built tag for the c
 BAKED_IMAGE=ghcr.io/first-motive/fm-sim:humble     # published image for the no-clone baked path
 LAUNCH=(ros2 launch fm_sim_core sim.launch.py)     # what `run.sh` launches
 FM_SIM_RAW="https://raw.githubusercontent.com/first-motive/fm-sim/main"
-FM_DOCKER_RAW="https://raw.githubusercontent.com/first-motive/fm-docker/main"
+# lib.sh is owned by fm-tools, fetched from a pinned release tag (the single
+# reuse home). The container runtime is delegated to fm-docker via install.sh.
+FM_TOOLS_RAW="https://raw.githubusercontent.com/first-motive/fm-tools/v0.2.0"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fm-sim"
 # -----------------------------------------------------------------------------
 
@@ -56,25 +58,19 @@ else
   REPO_DIR=""
 fi
 
-# Load the shared host checks (fm-docker's scripts/lib.sh). docker/ is vcs-imported
-# into a clone, so prefer the imported copy; otherwise reuse a cached fetch, else
-# fetch from fm-docker and cache it. The checks must run in this shell, so source
-# rather than execute.
+# Load the shared bootstrap library (fm-tools lib.sh) for fm_detect_os /
+# fm_has_docker. Reuse a cached fetch, else fetch from the pinned fm-tools tag
+# and cache it. run.sh is itself curl|bash-able, so the library may not be on
+# disk. The checks must run in this shell, so source rather than execute.
 load_lib() {
-  local imported="${REPO_DIR}/docker/scripts/lib.sh"
-  if [ -n "$REPO_DIR" ] && [ -f "$imported" ]; then
-    # shellcheck source=/dev/null
-    source "$imported"
-    return
-  fi
   local cached="$CACHE_DIR/lib.sh"
   if [ ! -f "$cached" ]; then
     mkdir -p "$CACHE_DIR"
     # Fetch to a temp file and rename only on success: an interrupted download
     # must never leave a partial file later runs treat as cached.
     local tmp="$cached.tmp.$$"
-    curl -fsSL "$FM_DOCKER_RAW/scripts/lib.sh" -o "$tmp" \
-      || { rm -f "$tmp"; echo "error: failed to fetch lib.sh from fm-docker" >&2; exit 1; }
+    curl -fsSL --proto '=https' --proto-redir '=https' "$FM_TOOLS_RAW/lib.sh" -o "$tmp" \
+      || { rm -f "$tmp"; echo "error: failed to fetch lib.sh from fm-tools" >&2; exit 1; }
     [ -s "$tmp" ] || { rm -f "$tmp"; echo "error: empty lib.sh download" >&2; exit 1; }
     mv "$tmp" "$cached"
   fi
@@ -107,21 +103,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# No --backend and a real terminal: offer a menu. Skips on --backend (explicit
-# choice) and on `curl | bash` (no TTY), so the curl-to-launch path is untouched.
-# Uses the fm-tools rich picker when uv can reach it; falls back to a plain bash
-# `select` otherwise. The chosen value flows through the same validation below.
-if [[ "$BACKEND_SET" != true ]] && [ -t 0 ] && [ -t 1 ]; then
-  picked=""
-  if command -v uv >/dev/null 2>&1; then
-    picked="$(uv run --quiet --no-project \
-      --with "fm-tools @ git+https://github.com/first-motive/fm-tools@5d9ef62f9449321730b8ebcacef7be3bc13448f5" \
-      fm-pick "Select a sim backend" "${PICK_BACKENDS[@]}" 2>/dev/null)" || picked=""
-  fi
-  if [[ -z "$picked" ]]; then
-    PS3="Select a sim backend: "
-    select picked in "${PICK_BACKENDS[@]}"; do [[ -n "$picked" ]] && break; done
-  fi
+# No --backend and a real terminal: offer the fm-tools rich picker. Skips on
+# --backend (explicit choice) and on `curl | bash` (no TTY), so the curl-to-launch
+# path is untouched. No bash `select` fallback: if uv is absent or the pick fails,
+# fall through to the default backend below — the same path the no-TTY pipe takes.
+# The chosen value flows through the same validation below.
+if [[ "$BACKEND_SET" != true ]] && [ -t 0 ] && [ -t 1 ] && command -v uv >/dev/null 2>&1; then
+  picked="$(uv run --quiet --no-project \
+    --with "fm-tools @ git+https://github.com/first-motive/fm-tools@v0.2.0" \
+    fm-pick "Select a sim backend" "${PICK_BACKENDS[@]}" 2>/dev/null)" || picked=""
   [[ -n "$picked" ]] && BACKEND="$picked"
 fi
 
@@ -134,10 +124,10 @@ if [[ "$ok" != true ]]; then
   exit 1
 fi
 
-# Auto-detect the path from the host OS when not forced by a flag. detect_os
+# Auto-detect the path from the host OS when not forced by a flag. fm_detect_os
 # (from lib.sh) echoes macos|linux.
 if [[ -z "$MODE" ]]; then
-  case "$(detect_os)" in
+  case "$(fm_detect_os)" in
     linux)  MODE=native ;;
     macos)  MODE=container ;;
     *) echo "error: could not resolve host path — pass --native or --container" >&2; exit 1 ;;
@@ -177,6 +167,7 @@ if [[ "$MODE" == native ]]; then
   rosdep install --from-paths . external --ignore-src -y -r 2>/dev/null || true
   colcon build --symlink-install
   set +u
+  # shellcheck source=/dev/null
   source install/setup.bash
   set -u
   echo ">> launching the sim loop on the host — Foxglove Studio: ws://localhost:8765"
@@ -192,14 +183,14 @@ fi
 cd "$INVOKE_DIR"
 
 # Bring up a container runtime if missing — install + start OrbStack via install.sh.
-if ! has_docker; then
+if ! fm_has_docker; then
   echo ">> no container runtime — setting up OrbStack via install.sh"
   if [ -n "$REPO_DIR" ]; then
     bash "$REPO_DIR/install.sh" --no-pull
   else
-    curl -fsSL "$FM_SIM_RAW/install.sh" | bash -s -- --no-pull
+    curl -fsSL --proto '=https' --proto-redir '=https' "$FM_SIM_RAW/install.sh" | bash -s -- --no-pull
   fi
-  has_docker || { echo "error: container runtime still unavailable after setup." >&2; exit 1; }
+  fm_has_docker || { echo "error: container runtime still unavailable after setup." >&2; exit 1; }
 fi
 
 if [ -z "$REPO_DIR" ]; then

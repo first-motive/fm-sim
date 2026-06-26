@@ -20,7 +20,10 @@ set -euo pipefail
 
 IMAGE="ghcr.io/first-motive/fm-sim:humble"
 FM_SIM_RAW="https://raw.githubusercontent.com/first-motive/fm-sim/main"
-FM_DOCKER_RAW="https://raw.githubusercontent.com/first-motive/fm-docker/main"
+# lib.sh is owned by fm-tools; the container runtime is delegated to fm-docker.
+# Both are fetched from pinned release tags (the single reuse home).
+FM_TOOLS_RAW="https://raw.githubusercontent.com/first-motive/fm-tools/v0.2.0"
+FM_DOCKER_RAW="https://raw.githubusercontent.com/first-motive/fm-docker/v0.1.0"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fm-sim"
 
 # Resolve the script's own dir; empty when piped via curl|bash. A clone has the
@@ -32,23 +35,17 @@ else
   REPO_DIR=""
 fi
 
-# Load the shared host checks (fm-docker's scripts/lib.sh) for detect_os/has_docker:
-# from the vcs-imported copy in a clone, else a cached fetch, else fetch + cache.
-# install.sh is itself curl|bash-able, so the library may not be on disk. The
-# checks must run in this shell, so source rather than execute.
+# Load the shared bootstrap library (fm-tools lib.sh) for fm_detect_os /
+# fm_has_docker: reuse a cached fetch, else fetch from the pinned fm-tools tag
+# and cache it. install.sh is itself curl|bash-able, so the library may not be
+# on disk. The checks must run in this shell, so source rather than execute.
 load_lib() {
-  local imported="${REPO_DIR}/docker/scripts/lib.sh"
-  if [ -n "$REPO_DIR" ] && [ -f "$imported" ]; then
-    # shellcheck source=/dev/null
-    source "$imported"
-    return
-  fi
   local cached="$CACHE_DIR/lib.sh"
   if [ ! -f "$cached" ]; then
     mkdir -p "$CACHE_DIR"
     local tmp="$cached.tmp.$$"
-    curl -fsSL "$FM_DOCKER_RAW/scripts/lib.sh" -o "$tmp" \
-      || { rm -f "$tmp"; echo "error: failed to fetch lib.sh from fm-docker" >&2; exit 1; }
+    curl -fsSL --proto '=https' --proto-redir '=https' "$FM_TOOLS_RAW/lib.sh" -o "$tmp" \
+      || { rm -f "$tmp"; echo "error: failed to fetch lib.sh from fm-tools" >&2; exit 1; }
     [ -s "$tmp" ] || { rm -f "$tmp"; echo "error: empty lib.sh download" >&2; exit 1; }
     mv "$tmp" "$cached"
   fi
@@ -65,7 +62,7 @@ for arg in "$@"; do
   esac
 done
 
-OS=$(detect_os) || exit 1
+OS=$(fm_detect_os) || exit 1
 
 # CI self-test hook: deps loaded and OS resolved — stop before any host changes.
 # Lets the curl-path test exercise the piped fetch without installing anything.
@@ -87,12 +84,12 @@ setup_runtime() {
   if [ -n "$REPO_DIR" ] && [ -f "$imported" ]; then
     bash "$imported" --no-pull
   else
-    curl -fsSL "$FM_DOCKER_RAW/install.sh" | bash -s -- --no-pull
+    curl -fsSL --proto '=https' --proto-redir '=https' "$FM_DOCKER_RAW/install.sh" | bash -s -- --no-pull
   fi
 }
 
 pull_image() {
-  if ! has_docker; then
+  if ! fm_has_docker; then
     echo "warn: docker unavailable — skipping image pull" >&2
     return 0
   fi
