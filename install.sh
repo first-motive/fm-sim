@@ -12,10 +12,17 @@
 # Curl-able (no clone needed):
 #   curl -fsSL https://raw.githubusercontent.com/first-motive/fm-sim/main/install.sh | bash
 #
-# From a clone:
-#   ./install.sh [--no-pull]
+# Inspect before running (always offer this path):
+#   curl -fsSL https://raw.githubusercontent.com/first-motive/fm-sim/main/install.sh -o install.sh
+#   less install.sh && bash install.sh
 #
-# --no-pull sets up the runtime only and skips the image pull.
+# From a clone:
+#   ./install.sh [install|uninstall] [--no-pull] [--dry-run] [-y] [-h]
+#
+# --no-pull sets up the runtime only and skips the image pull. uninstall removes
+# the pulled fm-sim image (the container runtime is left in place). The body is
+# wrapped in main() and called on the last line, so a truncated curl|bash leaves
+# an incomplete function that never runs.
 set -euo pipefail
 
 IMAGE="ghcr.io/first-motive/fm-sim:humble"
@@ -43,6 +50,7 @@ load_lib() {
   local cached="$CACHE_DIR/lib.sh"
   if [ ! -f "$cached" ]; then
     mkdir -p "$CACHE_DIR"
+    chmod 700 "$CACHE_DIR"  # lib.sh is sourced from here; keep the cache user-only
     local tmp="$cached.tmp.$$"
     curl -fsSL --proto '=https' --proto-redir '=https' "$FM_TOOLS_RAW/lib.sh" -o "$tmp" \
       || { rm -f "$tmp"; echo "error: failed to fetch lib.sh from fm-tools" >&2; exit 1; }
@@ -52,29 +60,25 @@ load_lib() {
   # shellcheck source=/dev/null
   source "$cached"
 }
-load_lib
 
-PULL=1
-for arg in "$@"; do
-  case "$arg" in
-    --no-pull) PULL=0 ;;
-    *) echo "error: unknown flag: $arg" >&2; exit 2 ;;
-  esac
-done
+usage() {
+  cat <<'EOF'
+install.sh — set up the fm-sim host (macOS only)
 
-OS=$(fm_detect_os) || exit 1
+Usage: ./install.sh [install|uninstall] [options]
 
-# CI self-test hook: deps loaded and OS resolved — stop before any host changes.
-# Lets the curl-path test exercise the piped fetch without installing anything.
-if [ -n "${FM_SELFTEST:-}" ]; then
-  echo "selftest ok: lib loaded, os=$OS"
-  exit 0
-fi
+  install      set up the container runtime, pull the fm-sim image (default)
+  uninstall    remove the pulled fm-sim image (runtime is left in place)
 
-if [ "$OS" != "macos" ]; then
-  echo "error: install.sh is macOS-only; Linux runs ROS2 Humble natively (see run.sh)." >&2
-  exit 1
-fi
+Options:
+  --no-pull    install path: set up the runtime only, skip the image pull
+  --dry-run    print what would happen, change nothing
+  -y, --yes    non-interactive; assume yes (CI mode)
+  -h, --help   show this help
+
+Env: FM_SELFTEST=1  load deps + resolve OS, then stop before any host change.
+EOF
+}
 
 # Delegate the container runtime (OrbStack install + start) to fm-docker's
 # installer — no copy of that logic here. --no-pull stops it from pulling the
@@ -97,9 +101,73 @@ pull_image() {
   docker pull "$IMAGE" || echo "warn: pull failed — pull later: docker pull $IMAGE" >&2
 }
 
-echo "fm-sim install (macOS) ..."
-setup_runtime
-if [ "$PULL" -eq 1 ]; then
-  pull_image
-fi
-echo "Done. Launch the sim: curl -fsSL $FM_SIM_RAW/run.sh | bash"
+do_install() {
+  local pull="$1" dry="$2"
+  echo "fm-sim install (macOS) ..."
+  if [ "$dry" = "1" ]; then
+    echo "  would set up the container runtime via fm-docker install.sh"
+    [ "$pull" = "1" ] && echo "  would pull $IMAGE"
+    return 0
+  fi
+  setup_runtime
+  if [ "$pull" = "1" ]; then
+    pull_image
+  fi
+  echo "Done. Launch the sim: curl -fsSL $FM_SIM_RAW/run.sh | bash"
+}
+
+do_uninstall() {
+  local dry="$1"
+  echo "fm-sim uninstall (macOS) ..."
+  if [ "$dry" = "1" ]; then
+    echo "  would remove image $IMAGE (if present); container runtime left in place"
+    return 0
+  fi
+  # Remove only what this installer owns: the pulled fm-sim image. The container
+  # runtime is shared (fm-docker owns it), so we never tear it down here.
+  if fm_has_docker && docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    docker rmi "$IMAGE" && echo "removed $IMAGE"
+  else
+    echo "image $IMAGE not present; nothing to remove"
+  fi
+  echo "Done."
+}
+
+main() {
+  # Parse before loading lib so --help works offline, with no network fetch.
+  local cmd="install" pull=1 dry=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      install|uninstall) cmd="$arg" ;;
+      --no-pull) pull=0 ;;
+      --dry-run) dry=1 ;;
+      -y|--yes) ;;  # accepted for CI parity; this installer prompts for nothing
+      -h|--help) usage; return 0 ;;
+      *) echo "error: unknown argument: $arg" >&2; usage; return 2 ;;
+    esac
+  done
+
+  load_lib
+
+  local os
+  os=$(fm_detect_os) || return 1
+
+  # CI self-test hook: deps loaded and OS resolved — stop before any host change.
+  # Lets the curl-path test exercise the piped fetch without installing anything.
+  if [ -n "${FM_SELFTEST:-}" ]; then
+    echo "selftest ok: lib loaded, os=$os"
+    return 0
+  fi
+
+  if [ "$os" != "macos" ]; then
+    echo "error: install.sh is macOS-only; Linux runs ROS2 Humble natively (see run.sh)." >&2
+    return 1
+  fi
+
+  case "$cmd" in
+    install)   do_install "$pull" "$dry" ;;
+    uninstall) do_uninstall "$dry" ;;
+  esac
+}
+
+main "$@"

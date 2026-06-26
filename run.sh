@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/first-motive/fm-sim/main/run.sh | bash
 #
 # From a clone:
-#   ./run.sh [--backend NAME] [--native|--container] [params_file:=my.yaml]
+#   ./run.sh [--backend NAME] [--native|--container] [-h|--help] [params_file:=my.yaml]
 #
 # The host OS picks the path (override with --native / --container):
 #   linux  -> native:    build + launch directly on the host (ROS2 Humble + the
@@ -31,6 +31,9 @@
 #   ./run.sh --native              # force the host path (Linux)
 #   ./run.sh --container           # force the container path (macOS / OrbStack)
 #   ./run.sh params_file:=my.yaml  # extra args pass through to ros2 launch
+#
+# The body is wrapped in main() and called on the last line, so a truncated
+# curl|bash never half-runs.
 set -euo pipefail
 
 # --- Per-repo config (downstream repos retune these) --------------------------
@@ -66,6 +69,7 @@ load_lib() {
   local cached="$CACHE_DIR/lib.sh"
   if [ ! -f "$cached" ]; then
     mkdir -p "$CACHE_DIR"
+    chmod 700 "$CACHE_DIR"  # lib.sh is sourced from here; keep the cache user-only
     # Fetch to a temp file and rename only on success: an interrupted download
     # must never leave a partial file later runs treat as cached.
     local tmp="$cached.tmp.$$"
@@ -77,85 +81,103 @@ load_lib() {
   # shellcheck source=/dev/null
   source "$cached"
 }
-load_lib
+
+usage() {
+  cat <<'EOF'
+run.sh — build the workspace and launch the fm-sim headless loop
+
+Usage: ./run.sh [--backend NAME] [--native|--container] [-h|--help] [launch args…]
+
+  --backend NAME   sim engine: mock | mujoco | gazebo | isaac (default mujoco)
+  --native         force the host path (Linux)
+  --container      force the container path (macOS / OrbStack)
+  -h, --help       show this help
+
+Extra args (e.g. params_file:=my.yaml) pass through to ros2 launch.
+Env: FM_SELFTEST=1  load deps + resolve OS/backend, then stop before any work.
+EOF
+}
 
 # The backend names the sim engine. sim.launch.py dispatches it (mujoco runs the
 # in-process sim_loop; gazebo/isaac delegate to fm_sim_backends). mock has no
 # sim.launch backend — it is the fm_bringup no-engine path — so it falls through
-# to the mujoco default below.
+# to the mujoco default.
 VALID_BACKENDS=(mock mujoco gazebo isaac)
 # The interactive picker offers only the engines sim.launch.py dispatches.
 PICK_BACKENDS=(mujoco gazebo isaac)
 
-BACKEND=mujoco
-BACKEND_SET=false        # true once --backend is given; gates the picker
-MODE=""                  # "" = auto-detect; else native | container
-PASSTHROUGH=()
+main() {
+  local backend=mujoco backend_set=false mode=""
+  local -a passthrough=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)   usage; return 0 ;;
+      --backend)   [[ $# -gt 1 ]] || { echo "error: --backend requires a value" >&2; return 1; }
+                   backend="$2"; backend_set=true; shift 2 ;;
+      --backend=*) backend="${1#--backend=}"; backend_set=true; shift ;;
+      --native)    mode=native; shift ;;
+      --container) mode=container; shift ;;
+      *)           passthrough+=("$1"); shift ;;
+    esac
+  done
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --backend)   [[ $# -gt 1 ]] || { echo "error: --backend requires a value" >&2; exit 1; }
-                 BACKEND="$2"; BACKEND_SET=true; shift 2 ;;
-    --backend=*) BACKEND="${1#--backend=}"; BACKEND_SET=true; shift ;;
-    --native)    MODE=native; shift ;;
-    --container) MODE=container; shift ;;
-    *)           PASSTHROUGH+=("$1"); shift ;;
-  esac
-done
+  load_lib
 
-# No --backend and a real terminal: offer the fm-tools rich picker. Skips on
-# --backend (explicit choice) and on `curl | bash` (no TTY), so the curl-to-launch
-# path is untouched. No bash `select` fallback: if uv is absent or the pick fails,
-# fall through to the default backend below — the same path the no-TTY pipe takes.
-# The chosen value flows through the same validation below.
-if [[ "$BACKEND_SET" != true ]] && [ -t 0 ] && [ -t 1 ] && command -v uv >/dev/null 2>&1; then
-  picked="$(uv run --quiet --no-project \
-    --with "fm-tools @ git+https://github.com/first-motive/fm-tools@v0.2.0" \
-    fm-pick "Select a sim backend" "${PICK_BACKENDS[@]}" 2>/dev/null)" || picked=""
-  [[ -n "$picked" ]] && BACKEND="$picked"
-fi
+  # No --backend and a real terminal: offer the fm-tools rich picker. Skips on
+  # --backend (explicit choice) and on `curl | bash` (no TTY), so the curl-to-launch
+  # path is untouched. No bash `select` fallback: if uv is absent or the pick fails,
+  # fall through to the default backend — the same path the no-TTY pipe takes.
+  if [[ "$backend_set" != true ]] && [ -t 0 ] && [ -t 1 ] && command -v uv >/dev/null 2>&1; then
+    local picked
+    picked="$(uv run --quiet --no-project \
+      --with "fm-tools @ git+https://github.com/first-motive/fm-tools@v0.2.0" \
+      fm-pick "Select a sim backend" "${PICK_BACKENDS[@]}" 2>/dev/null)" || picked=""
+    [[ -n "$picked" ]] && backend="$picked"
+  fi
 
-# Normalize hyphen -> underscore and validate the backend.
-BACKEND="${BACKEND//-/_}"
-ok=false
-for b in "${VALID_BACKENDS[@]}"; do [[ "$BACKEND" == "$b" ]] && ok=true && break; done
-if [[ "$ok" != true ]]; then
-  echo "error: unknown backend '$BACKEND' — valid: ${VALID_BACKENDS[*]}" >&2
-  exit 1
-fi
+  # Normalize hyphen -> underscore and validate the backend.
+  backend="${backend//-/_}"
+  local ok=false b
+  for b in "${VALID_BACKENDS[@]}"; do [[ "$backend" == "$b" ]] && ok=true && break; done
+  if [[ "$ok" != true ]]; then
+    echo "error: unknown backend '$backend' — valid: ${VALID_BACKENDS[*]}" >&2
+    return 1
+  fi
 
-# Auto-detect the path from the host OS when not forced by a flag. fm_detect_os
-# (from lib.sh) echoes macos|linux.
-if [[ -z "$MODE" ]]; then
-  case "$(fm_detect_os)" in
-    linux)  MODE=native ;;
-    macos)  MODE=container ;;
-    *) echo "error: could not resolve host path — pass --native or --container" >&2; exit 1 ;;
-  esac
-fi
+  # Auto-detect the path from the host OS when not forced by a flag. fm_detect_os
+  # (from lib.sh) echoes macos|linux.
+  if [[ -z "$mode" ]]; then
+    case "$(fm_detect_os)" in
+      linux)  mode=native ;;
+      macos)  mode=container ;;
+      *) echo "error: could not resolve host path — pass --native or --container" >&2; return 1 ;;
+    esac
+  fi
 
-# The container path runs every backend under the one macOS overlay — compose.linux
-# was removed (Linux runs bare-metal native, never in a container), so there is no
-# per-backend overlay split anymore. The native path ignores this entirely.
-OVERLAY=docker/compose.macos.yaml
+  # CI self-test hook: deps loaded, OS + backend resolved — stop before any runtime
+  # work. Lets the curl-path test exercise the piped fetch without OrbStack.
+  if [ -n "${FM_SELFTEST:-}" ]; then
+    echo "selftest ok: lib loaded, mode=$mode, backend=$backend"
+    return 0
+  fi
 
-# CI self-test hook: deps loaded, OS + backend resolved — stop before any runtime
-# work. Lets the curl-path test exercise the piped fetch without OrbStack.
-if [ -n "${FM_SELFTEST:-}" ]; then
-  echo "selftest ok: lib loaded, mode=$MODE, backend=$BACKEND"
-  exit 0
-fi
+  # Forward the chosen engine to sim.launch.py's backend dispatch. mock has no
+  # sim.launch backend, so it falls through to the default (mujoco = sim_loop).
+  # Passthrough args (e.g. params_file:=my.yaml) reach the launch alongside it.
+  if [[ "$backend" != mock ]]; then
+    LAUNCH+=("backend:=$backend")
+  fi
+  LAUNCH+=(${passthrough[@]+"${passthrough[@]}"})
 
-# Forward the chosen engine to sim.launch.py's backend dispatch. mock has no
-# sim.launch backend, so it falls through to the default (mujoco = sim_loop).
-# Passthrough args (e.g. params_file:=my.yaml) reach the launch alongside it.
-if [[ "$BACKEND" != mock ]]; then
-  LAUNCH+=("backend:=$BACKEND")
-fi
-LAUNCH+=(${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"})
+  if [[ "$mode" == native ]]; then
+    run_native
+  else
+    run_container
+  fi
+}
 
-if [[ "$MODE" == native ]]; then
-  # Host path: pull externals once, build in place, launch on the host.
+# Host path: pull externals once, build in place, launch on the host.
+run_native() {
   set +u  # ROS setup scripts reference unbound vars; nounset would abort the source
   # shellcheck source=/dev/null
   source "/opt/ros/${ROS_DISTRO:-humble}/setup.bash"
@@ -172,7 +194,7 @@ if [[ "$MODE" == native ]]; then
   set -u
   echo ">> launching the sim loop on the host — Foxglove Studio: ws://localhost:8765"
   exec "${LAUNCH[@]}"
-fi
+}
 
 # Container path (macOS / OrbStack). Bring up a runtime if none is present, then
 # dispatch on clone vs pipe:
@@ -180,51 +202,58 @@ fi
 #                               the entrypoint sources the workspace baked in.
 #   clone (source on disk)   -> mount source at /ws, rebuild inside, launch, so
 #                               edits override the baked build (the dev loop).
-cd "$INVOKE_DIR"
+run_container() {
+  # The container path runs every backend under the one macOS overlay — compose.linux
+  # was removed (Linux runs bare-metal native, never in a container).
+  local overlay=docker/compose.macos.yaml
+  cd "$INVOKE_DIR"
 
-# Bring up a container runtime if missing — install + start OrbStack via install.sh.
-if ! fm_has_docker; then
-  echo ">> no container runtime — setting up OrbStack via install.sh"
-  if [ -n "$REPO_DIR" ]; then
-    bash "$REPO_DIR/install.sh" --no-pull
-  else
-    curl -fsSL --proto '=https' --proto-redir '=https' "$FM_SIM_RAW/install.sh" | bash -s -- --no-pull
+  # Bring up a container runtime if missing — install + start OrbStack via install.sh.
+  if ! fm_has_docker; then
+    echo ">> no container runtime — setting up OrbStack via install.sh"
+    if [ -n "$REPO_DIR" ]; then
+      bash "$REPO_DIR/install.sh" --no-pull
+    else
+      curl -fsSL --proto '=https' --proto-redir '=https' "$FM_SIM_RAW/install.sh" | bash -s -- --no-pull
+    fi
+    fm_has_docker || { echo "error: container runtime still unavailable after setup." >&2; return 1; }
   fi
-  fm_has_docker || { echo "error: container runtime still unavailable after setup." >&2; exit 1; }
-fi
 
-if [ -z "$REPO_DIR" ]; then
-  # Baked path: curl-to-launch, no clone, no mount. The image carries a built
-  # /ws/install overlay (see Dockerfile), so route through the entrypoint to
-  # source ROS + that overlay, then launch. --pull missing fetches on first run;
-  # arm64 matches the macOS overlay's platform pin. The mujoco launch wraps its
-  # node in `xvfb-run -a` itself, so no outer virtual display is needed here.
-  echo ">> running the baked image $BAKED_IMAGE (no clone, no mount)"
+  if [ -z "$REPO_DIR" ]; then
+    # Baked path: curl-to-launch, no clone, no mount. The image carries a built
+    # /ws/install overlay (see Dockerfile), so route through the entrypoint to
+    # source ROS + that overlay, then launch. --pull missing fetches on first run;
+    # arm64 matches the macOS overlay's platform pin. The mujoco launch wraps its
+    # node in `xvfb-run -a` itself, so no outer virtual display is needed here.
+    echo ">> running the baked image $BAKED_IMAGE (no clone, no mount)"
+    echo ">> launching the sim loop — Foxglove Studio: ws://localhost:8765"
+    exec docker run --rm --pull missing --platform linux/arm64 \
+      -p 8765:8765 "$BAKED_IMAGE" /ros_entrypoint.sh "${LAUNCH[@]}"
+  fi
+
+  # Mounted path: build the local image, bring it up, build + launch inside it.
+  # The fm-docker compose overlays live in docker/, imported via fm-sim.repos —
+  # pull them on first run so a fresh clone works with no manual setup.
+  if [[ ! -d docker ]]; then
+    vcs import < fm-sim.repos
+  fi
+  local -a compose=(docker compose -f docker/compose.yaml -f "$overlay")
+  export FM_IMAGE="$LOCAL_IMAGE"
+  export FM_WS="$INVOKE_DIR"
+
+  echo ">> building $LOCAL_IMAGE (FROM the fm-robot layer)"
+  docker build -t "$LOCAL_IMAGE" .
+  echo ">> bringing the container up (idempotent) — overlay $(basename "$overlay")"
+  "${compose[@]}" up -d
+  echo ">> building the workspace inside the container"
+  "${compose[@]}" exec fm /ros_entrypoint.sh colcon build --symlink-install
   echo ">> launching the sim loop — Foxglove Studio: ws://localhost:8765"
-  exec docker run --rm --pull missing --platform linux/arm64 \
-    -p 8765:8765 "$BAKED_IMAGE" /ros_entrypoint.sh "${LAUNCH[@]}"
-fi
+  echo ">> tear down with: ${compose[*]} down"
+  # The mujoco backend's launch already wraps its ros2_control_node in `xvfb-run -a`
+  # (see fm_sim_backends/launch/mujoco.launch.py), so the headless Mac container
+  # needs no outer xvfb-run here — the virtual display is scoped to the node that
+  # needs it. `exec` skips the image ENTRYPOINT, so route through it to source ROS.
+  exec "${compose[@]}" exec fm /ros_entrypoint.sh "${LAUNCH[@]}"
+}
 
-# Mounted path: build the local image, bring it up, build + launch inside it.
-# The fm-docker compose overlays live in docker/, imported via fm-sim.repos —
-# pull them on first run so a fresh clone works with no manual setup.
-if [[ ! -d docker ]]; then
-  vcs import < fm-sim.repos
-fi
-COMPOSE=(docker compose -f docker/compose.yaml -f "$OVERLAY")
-export FM_IMAGE="$LOCAL_IMAGE"
-export FM_WS="$INVOKE_DIR"
-
-echo ">> building $LOCAL_IMAGE (FROM the fm-robot layer)"
-docker build -t "$LOCAL_IMAGE" .
-echo ">> bringing the container up (idempotent) — overlay $(basename "$OVERLAY")"
-"${COMPOSE[@]}" up -d
-echo ">> building the workspace inside the container"
-"${COMPOSE[@]}" exec fm /ros_entrypoint.sh colcon build --symlink-install
-echo ">> launching the sim loop — Foxglove Studio: ws://localhost:8765"
-echo ">> tear down with: ${COMPOSE[*]} down"
-# The mujoco backend's launch already wraps its ros2_control_node in `xvfb-run -a`
-# (see fm_sim_backends/launch/mujoco.launch.py), so the headless Mac container
-# needs no outer xvfb-run here — the virtual display is scoped to the node that
-# needs it. `exec` skips the image ENTRYPOINT, so route through it to source ROS.
-exec "${COMPOSE[@]}" exec fm /ros_entrypoint.sh "${LAUNCH[@]}"
+main "$@"

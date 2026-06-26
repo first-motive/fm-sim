@@ -12,6 +12,30 @@ on:
 # packages — so they are COLCON_IGNORE'd. The full integration build lives in
 # fm-ros2.
 jobs:
+  selftest:
+    name: bootstrap self-test (curl|bash FM_SELFTEST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # install.sh and run.sh are curl|bash-able. Run each from an empty dir so it
+      # takes its network branch — the piped path real users hit — fetching lib.sh
+      # from the pinned fm-tools tag. FM_SELFTEST stops each script after deps load
+      # and OS/backend resolve, before any OrbStack install, build, or launch.
+      - name: install.sh + run.sh load lib + resolve over piped curl
+        run: |
+          set -euo pipefail
+          repo="$PWD"
+          cd "$(mktemp -d)"
+          for s in install.sh run.sh; do
+            echo "== $s =="
+            out="$(cat "$repo/$s" | FM_SELFTEST=1 bash 2>&1)" \
+              || { echo "$out"; echo "FAIL: $s exited non-zero under curl|bash"; exit 1; }
+            echo "$out"
+            echo "$out" | grep -q "selftest ok" \
+              || { echo "FAIL: $s did not reach 'selftest ok'"; exit 1; }
+          done
+          echo "bootstrap self-test OK"
+
   build-test:
     name: build + test (humble)
     runs-on: ubuntu-latest
