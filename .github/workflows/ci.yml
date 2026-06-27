@@ -85,7 +85,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Log in to GHCR — to pull the private fm-robot base FROM and to push this
       # layer (the Dockerfile is FROM ghcr.io/first-motive/fm-robot:humble).
