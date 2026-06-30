@@ -11,6 +11,10 @@
   <depend>sensor_msgs</depend>
   <!-- mujoco is a pip dep (arm64 CPU wheel), installed via the base image -->
 
+  <!-- sim.launch.py includes fm_sim_backends/<backend>.launch.py for the
+       gazebo/isaac backends; needed at launch time to resolve the share path. -->
+  <exec_depend>fm_sim_backends</exec_depend>
+
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

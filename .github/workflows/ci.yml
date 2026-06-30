@@ -12,6 +12,30 @@ on:
 # packages — so they are COLCON_IGNORE'd. The full integration build lives in
 # fm-ros2.
 jobs:
+  selftest:
+    name: bootstrap self-test (curl|bash FM_SELFTEST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # install.sh and run.sh are curl|bash-able. Run each from an empty dir so it
+      # takes its network branch — the piped path real users hit — fetching lib.sh
+      # from the pinned fm-tools tag. FM_SELFTEST stops each script after deps load
+      # and OS/backend resolve, before any OrbStack install, build, or launch.
+      - name: install.sh + run.sh load lib + resolve over piped curl
+        run: |
+          set -euo pipefail
+          repo="$PWD"
+          cd "$(mktemp -d)"
+          for s in install.sh run.sh; do
+            echo "== $s =="
+            out="$(cat "$repo/$s" | FM_SELFTEST=1 bash 2>&1)" \
+              || { echo "$out"; echo "FAIL: $s exited non-zero under curl|bash"; exit 1; }
+            echo "$out"
+            echo "$out" | grep -q "selftest ok" \
+              || { echo "FAIL: $s did not reach 'selftest ok'"; exit 1; }
+          done
+          echo "bootstrap self-test OK"
+
   build-test:
     name: build + test (humble)
     runs-on: ubuntu-latest
@@ -47,3 +71,136 @@ jobs:
           source /opt/ros/humble/setup.bash
           colcon test
           colcon test-result --verbose
+
+  image:
+    name: build + publish image (FROM fm-robot layer)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Log in to GHCR — to pull the private fm-robot base FROM and to push this
+      # layer (the Dockerfile is FROM ghcr.io/first-motive/fm-robot:humble).
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build multi-arch (arm64 + amd64). Publish to GHCR only on main — branch and
+      # PR runs build to validate without pushing.
+      - name: Build + publish the sim image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/first-motive/fm-sim:humble
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  smoke:
+    name: smoke run.sh (native headless)
+    runs-on: ubuntu-latest
+    container: ros:humble
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tooling + ROS deps
+        run: |
+          apt-get update && apt-get install -y python3-vcstool
+          source /opt/ros/humble/setup.bash
+          vcs import < fm-sim.repos
+          # Externals are MJCF/file-only (so_arm, openarm_mujoco, unitree_mujoco) —
+          # not colcon packages. Keep them out so only the ament packages build.
+          for d in external/*/; do touch "${d}COLCON_IGNORE"; done
+          rosdep update
+          rosdep install --from-paths . --ignore-src -y -r
+
+      - name: Build workspace
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --symlink-install
+
+      - name: Launch headless, bounded
+        run: |
+          # Workspace pre-built above, so run.sh's incremental build is quick and the
+          # bounded window covers the launch itself. The mock backend needs no sim
+          # engine (no MuJoCo/Gazebo in CI), so it exercises run.sh end to end while
+          # staying light. 124 = ran the full window (came up); 0 = clean exit.
+          set +e
+          timeout 90 ./run.sh --native --backend mock
+          code=$?
+          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
+
+  smoke-container:
+    name: smoke container (headless backends)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # Log in to GHCR to pull the private fm-robot base the Dockerfile is FROM.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build the baked amd64 image into the local daemon (single-arch, loaded; the
+      # multi-arch publish lives in the `image` job). It carries the colcon build,
+      # so `docker run` reaches a running sim with no in-container build. This is the
+      # amd64 lane proving the launch logic regardless of the arm64 smoke.sh result.
+      - name: Build the baked image
+        run: docker build -t fm-sim:smoke .
+
+      # Each backend runs bounded inside the image; the entrypoint sources ROS + the
+      # baked overlay. Software GL (LIBGL_ALWAYS_SOFTWARE=1) keeps gazebo + mujoco
+      # off a real GPU. 124 = ran the full window (came up), 0 = clean/bounded exit,
+      # 143 = SIGTERM. isaac is not smoked — Linux + NVIDIA only, never in this base.
+      - name: Smoke mock (sim loop)
+        run: |
+          set +e
+          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
+            /ros_entrypoint.sh bash -lc 'timeout 60 ros2 launch fm_sim_core sim.launch.py'
+          code=$?; echo "exit=$code"
+          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
+
+      - name: Smoke mujoco (xvfb headless)
+        run: |
+          # One-shot: boot the binding under a virtual display, step one frame.
+          # Expect a clean exit 0. Outer cmd single-quoted; the python string's
+          # inner quotes are escaped \" so they survive bash's double quotes.
+          set +e
+          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
+            /ros_entrypoint.sh bash -lc 'timeout 60 xvfb-run -a python3 -c "import mujoco; m = mujoco.MjModel.from_xml_string(\"<mujoco><worldbody/></mujoco>\"); mujoco.mj_step(m, mujoco.MjData(m)); print(\"mujoco stepped headless\")"'
+          code=$?; echo "exit=$code"
+          [ "$code" -eq 0 ]
+
+      - name: Smoke gazebo (gz -s server-only)
+        run: |
+          # Server-only headless: no GUI, bounded iterations on the empty world.
+          # `gz` (Garden+) or `ign` (Fortress) depending on the image's gz stack.
+          set +e
+          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
+            /ros_entrypoint.sh bash -lc 'timeout 90 sh -c "command -v gz >/dev/null 2>&1 && gz sim -s -r --iterations 200 empty.sdf || ign gazebo -s -r --iterations 200 empty.sdf"'
+          code=$?; echo "exit=$code"
+          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]

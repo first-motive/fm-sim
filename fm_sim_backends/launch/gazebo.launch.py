@@ -16,12 +16,18 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     gz_args = LaunchConfiguration("gz_args")
     entity_name = LaunchConfiguration("entity_name")
+    # value_type=str: the description is XML, not yaml — stop the param loader
+    # from trying to parse it.
+    robot_description = ParameterValue(
+        LaunchConfiguration("robot_description"), value_type=str
+    )
 
     return LaunchDescription(
         [
@@ -34,6 +40,32 @@ def generate_launch_description():
                 "entity_name",
                 default_value="openarm",
                 description="Name for the spawned robot entity.",
+            ),
+            # Caller-supplied (sim.launch.py forwards these from the assembled
+            # stack). robot_description is published below so the entity spawn
+            # resolves it; gazebo hosts its controller_manager via the
+            # gz_ros2_control plugin embedded in the description, so it loads the
+            # controllers.yaml itself — controllers_file is accepted for a uniform
+            # backend contract and reserved for an explicit override.
+            DeclareLaunchArgument(
+                "robot_description",
+                description="Robot description XML with the GazeboSimSystem "
+                "<ros2_control> system and the gz_ros2_control world plugin.",
+            ),
+            DeclareLaunchArgument(
+                "controllers_file",
+                default_value="",
+                description="controllers.yaml for the preset (gazebo loads "
+                "controllers via the description plugin; reserved for override).",
+            ),
+            # Publish the description so `create -topic robot_description` resolves
+            # it. The assembled stack may run its own robot_state_publisher; when it
+            # does, launch this backend without robot_state_publisher duplication.
+            Node(
+                package="robot_state_publisher",
+                executable="robot_state_publisher",
+                parameters=[{"robot_description": robot_description}],
+                output="screen",
             ),
             # gz-sim server + GUI (GUI shown only with a display; headless on a
             # server host).
