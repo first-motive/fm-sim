@@ -90,7 +90,7 @@ jobs:
       # Log in to GHCR — to pull the private fm-robot base FROM and to push this
       # layer (the Dockerfile is FROM ghcr.io/first-motive/fm-robot:humble).
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -159,7 +159,7 @@ jobs:
 
       # Log in to GHCR to pull the private fm-robot base the Dockerfile is FROM.
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
