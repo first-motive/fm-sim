@@ -1,3 +1,6 @@
+import os
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = "fm_sim_models"
@@ -9,6 +12,16 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
+        # Axol MJCF + meshes. Committed here (not vendored under external/) because
+        # Almond Bot ships no upstream MJCF; models.py resolves this from the share.
+        (
+            os.path.join("share", package_name, "models", "axol"),
+            ["models/axol/axol.xml"],
+        ),
+        (
+            os.path.join("share", package_name, "models", "axol", "meshes"),
+            glob("models/axol/meshes/*.stl"),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
