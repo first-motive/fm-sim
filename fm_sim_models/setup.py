@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = "fm_sim_models"
@@ -9,6 +11,10 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
+        (
+            "share/" + package_name + "/assets/mujoco/so101",
+            glob("assets/mujoco/so101/*.xml"),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

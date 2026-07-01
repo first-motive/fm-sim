@@ -1,0 +1,28 @@
+<mujoco model="so101_pick_place">
+    <include file="scene.xml" />
+
+    <asset>
+        <material name="table_top" rgba="0.62 0.52 0.42 1" />
+        <material name="cube_red" rgba="0.88 0.2 0.2 1" />
+        <material name="goal_blue" rgba="0.2 0.45 0.95 1" />
+    </asset>
+
+    <worldbody>
+        <body name="table" pos="0.22 0 0.19">
+            <geom name="table_top" type="box" size="0.18 0.24 0.02" material="table_top" />
+            <geom name="table_leg_fl" type="box" pos="0.14 0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_fr" type="box" pos="0.14 -0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_rl" type="box" pos="-0.14 0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+            <geom name="table_leg_rr" type="box" pos="-0.14 -0.20 -0.17" size="0.015 0.015 0.17" material="table_top" />
+        </body>
+
+        <body name="pickup_cube" pos="0.22 -0.07 0.225">
+            <freejoint />
+            <geom name="cube_geom" type="box" size="0.015 0.015 0.015" material="cube_red" mass="0.05" />
+        </body>
+
+        <body name="goal_pad" pos="0.28 0.09 0.205">
+            <geom name="goal_geom" type="cylinder" size="0.03 0.003" material="goal_blue" contype="0" conaffinity="0" />
+        </body>
+    </worldbody>
+</mujoco>

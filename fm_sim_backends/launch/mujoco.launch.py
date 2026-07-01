@@ -27,6 +27,8 @@ def generate_launch_description():
         LaunchConfiguration("robot_description"), value_type=str
     )
     controllers_file = LaunchConfiguration("controllers_file")
+    robot = LaunchConfiguration("robot")
+    task_env = LaunchConfiguration("task_env")
 
     return LaunchDescription(
         [
@@ -39,6 +41,16 @@ def generate_launch_description():
                 "controllers_file",
                 description="Path to the controllers.yaml for the active preset.",
             ),
+            DeclareLaunchArgument(
+                "robot",
+                default_value="openarm",
+                description="Robot name for backend-specific MuJoCo plugin config.",
+            ),
+            DeclareLaunchArgument(
+                "task_env",
+                default_value="default",
+                description="Task environment alias for backend-specific MuJoCo plugin config.",
+            ),
             # controller_manager hosted inside MuJoCo. Steps physics + serves the
             # hardware interfaces; controllers are spawned separately by sim.launch.py.
             # MuJoCo's GLFW viewer needs a display, so run it under a virtual one
@@ -50,6 +62,18 @@ def generate_launch_description():
                 prefix="xvfb-run -a",
                 parameters=[
                     {"robot_description": robot_description},
+                    {
+                        "mujoco_plugins": {
+                            "task_env_markers": {
+                                "type": "fm_control/So101TaskEnvPlugin",
+                                "robot": robot,
+                                "task_env": task_env,
+                                "topic": "/task_env_markers",
+                                "frame_id": "base_link",
+                                "publish_rate_hz": 20.0,
+                            }
+                        }
+                    },
                     controllers_file,
                 ],
                 output="screen",
