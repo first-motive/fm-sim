@@ -17,19 +17,23 @@ import os
 
 
 def _axol_mjcf():
-    """Resolve Axol's committed MJCF from this package's share.
+    """Resolve Axol's committed MJCF (unlike the vendored models, it ships in-repo).
 
-    Called lazily (only when Axol is requested), not at import, so neither the ament
-    lookup nor a failed package resolution can break ``mjcf_path`` for the vendored
-    robots. The import lives here too, so this module imports with no ROS dependency.
-    Unlike the vendored models, Axol's MJCF is authored and committed into this
-    package (Almond Bot ships no upstream MJCF).
+    Called lazily (only when Axol is requested), not at import, so this module imports
+    with no ROS dependency. In a built workspace the model lives in the ament share;
+    in a ROS-free context (the native macOS sim-core smoke runs the sources straight
+    off ``PYTHONPATH``, with no ament index) it lives beside this package's source. Try
+    the share first, fall back to the source tree.
     """
-    from ament_index_python.packages import get_package_share_directory
+    try:
+        from ament_index_python.packages import get_package_share_directory
 
-    return os.path.join(
-        get_package_share_directory("fm_sim_models"), "models", "axol", "axol.xml"
-    )
+        base = get_package_share_directory("fm_sim_models")
+    except Exception:
+        # No ament index (or package not installed): resolve relative to this file,
+        # where models/ sits one level up from the inner package dir.
+        base = os.path.join(os.path.dirname(__file__), "..")
+    return os.path.join(base, "models", "axol", "axol.xml")
 
 
 # robot key -> MJCF path the mujoco backend loads. Values are either an absolute
