@@ -16,7 +16,7 @@ system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 |---------|-------|----------------|
 | `fm_sim_core` | ament_python | Headless MuJoCo stepper + `sim_loop` node; physics split from ROS comms for testability |
 | `fm_sim_backends` | ament_python | One launch file per engine (MuJoCo, Gazebo, Isaac), each hosting a `controller_manager` |
-| `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path |
+| `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `axol`'s committed MJCF resolves from this package's share |
 | `fm_sim` | ament_cmake (meta) | Metapackage tying the three together for a single install |
 
 ## Backend Hosts
@@ -76,9 +76,13 @@ injects the looked-up path as the `mujoco_model` xacro argument.
 | `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml` | Joint names match description |
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match system |
 | `g1_d` | `unitree_mujoco/.../g1_29dof.xml` | Wired, not yet validated — bipedal legs differ from wheeled G1-D |
+| `axol` | `models/axol/axol.xml` (package share) | Almond Bot Axol, bimanual 2×7-DOF — mujoco validated; real CAN deferred |
 
-Models are vendored under `external/` (gitignored on host, mounted at `/ws` in the
-dev container) via `fm-sim.repos`.
+Most models are vendored under `external/` (gitignored on host, mounted at `/ws` in
+the dev container) via `fm-sim.repos`. `axol` is the exception: it has no upstream
+MJCF, so First Motive compiled one from `axol.urdf` and committed it into
+`fm_sim_models`' share at `models/axol/axol.xml`; the registry resolves it from the
+package share rather than `/ws/external`.
 
 ## Headless Dev Loop
 
