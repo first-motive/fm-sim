@@ -30,9 +30,14 @@ mjcf_path("unknown")   # -> RuntimeError listing the registered keys
 | `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml` | Joint names match the description |
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match the system |
 | `g1_d` | `unitree_mujoco/unitree_robots/g1/g1_29dof.xml` | Bipedal model — right-arm joints match; legs differ from the wheeled G1-D, so mujoco is wired-not-yet-validated |
+| `axol` | `models/axol/axol.xml` (this package's share) | Almond Bot Axol, bimanual 2×7-DOF — mujoco validated; mock validated, real CAN deferred |
 
-Paths are the in-container locations under `/ws/external` (gitignored on the host,
-mounted at `/ws` in the dev container).
+The first three paths are the in-container locations under `/ws/external`
+(gitignored on the host, mounted at `/ws` in the dev container). `axol` is the
+exception: it ships no upstream MJCF, so First Motive authored one (compiled from
+`axol.urdf`) and committed it into this package's share at `models/axol/axol.xml`
+(with its meshes). `models.py` resolves it from the package share, not
+`/ws/external`.
 
 ## Build Type
 
