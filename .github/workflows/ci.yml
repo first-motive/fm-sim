@@ -99,7 +99,7 @@ jobs:
       # Build multi-arch (arm64 + amd64). Publish to GHCR only on main — branch and
       # PR runs build to validate without pushing.
       - name: Build + publish the sim image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
