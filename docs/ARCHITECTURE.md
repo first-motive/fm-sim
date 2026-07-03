@@ -1,6 +1,6 @@
 # Architecture
 
-The simulation layer of First Motive's ROS2 (Humble) stack. It separates the
+The simulation layer of First Motive's ROS2 stack. It separates the
 physics stepper (ROS-free, testable in isolation) from the ROS comms, hosts a
 `controller_manager` per engine so the same controllers drive any backend, and
 keeps one registry mapping each robot to its MuJoCo model.

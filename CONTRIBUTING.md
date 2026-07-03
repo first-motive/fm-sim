@@ -68,7 +68,7 @@ non-standard prefixes (`update: stuff`).
 
 ## Tests
 
-Run the test suite before opening a PR. This is a ROS2 (Humble) workspace built
+Run the test suite before opening a PR. This is a ROS2 workspace built
 with colcon:
 
 ```bash
