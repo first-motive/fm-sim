@@ -20,6 +20,17 @@ def test_axol_mjcf_is_installed():
     assert os.path.isfile(path), f"axol MJCF missing from share: {path}"
 
 
+def test_vendored_path_follows_fm_ws(monkeypatch):
+    """Vendored MJCF paths resolve against the workspace root, not a hardcoded mount.
+
+    Same registry has to serve the container (/ws) and a native checkout, so the
+    root must track FM_WS at call time.
+    """
+    monkeypatch.setenv("FM_WS", "/somewhere/ws")
+    path = mjcf_path("openarm")
+    assert path == "/somewhere/ws/external/openarm_mujoco/v2/openarm_bimanual.xml"
+
+
 def test_unknown_robot_raises_with_registered_keys():
     with pytest.raises(RuntimeError) as excinfo:
         mjcf_path("nope")
