@@ -13,6 +13,7 @@ model is bimanual; pair it with the default_bimanual variant for a full joint ma
 (a single-arm preset leaves the other arm passive in the scene).
 """
 
+import platform
 from shutil import which
 
 from ament_index_python.packages import (
@@ -27,37 +28,46 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-def _require_container_backend():
+def _display_prefix():
+    """Return the launch prefix that gives MuJoCo's GLFW viewer a display.
+
+    X11 only. On Linux the viewer needs a display that a headless container/host has
+    no session for, so it runs under a virtual one (``xvfb-run``). macOS has no X11:
+    GLFW talks to Cocoa directly and a real window opens on the logged-in session, so
+    the prefix is empty there — asking for xvfb-run would just fail to find it.
+    """
+    if platform.system() == "Darwin":
+        return ""
+    return "xvfb-run -a"
+
+
+def _require_backend():
     """Fail early with a clear pointer when the MuJoCo backend can't run here.
 
-    The MuJoCo daily driver hosts the controller_manager inside
-    ``mujoco_ros2_control`` and renders under ``xvfb-run`` — both ship only in the
-    Linux container image, not the native (pixi/RoboStack) env. Launched natively
-    (e.g. the macOS default path) they surface as a cryptic "package not found" or
-    "xvfb-run: command not found" deep in the launch. Detect the absence up front
-    and point at the container path instead.
+    The backend hosts the controller_manager inside ``mujoco_ros2_control``, which is
+    not on RoboStack — the native path builds it from source (``external.repos`` +
+    ``patch-mujoco-ros2-control.sh``), the container gets it from apt. Absent, the
+    launch would die deep with a cryptic "package not found"; say so up front.
+
+    xvfb-run is required only where it is actually used — see ``_display_prefix``.
     """
     missing = []
     try:
         get_package_share_directory("mujoco_ros2_control")
     except PackageNotFoundError:
-        missing.append("the mujoco_ros2_control package")
-    if which("xvfb-run") is None:
+        missing.append("the mujoco_ros2_control package (rebuild: `pixi run build`)")
+    if _display_prefix() and which("xvfb-run") is None:
         missing.append("xvfb-run (the virtual display)")
     if missing:
         raise RuntimeError(
-            "The MuJoCo sim backend needs "
-            + " and ".join(missing)
-            + ", which ship only in the Linux container image, not the native "
-            "(pixi/RoboStack) env. Run the container path instead:\n"
-            "    ./run.sh --container"
+            "The MuJoCo sim backend needs " + " and ".join(missing) + "."
         )
 
 
 def generate_launch_description():
-    # Guard before building the description: native hosts lack the container-only
-    # MuJoCo ros2_control host, so stop with an actionable message, not a cryptic one.
-    _require_container_backend()
+    # Guard before building the description, so a missing backend stops with an
+    # actionable message rather than a cryptic one deep in the launch.
+    _require_backend()
 
     # value_type=str: the description is XML, not yaml — stop the param loader
     # from trying to parse it.
@@ -79,13 +89,12 @@ def generate_launch_description():
             ),
             # controller_manager hosted inside MuJoCo. Steps physics + serves the
             # hardware interfaces; controllers are spawned separately by sim.launch.py.
-            # MuJoCo's GLFW viewer needs a display, so run it under a virtual one
-            # (xvfb-run) — this is what makes the headless Mac container the daily
-            # driver. The MJCF path comes from the description's mujoco_model param.
+            # The viewer's display comes from _display_prefix (xvfb-run on Linux, the
+            # Cocoa session on macOS). MJCF path comes from the mujoco_model param.
             Node(
                 package="mujoco_ros2_control",
                 executable="ros2_control_node",
-                prefix="xvfb-run -a",
+                prefix=_display_prefix(),
                 parameters=[
                     {"robot_description": robot_description},
                     controllers_file,
