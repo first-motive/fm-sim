@@ -1,0 +1,40 @@
+{
+  "_fm_render": {
+    "artifact": "render-lock",
+    "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
+    "sha256": "f308afd2ed0c0dfb376fcba8e24f8f0a90bdcebb470f3786fd8d7d4fa7231e27"
+  },
+  "artifacts": {
+    "agents-invariants": {
+      "mode": "block",
+      "path": "AGENTS.md",
+      "sha256": "2341b3e06285c5ba588cd3126694fa705e0a8c07e7cd91fd7c3f61c45ba0bc68",
+      "stamp": "html"
+    },
+    "d2-render": {
+      "mode": "file",
+      "path": "docs/diagrams/render.sh",
+      "sha256": "2acf6888887bc63280e7fca7aa208520b31040421a6afe2a56e4df81797e49fc",
+      "stamp": "hash"
+    },
+    "d2-styles": {
+      "mode": "file",
+      "path": "docs/diagrams/styles.d2",
+      "sha256": "f779c99b7e9f1b2480fea5a0ace77949e007f5f01d802b1dbdac8c9764ae14f0",
+      "stamp": "hash"
+    },
+    "external-pins": {
+      "mode": "file",
+      "path": ".fm/external-pins.json",
+      "sha256": "f25be94c05300268b80668c02adf5381ffb1a13a626b9f9db3515012dc7f0405",
+      "stamp": "json"
+    },
+    "render-check": {
+      "mode": "file",
+      "path": ".fm/render-check.py",
+      "sha256": "42eb32e6ed1b27eb08cadbf359f8bc19defb7873f202b08e1d81631bb154c9d3",
+      "stamp": "hash"
+    }
+  },
+  "source": "first-motive render plane"
+}
