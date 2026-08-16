@@ -23,16 +23,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Sim engines + their ros2_control bridges, plus the headless GL stack MuJoCo's
-# GLFW viewer needs under a virtual display (xvfb). All on the Humble apt mirror
-# (gz libs via the OSRF repo above) for both arm64 and amd64, so no source builds.
+# GLFW viewer needs under a virtual display (xvfb).
+#
+# packages.ros.org builds gz-ros2-control and ros-gz-sim for amd64 only — there is
+# no arm64 binary for either, so naming them unconditionally fails the arm64 leg of
+# the multi-arch build outright. MuJoCo (the backend the Apple Silicon path
+# actually runs) and the ros_gz bridge do ship arm64, so the split is by package,
+# not by dropping the arm64 image. Check with:
+#   curl -s http://packages.ros.org/ros2/ubuntu/dists/jammy/main/binary-arm64/Packages.gz \
+#     | gunzip | grep '^Package: ros-humble-ros-gz-sim$'
+# Drop the conditional once that returns a hit.
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-mujoco-ros2-control \
-      ros-humble-gz-ros2-control \
-      ros-humble-ros-gz-sim \
       ros-humble-ros-gz-bridge \
       xvfb \
       libgl1-mesa-dri \
       libglu1-mesa \
+    && if [ "$TARGETARCH" = "amd64" ]; then \
+         apt-get install -y --no-install-recommends \
+           ros-humble-gz-ros2-control \
+           ros-humble-ros-gz-sim; \
+       else \
+         echo "skipping gz-ros2-control + ros-gz-sim: no arm64 build on packages.ros.org"; \
+       fi \
     && rm -rf /var/lib/apt/lists/*
 
 # The MuJoCo Python binding — fm_sim_backends loads the MJCF models through it.
