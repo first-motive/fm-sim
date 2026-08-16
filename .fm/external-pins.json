@@ -1,0 +1,60 @@
+{
+  "_comment": "Canonical pins for third-party sources vendored by more than one First Motive repo. A consumer renders this to .fm/external-pins.json and points its own manifest (external.repos, pyproject, Dockerfile) at these commits. Re-pin here, never in a consumer. Each version is an exact commit \u2014 no branch names, no floating tags.",
+  "_fm_render": {
+    "artifact": "external-pins",
+    "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
+    "sha256": "f25be94c05300268b80668c02adf5381ffb1a13a626b9f9db3515012dc7f0405"
+  },
+  "pins": {
+    "lerobot": {
+      "license": "Apache-2.0",
+      "note": "No release tag upstream yet; re-pin with git ls-remote.",
+      "ref": "main @ 2026-06-03",
+      "url": "https://github.com/huggingface/lerobot.git",
+      "version": "741c2d0a3939ba54d6cf47f29a7fbbba3766a600"
+    },
+    "mujoco_ros2_control": {
+      "license": "Apache-2.0",
+      "note": "Matches the rosdistro humble release the container's apt binary is built from.",
+      "ref": "tag 0.0.3",
+      "url": "https://github.com/ros-controls/mujoco_ros2_control.git",
+      "version": "35ba8174b62d9560093614f981a3d4b978a96036"
+    },
+    "openarm_description": {
+      "license": "Apache-2.0",
+      "note": "A real ament_cmake package; must be built for package:// to resolve.",
+      "ref": "HEAD @ 2026-06-03",
+      "url": "https://github.com/enactic/openarm_description.git",
+      "version": "846a82d8baf64efdbb7f55c7f64b9b004939061b"
+    },
+    "openarm_ros2": {
+      "license": "Apache-2.0",
+      "note": "Hardware plugin, bringup, and bimanual MoveIt config. Humble is the target.",
+      "ref": "main @ 2026-06-03",
+      "url": "https://github.com/enactic/openarm_ros2.git",
+      "version": "01b9f3815222b490a593f01379d8e2106c8da6a0"
+    },
+    "so_arm": {
+      "license": "Apache-2.0",
+      "note": "SO101 flat URDF plus the official MJCF; file-vendored, not a ROS package.",
+      "ref": "HEAD @ 2026-06-03",
+      "url": "https://github.com/TheRobotStudio/SO-ARM100.git",
+      "version": "fda892cba81032c46c40976a48c9ceadbf40a9ca"
+    },
+    "unitree_ros": {
+      "license": "BSD-3-Clause",
+      "note": "G1 description (flat URDF + meshes). No upstream tags exist.",
+      "ref": "master",
+      "url": "https://github.com/unitreerobotics/unitree_ros.git",
+      "version": "ae2b2a7e9ba1b5814b5cb78b3c5800829c5591dd"
+    },
+    "unitree_ros2": {
+      "license": "BSD-3-Clause",
+      "note": "Unitree DDS message packages; unitree_hg carries LowCmd/MotorCmd.",
+      "ref": "master @ 2026-06-03",
+      "url": "https://github.com/unitreerobotics/unitree_ros2.git",
+      "version": "5204e6e098ee53f4bd929bd77eb1d387cd0fa842"
+    }
+  },
+  "schema_version": 1
+}
