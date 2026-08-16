@@ -38,41 +38,66 @@ m = mujoco.MjModel.from_xml_string("<mujoco><worldbody/></mujoco>")
 mujoco.mj_step(m, mujoco.MjData(m))
 print("mujoco stepped headless")'
 
-# Per-backend bounded command, run through the entrypoint (sources ROS + overlay).
-# Software GL (LIBGL_ALWAYS_SOFTWARE=1) keeps gazebo + mujoco off a real GPU.
+# The mock check brings the sim loop up and asserts it reached a working state: the
+# node registers, and /joint_states carries a real message. The loop's stepper
+# imports the mujoco wheel lazily, so a node that builds clean can still die on its
+# first import — the topic assert is what catches that. Self-bounded, so the caller
+# adds no timeout of its own.
+MOCK_ASSERT='set -uo pipefail
+ros2 launch fm_sim_core sim.launch.py >/tmp/sim.log 2>&1 &
+pid=$!
+for _ in $(seq 1 30); do
+  ros2 node list 2>/dev/null | grep -qx /sim_loop && break
+  sleep 2
+done
+fails=0
+if ros2 node list 2>/dev/null | grep -qx /sim_loop; then
+  echo "PASS: /sim_loop up"
+else
+  echo "FAIL: /sim_loop never appeared"; fails=1
+fi
+if timeout 15 ros2 topic echo --once /joint_states >/tmp/js.out 2>/dev/null && [ -s /tmp/js.out ]; then
+  echo "PASS: /joint_states publishing"
+else
+  echo "FAIL: /joint_states silent"; fails=1
+fi
+kill $pid 2>/dev/null || true
+[ $fails -eq 0 ] || { echo "== launch log =="; tail -40 /tmp/sim.log; exit 1; }'
+
+# Per-backend command, run through the entrypoint (sources ROS + overlay). Software
+# GL (LIBGL_ALWAYS_SOFTWARE=1) keeps gazebo + mujoco off a real GPU. Each command
+# carries its own bound, and each one must exit 0 — no backend passes merely by
+# outliving a timer.
 backend_cmd() {
   case "$1" in
-    mock)   echo 'ros2 launch fm_sim_core sim.launch.py' ;;
-    # %q escapes the multi-line payload into one shell-safe token for `bash -lc`.
-    mujoco) printf 'xvfb-run -a python3 -c %q' "$MUJOCO_CHECK" ;;
+    # %q escapes a multi-line payload into one shell-safe token for `bash -lc`.
+    mock)   printf 'bash -c %q' "$MOCK_ASSERT" ;;
+    mujoco) printf 'timeout %s xvfb-run -a python3 -c %q' "$TIMEOUT" "$MUJOCO_CHECK" ;;
     # Server-only headless gazebo: no GUI, run a bounded number of iterations on
     # the empty world. `gz` (Garden+) or `ign` (Fortress) depending on the image.
-    gazebo) echo 'if command -v gz >/dev/null 2>&1; then gz sim -s -r --iterations 200 empty.sdf; else ign gazebo -s -r --iterations 200 empty.sdf; fi' ;;
+    # --iterations makes it finite, so exit 0 is the assertion — a hang is a FAIL.
+    gazebo) printf 'timeout %s sh -c %q' "$TIMEOUT" 'if command -v gz >/dev/null 2>&1; then gz sim -s -r --iterations 200 empty.sdf; else ign gazebo -s -r --iterations 200 empty.sdf; fi' ;;
     *)      return 1 ;;
   esac
 }
 
-# Run one backend in the container and classify the outcome. Two shapes:
-#   oneshot (mujoco): expect a clean exit 0 — the check boots, steps, returns.
-#   long (mock, gazebo): came up if it ran the window. gazebo is bounded by
-#     --iterations, so it exits 0 on success; mock runs until the timeout kills
-#     it (124) or SIGTERM (143). Accept 0/124/143 for these; anything else FAILs.
+# Run one backend in the container and classify the outcome. Every backend is
+# judged the same way now: exit 0 is PASS, anything else FAILs. A bounded workload
+# that hit its timeout (124) did not finish the work it was given, which is a
+# failure, not a pass.
 RESULTS=()
 run_backend() {
-  local name="$1" oneshot="$2" cmd code
+  local name="$1" cmd code
   cmd="$(backend_cmd "$name")"
-  echo ">> [$name] running bounded ${TIMEOUT}s in the container ..."
+  echo ">> [$name] running in the container (bound ${TIMEOUT}s) ..."
   docker run --rm --platform "$PLATFORM" \
     -e LIBGL_ALWAYS_SOFTWARE=1 \
-    "$IMAGE" /ros_entrypoint.sh bash -lc "timeout ${TIMEOUT} ${cmd}"
+    "$IMAGE" /ros_entrypoint.sh bash -lc "$cmd"
   code=$?
-  if [ "$oneshot" = oneshot ]; then
-    [ "$code" -eq 0 ] && RESULTS+=("$name PASS") || RESULTS+=("$name FAIL (exit $code)")
+  if [ "$code" -eq 0 ]; then
+    RESULTS+=("$name PASS")
   else
-    case "$code" in
-      0|124|143) RESULTS+=("$name PASS") ;;
-      *)         RESULTS+=("$name FAIL (exit $code)") ;;
-    esac
+    RESULTS+=("$name FAIL (exit $code)")
   fi
 }
 
@@ -82,9 +107,9 @@ if ! docker build -t "$IMAGE" .; then
   exit 1
 fi
 
-run_backend mock   long
-run_backend mujoco oneshot
-run_backend gazebo long
+run_backend mock
+run_backend mujoco
+run_backend gazebo
 RESULTS+=("isaac SKIP (Linux + NVIDIA only — never on macOS or the container base)")
 
 echo

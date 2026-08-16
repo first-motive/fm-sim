@@ -108,42 +108,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # The smoke asserts the loop is running, not that a timer fired on a live process.
+  #
+  # This job used to accept exit 124 from `run.sh --backend mock`, and the mock
+  # backend falls through to mujoco, whose sim_loop imports the mujoco wheel lazily.
+  # The wheel is not in ros:humble, so the node died on that import every run, the
+  # launch stayed up around the corpse, the timer fired, and the job went green —
+  # the exact failure the smoke exists to catch. pip-packages now installs the wheel,
+  # and /joint_states is asserted, so a dead sim_loop is red.
   smoke:
     name: smoke run.sh (native headless)
-    runs-on: ubuntu-latest
-    container: ros:humble
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install tooling + ROS deps
-        run: |
-          apt-get update && apt-get install -y python3-vcstool
-          source /opt/ros/humble/setup.bash
-          vcs import < fm-sim.repos
-          # Externals are MJCF/file-only (so_arm, openarm_mujoco, unitree_mujoco) —
-          # not colcon packages. Keep them out so only the ament packages build.
-          for d in external/*/; do touch "${d}COLCON_IGNORE"; done
-          rosdep update
-          rosdep install --from-paths . --ignore-src -y -r
-
-      - name: Build workspace
-        run: |
-          source /opt/ros/humble/setup.bash
-          colcon build --symlink-install
-
-      - name: Launch headless, bounded
-        run: |
-          # Workspace pre-built above, so run.sh's incremental build is quick and the
-          # bounded window covers the launch itself. The mock backend needs no sim
-          # engine (no MuJoCo/Gazebo in CI), so it exercises run.sh end to end while
-          # staying light. 124 = ran the full window (came up); 0 = clean exit.
-          set +e
-          timeout 90 ./run.sh --native --backend mock
-          code=$?
-          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
+    uses: first-motive/.github/.github/workflows/ros2-smoke.yml@main
+    with:
+      repos-file: fm-sim.repos
+      pip-packages: mujoco
+      launch: ./run.sh --native --backend mock
+      expect-nodes: /sim_loop
+      expect-topics: /joint_states
 
   smoke-container:
     name: smoke container (headless backends)
@@ -172,17 +153,39 @@ jobs:
       - name: Build the baked image
         run: docker build -t fm-sim:smoke .
 
-      # Each backend runs bounded inside the image; the entrypoint sources ROS + the
-      # baked overlay. Software GL (LIBGL_ALWAYS_SOFTWARE=1) keeps gazebo + mujoco
-      # off a real GPU. 124 = ran the full window (came up), 0 = clean/bounded exit,
-      # 143 = SIGTERM. isaac is not smoked — Linux + NVIDIA only, never in this base.
-      - name: Smoke mock (sim loop)
+      # Each backend runs inside the image; the entrypoint sources ROS + the baked
+      # overlay. Software GL (LIBGL_ALWAYS_SOFTWARE=1) keeps gazebo + mujoco off a
+      # real GPU. isaac is not smoked — Linux + NVIDIA only, never in this base.
+      #
+      # Every step below either asserts an observable result or runs a bounded
+      # workload that must exit 0. None of them accept "still alive when the timer
+      # fired", which passes for a launch whose only node died on import.
+      - name: Smoke mock (sim loop publishes)
         run: |
-          set +e
           docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
-            /ros_entrypoint.sh bash -lc 'timeout 60 ros2 launch fm_sim_core sim.launch.py'
-          code=$?; echo "exit=$code"
-          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
+            /ros_entrypoint.sh bash -lc '
+              set -uo pipefail
+              ros2 launch fm_sim_core sim.launch.py >/tmp/sim.log 2>&1 &
+              pid=$!
+              for _ in $(seq 1 30); do
+                ros2 node list 2>/dev/null | grep -qx /sim_loop && break
+                sleep 2
+              done
+              fails=0
+              if ros2 node list 2>/dev/null | grep -qx /sim_loop; then
+                echo "PASS: /sim_loop up"
+              else
+                echo "FAIL: /sim_loop never appeared"; fails=1
+              fi
+              if timeout 15 ros2 topic echo --once /joint_states >/tmp/js.out 2>/dev/null &&
+                 [ -s /tmp/js.out ]; then
+                echo "PASS: /joint_states publishing"
+              else
+                echo "FAIL: /joint_states silent"; fails=1
+              fi
+              kill $pid 2>/dev/null || true
+              [ $fails -eq 0 ] || { echo "== launch log =="; tail -40 /tmp/sim.log; exit 1; }
+            '
 
       - name: Smoke mujoco (xvfb headless)
         run: |
@@ -199,8 +202,9 @@ jobs:
         run: |
           # Server-only headless: no GUI, bounded iterations on the empty world.
           # `gz` (Garden+) or `ign` (Fortress) depending on the image's gz stack.
-          set +e
+          # --iterations makes this a finite workload, so the engine stepping 200
+          # times and exiting 0 is the assertion. A hang is now a failure rather
+          # than a pass: 124 means the engine never finished the world it was given.
+          set -eo pipefail
           docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
             /ros_entrypoint.sh bash -lc 'timeout 90 sh -c "command -v gz >/dev/null 2>&1 && gz sim -s -r --iterations 200 empty.sdf || ign gazebo -s -r --iterations 200 empty.sdf"'
-          code=$?; echo "exit=$code"
-          [ "$code" -eq 124 ] || [ "$code" -eq 0 ] || [ "$code" -eq 143 ]
