@@ -43,6 +43,10 @@ print("mujoco stepped headless")'
 # imports the mujoco wheel lazily, so a node that builds clean can still die on its
 # first import — the topic assert is what catches that. Self-bounded, so the caller
 # adds no timeout of its own.
+#
+# CI runs the same two assertions from first-motive/.github's
+# scripts/ros2-smoke-assert.sh. This stays a local copy on purpose: a hand-run macOS
+# smoke should not need the network to tell you whether your sim came up.
 MOCK_ASSERT='set -uo pipefail
 ros2 launch fm_sim_core sim.launch.py >/tmp/sim.log 2>&1 &
 pid=$!

@@ -2,6 +2,9 @@
 # colcon artifacts, vcs-imported siblings/externals, and editor/OS cruft must
 # never be copied in (they would bloat the image and shadow a clean build).
 .git/
+# CI checks the org's shared smoke script out here and mounts it into the running
+# container — it is never part of the image.
+.fm-ci/
 build/
 install/
 log/

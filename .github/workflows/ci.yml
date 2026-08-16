@@ -138,6 +138,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The shared smoke asserts, mounted into the image below.
+      - uses: actions/checkout@v7
+        with:
+          repository: first-motive/.github
+          path: .fm-ci
+
       # Log in to GHCR to pull the private fm-robot base the Dockerfile is FROM.
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -160,32 +166,18 @@ jobs:
       # Every step below either asserts an observable result or runs a bounded
       # workload that must exit 0. None of them accept "still alive when the timer
       # fired", which passes for a launch whose only node died on import.
+      # Same assertions the native smoke runs, against the baked image instead of a
+      # freshly built workspace. The script is mounted rather than copied, so the
+      # two jobs cannot drift apart.
       - name: Smoke mock (sim loop publishes)
         run: |
-          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
-            /ros_entrypoint.sh bash -lc '
-              set -uo pipefail
-              ros2 launch fm_sim_core sim.launch.py >/tmp/sim.log 2>&1 &
-              pid=$!
-              for _ in $(seq 1 30); do
-                ros2 node list 2>/dev/null | grep -qx /sim_loop && break
-                sleep 2
-              done
-              fails=0
-              if ros2 node list 2>/dev/null | grep -qx /sim_loop; then
-                echo "PASS: /sim_loop up"
-              else
-                echo "FAIL: /sim_loop never appeared"; fails=1
-              fi
-              if timeout 15 ros2 topic echo --once /joint_states >/tmp/js.out 2>/dev/null &&
-                 [ -s /tmp/js.out ]; then
-                echo "PASS: /joint_states publishing"
-              else
-                echo "FAIL: /joint_states silent"; fails=1
-              fi
-              kill $pid 2>/dev/null || true
-              [ $fails -eq 0 ] || { echo "== launch log =="; tail -40 /tmp/sim.log; exit 1; }
-            '
+          docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 \
+            -v "${{ github.workspace }}/.fm-ci:/fm-ci:ro" \
+            -e LAUNCH='ros2 launch fm_sim_core sim.launch.py' \
+            -e EXPECT_NODES=/sim_loop \
+            -e EXPECT_TOPICS=/joint_states \
+            fm-sim:smoke \
+            /ros_entrypoint.sh bash -lc 'bash /fm-ci/scripts/ros2-smoke-assert.sh'
 
       - name: Smoke mujoco (xvfb headless)
         run: |
