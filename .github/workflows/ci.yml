@@ -39,8 +39,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pin a recent qemu: the default ships an older build whose arm64 user-mode
+      # emulation segfaults on heavy glibc postinst — libc-bin's ldconfig dies with
+      # SIGSEGV and the layer fails with exit 100. fm-teleop pinned after hitting it,
+      # fm-robot hit it the moment an apt layer grew (fm-robot#38), and fm-app was one
+      # package away. Pinned here before it bites rather than after.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
+        with:
+          image: tonistiigi/binfmt:qemu-v10.2.3
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
