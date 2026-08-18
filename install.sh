@@ -52,9 +52,21 @@ load_lib() {
     mkdir -p "$CACHE_DIR"
     chmod 700 "$CACHE_DIR"  # lib.sh is sourced from here; keep the cache user-only
     local tmp="$cached.tmp.$$"
-    curl -fsSL --proto '=https' --proto-redir '=https' "$FM_TOOLS_RAW/lib.sh" -o "$tmp" \
-      || { rm -f "$tmp"; echo "error: failed to fetch lib.sh from fm-tools" >&2; exit 1; }
-    [ -s "$tmp" ] || { rm -f "$tmp"; echo "error: empty lib.sh download" >&2; exit 1; }
+    # Retry the fetch. It is unauthenticated, so a busy day rate limits it (HTTP 429)
+    # and a single attempt turns a transient into a failed install on the very first
+    # command a user runs against us. Three tries with a short backoff; the tag is
+    # pinned, so a later attempt cannot quietly fetch different content.
+    local attempt
+    for attempt in 1 2 3; do
+      if curl -fsSL --proto '=https' --proto-redir '=https' \
+           "$FM_TOOLS_RAW/lib.sh" -o "$tmp" && [ -s "$tmp" ]; then
+        break
+      fi
+      rm -f "$tmp"
+      if [ "$attempt" -lt 3 ]; then sleep "$((attempt * 2))"; fi
+    done
+    [ -s "$tmp" ] \
+      || { rm -f "$tmp"; echo "error: failed to fetch lib.sh from fm-tools (3 attempts)" >&2; exit 1; }
     mv "$tmp" "$cached"
   fi
   # shellcheck source=/dev/null
