@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# fm-render: render-check sha256:42eb32e6ed1b27eb08cadbf359f8bc19defb7873f202b08e1d81631bb154c9d3 — rendered by the First Motive render plane — edit the upstream source, not this file
+# fm-render: render-check sha256:d3b89f3d4b4027bc004832465bd2b0d4f2d59801a29b3624bdf8a0c2bd7e9e47 — rendered by the First Motive render plane — edit the upstream source, not this file
 """Verify that this repo's rendered artifacts still match what the plane rendered.
 
 Some files here are not authored in this repo. They are rendered from a single
@@ -28,12 +28,16 @@ import json
 import sys
 from pathlib import Path
 
-# Marker vocabulary. `hash` and `html` stamp a single line into the file itself;
-# `json` stamps a reserved top-level key, since JSON carries no comments.
+# Marker vocabulary. `hash` stamps a single line into the file itself; `html` and
+# `sh` fence a block inside a host file the repo also authors; `json` stamps a
+# reserved top-level key, since JSON carries no comments.
 STAMP_PREFIX = "fm-render:"
 BLOCK_BEGIN = "fm-render:begin"
 BLOCK_END = "fm-render:end"
 JSON_KEY = "_fm_render"
+# How each block style writes a comment. A block artifact lands inside a file the
+# consumer owns, so the markers have to be comments in that file's own language.
+BLOCK_COMMENT = {"html": ("<!-- ", " -->"), "sh": ("# ", "")}
 ORIGIN = "rendered by the First Motive render plane — edit the upstream source, not this file"
 LOCK_PATH = ".fm/render.lock.json"
 LOCK_ID = "render-lock"
@@ -85,13 +89,28 @@ def unstamp_file(text: str) -> tuple[str, str]:
     raise DriftError("no fm-render stamp in the first two lines")
 
 
-def stamp_block(artifact_id: str, body: str) -> str:
+def block_indent(body: str) -> str:
+    """The indentation a block's markers must share with its body.
+
+    A `sh` block often lands inside indented YAML — a workflow step under
+    `steps:`. A marker at column zero there is a syntax error, so the markers
+    take the indentation of the body's own first line.
+    """
+    for line in body.splitlines():
+        if line.strip():
+            return line[: len(line) - len(line.lstrip())]
+    return ""
+
+
+def stamp_block(artifact_id: str, body: str, style: str = "html") -> str:
     """Render a block artifact: the body fenced by begin/end markers."""
     body = normalize(body)
+    open_mark, close_mark = BLOCK_COMMENT[style]
+    pad = block_indent(body)
     return (
-        f"<!-- {BLOCK_BEGIN} {artifact_id} sha256:{digest(body)} — {ORIGIN} -->\n"
+        f"{pad}{open_mark}{BLOCK_BEGIN} {artifact_id} sha256:{digest(body)} — {ORIGIN}{close_mark}\n"
         f"{body}"
-        f"<!-- {BLOCK_END} {artifact_id} -->\n"
+        f"{pad}{open_mark}{BLOCK_END} {artifact_id}{close_mark}\n"
     )
 
 
@@ -140,7 +159,7 @@ def stamped_digest(text: str, stamp_style: str, artifact_id: str) -> str:
     """Read back the digest a rendered artifact claims for itself."""
     if stamp_style == "json":
         return json.loads(text)[JSON_KEY]["sha256"]
-    if stamp_style == "html":
+    if stamp_style in BLOCK_COMMENT:
         span = find_block(text, artifact_id)
         if span is None:
             raise DriftError(f"no fm-render block for {artifact_id}")
@@ -157,7 +176,7 @@ def actual_digest(text: str, stamp_style: str, artifact_id: str) -> str:
     """Hash what the artifact actually contains right now."""
     if stamp_style == "json":
         return digest(unstamp_json(text)[1])
-    if stamp_style == "html":
+    if stamp_style in BLOCK_COMMENT:
         return digest(normalize(unstamp_block(text, artifact_id)))
     return digest(normalize(unstamp_file(text)[1]))
 
@@ -180,21 +199,24 @@ def check_repo(root: Path) -> list[str]:
         return [f"{LOCK_PATH}: unreadable ({error})"]
 
     for artifact_id, entry in sorted(json.loads(lock_text)["artifacts"].items()):
-        path = root / entry["path"]
-        if not path.exists():
-            problems.append(f"{entry['path']}: missing — rendered artifact was deleted")
-            continue
-        text = path.read_text()
-        try:
-            claimed = stamped_digest(text, entry["stamp"], artifact_id)
-            actual = actual_digest(text, entry["stamp"], artifact_id)
-        except (DriftError, KeyError, ValueError) as error:
-            problems.append(f"{entry['path']}: stamp unreadable ({error})")
-            continue
-        if claimed != actual:
-            problems.append(f"{entry['path']}: hand-edited — content does not match its stamp")
-        elif claimed != entry["sha256"]:
-            problems.append(f"{entry['path']}: stamp rewritten — does not match {LOCK_PATH}")
+        # One artifact can land in more than one host here: the bootstrap
+        # preamble is the same fact in both install.sh and run.sh.
+        for relative in entry["paths"]:
+            path = root / relative
+            if not path.exists():
+                problems.append(f"{relative}: missing — rendered artifact was deleted")
+                continue
+            text = path.read_text()
+            try:
+                claimed = stamped_digest(text, entry["stamp"], artifact_id)
+                actual = actual_digest(text, entry["stamp"], artifact_id)
+            except (DriftError, KeyError, ValueError) as error:
+                problems.append(f"{relative}: stamp unreadable ({error})")
+                continue
+            if claimed != actual:
+                problems.append(f"{relative}: hand-edited — content does not match its stamp")
+            elif claimed != entry["sha256"]:
+                problems.append(f"{relative}: stamp rewritten — does not match {LOCK_PATH}")
 
     return problems
 

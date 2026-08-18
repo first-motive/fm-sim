@@ -2,37 +2,89 @@
   "_fm_render": {
     "artifact": "render-lock",
     "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
-    "sha256": "f308afd2ed0c0dfb376fcba8e24f8f0a90bdcebb470f3786fd8d7d4fa7231e27"
+    "sha256": "107579cab2ec79d1e416e8a2539ac84d055292100aca5255221e89796b922687"
   },
   "artifacts": {
     "agents-invariants": {
       "mode": "block",
-      "path": "AGENTS.md",
-      "sha256": "2341b3e06285c5ba588cd3126694fa705e0a8c07e7cd91fd7c3f61c45ba0bc68",
+      "paths": [
+        "AGENTS.md"
+      ],
+      "sha256": "ae8e770a702d661078394c75dae8593ec122d51514bc90016ef0f3b8fd8194b1",
       "stamp": "html"
+    },
+    "bootstrap-load-lib": {
+      "mode": "block",
+      "paths": [
+        "install.sh",
+        "run.sh"
+      ],
+      "sha256": "c9083869d688439bdd976efb3448e42ccbf91515b92a95eda07a959e640f076d",
+      "stamp": "sh"
     },
     "d2-render": {
       "mode": "file",
-      "path": "docs/diagrams/render.sh",
+      "paths": [
+        "docs/diagrams/render.sh"
+      ],
       "sha256": "2acf6888887bc63280e7fca7aa208520b31040421a6afe2a56e4df81797e49fc",
       "stamp": "hash"
     },
     "d2-styles": {
       "mode": "file",
-      "path": "docs/diagrams/styles.d2",
+      "paths": [
+        "docs/diagrams/styles.d2"
+      ],
       "sha256": "f779c99b7e9f1b2480fea5a0ace77949e007f5f01d802b1dbdac8c9764ae14f0",
       "stamp": "hash"
     },
     "external-pins": {
       "mode": "file",
-      "path": ".fm/external-pins.json",
+      "paths": [
+        ".fm/external-pins.json"
+      ],
       "sha256": "f25be94c05300268b80668c02adf5381ffb1a13a626b9f9db3515012dc7f0405",
       "stamp": "json"
     },
+    "fm-docker-pin": {
+      "mode": "block",
+      "paths": [
+        "install.sh"
+      ],
+      "sha256": "532190583135a4c86953f451232f5e222ebd1750e65438ea252618f0c3b44cd2",
+      "stamp": "sh"
+    },
+    "fm-tools-pin": {
+      "mode": "block",
+      "paths": [
+        "install.sh",
+        "run.sh"
+      ],
+      "sha256": "5de9c0a921c441407f1aea8b6e32f37ca9d3f654d1116c636f0a7136da03b7d2",
+      "stamp": "sh"
+    },
+    "pre-push-hook": {
+      "mode": "file",
+      "paths": [
+        ".fm/hooks/pre-push"
+      ],
+      "sha256": "4c369c9361bb6aca99d7bfb43fa9d2b8345462bcc409c900e6c36d4123d97a94",
+      "stamp": "hash"
+    },
+    "qemu-binfmt": {
+      "mode": "block",
+      "paths": [
+        ".github/workflows/ci.yml"
+      ],
+      "sha256": "83c33276dedb113f2237a8de56620ea914da38d4afd9f70c28c44267553b6375",
+      "stamp": "sh"
+    },
     "render-check": {
       "mode": "file",
-      "path": ".fm/render-check.py",
-      "sha256": "42eb32e6ed1b27eb08cadbf359f8bc19defb7873f202b08e1d81631bb154c9d3",
+      "paths": [
+        ".fm/render-check.py"
+      ],
+      "sha256": "d3b89f3d4b4027bc004832465bd2b0d4f2d59801a29b3624bdf8a0c2bd7e9e47",
       "stamp": "hash"
     }
   },
