@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# fm-render: pre-push-hook sha256:4c369c9361bb6aca99d7bfb43fa9d2b8345462bcc409c900e6c36d4123d97a94 — rendered by the First Motive render plane — edit the upstream source, not this file
+# Refuse a direct push to this repo's default branch.
+#
+# Merges happen on GitHub, through a pull request with its checks. A push
+# straight to main skips every one of them, and this org has no server-side
+# branch protection to refuse it — that is a paid feature it does not have. The
+# gap is real: a wave of work once sat unpushed for a day because the only thing
+# standing between "committed" and "shipped" was someone remembering the flow.
+#
+# git runs this before any object is sent, with one line per ref on stdin:
+#
+#   <local ref> <local sha> <remote ref> <remote sha>
+#
+# Deleting a branch sends the all-zero local sha; that is caught here too,
+# because deleting main is worse than pushing to it.
+#
+# The escape hatch is deliberate and loud. Set FM_ALLOW_MAIN_PUSH=1 for one
+# command when a push to main is genuinely the right move — restoring a branch
+# someone force-pushed away, an initial commit on an empty repo:
+#
+#   FM_ALLOW_MAIN_PUSH=1 git push origin main
+#
+# Enable this hook with `git config core.hooksPath .fm/hooks`. The workspace
+# installer sets it for every checkout it finds, and `fm doctor` reports a repo
+# where it is not set.
+set -euo pipefail
+
+# The branch to protect: whatever the remote calls its default, falling back to
+# main when the remote HEAD has never been resolved in this clone.
+protected="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+protected="${protected##*/}"
+protected="${protected:-main}"
+
+if [ "${FM_ALLOW_MAIN_PUSH:-0}" = "1" ]; then
+  echo "pre-push: FM_ALLOW_MAIN_PUSH=1 — allowing a direct push to $protected" >&2
+  exit 0
+fi
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  [ -n "$remote_ref" ] || continue
+  case "$remote_ref" in
+    "refs/heads/$protected")
+      cat >&2 <<EOF
+pre-push: refusing to push directly to $protected.
+
+Work reaches $protected through a pull request, so its checks run before the
+fleet sees it. Push a branch and open one instead:
+
+  git push -u origin HEAD
+  gh pr create
+
+If a direct push really is the right move, say so for this one command:
+
+  FM_ALLOW_MAIN_PUSH=1 git push origin $protected
+EOF
+      exit 1
+      ;;
+  esac
+done
+
+exit 0
