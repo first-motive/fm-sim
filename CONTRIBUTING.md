@@ -1,19 +1,24 @@
 # Contributing
 
-Thanks for contributing. This repo uses an owner-free-on-main model: the owner
-pushes to `main` directly, everyone else works on a branch and opens a pull
-request for the owner to merge. The owner is set in
-[`.github/CODEOWNERS`](.github/CODEOWNERS).
+Thanks for contributing.
 
 ## Workflow
 
+<!-- fm-render:begin contributing-workflow sha256:4a3ac9a4c1cbb5995c5a0e4d5b6beb580f50090c14bc5170cd21c84ee4635dd0 — rendered by the First Motive render plane — edit the upstream source, not this file -->
+Work reaches `main` by merging a pull request with green checks — never by
+pushing to it. This holds for everyone, the owner included. The rendered
+`.fm/hooks/pre-push` refuses a direct push, a tripwire workflow files an issue
+against one that arrives from an unguarded clone, and ADR 0001 in
+`first-motive/.github` records the decision.
+
 ```text
-owner:   push main
-others:  branch -> PR -> owner merges
+everyone:  branch -> PR -> green checks -> merge
 ```
 
-The merge-to-main rules apply to the owner only. If you are not the owner, you
-branch and open a PR — you do not merge.
+`FM_ALLOW_MAIN_PUSH=1` is the loud escape for an emergency; a push that takes
+it is still reported by the tripwire. The repo owner is set in
+[`.github/CODEOWNERS`](.github/CODEOWNERS).
+<!-- fm-render:end contributing-workflow -->
 
 ## Branch Naming
 

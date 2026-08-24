@@ -1,0 +1,28 @@
+name: Diagrams
+
+# Its own workflow, not a job in ci.yml, because ci.yml ignores `docs/**` — and
+# docs is exactly where the diagrams live. A diagram change is a docs change; a
+# check that skips docs would never grade one.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagrams-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Did a `.d2` need to change? Fails an architecture change with no diagram
+  # behind it, unless the author ticks the waiver in the pull request template.
+  gate:
+    uses: first-motive/.github/.github/workflows/diagram-gate.yml@main
+    permissions:
+      contents: read
+      pull-requests: read
+
+  # Do the committed SVGs still match their sources? Skips a repo with no
+  # render script, so it costs nothing where there are no diagrams yet.
+  render:
+    uses: first-motive/.github/.github/workflows/diagram-render-check.yml@main

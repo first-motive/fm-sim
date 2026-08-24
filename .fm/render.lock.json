@@ -2,7 +2,7 @@
   "_fm_render": {
     "artifact": "render-lock",
     "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
-    "sha256": "107579cab2ec79d1e416e8a2539ac84d055292100aca5255221e89796b922687"
+    "sha256": "6de966dc798768ce50640a1025bfdeaeb8f14046a80069e85ef2e05a9cbc4fdc"
   },
   "artifacts": {
     "agents-invariants": {
@@ -22,12 +22,20 @@
       "sha256": "c9083869d688439bdd976efb3448e42ccbf91515b92a95eda07a959e640f076d",
       "stamp": "sh"
     },
+    "contributing-workflow": {
+      "mode": "block",
+      "paths": [
+        "CONTRIBUTING.md"
+      ],
+      "sha256": "4a3ac9a4c1cbb5995c5a0e4d5b6beb580f50090c14bc5170cd21c84ee4635dd0",
+      "stamp": "html"
+    },
     "d2-render": {
       "mode": "file",
       "paths": [
         "docs/diagrams/render.sh"
       ],
-      "sha256": "2acf6888887bc63280e7fca7aa208520b31040421a6afe2a56e4df81797e49fc",
+      "sha256": "d3e26de6631f1c40ac0029659c407960d8818f4b1384b3f4cf2857f0c74c4c61",
       "stamp": "hash"
     },
     "d2-styles": {
@@ -70,6 +78,14 @@
       ],
       "sha256": "4c369c9361bb6aca99d7bfb43fa9d2b8345462bcc409c900e6c36d4123d97a94",
       "stamp": "hash"
+    },
+    "pull-request-template": {
+      "mode": "block",
+      "paths": [
+        ".github/pull_request_template.md"
+      ],
+      "sha256": "77ffa0c7e2a4effbca5ea4af0e436b1f6cdc3cd2235cce096110229e5cda4f3b",
+      "stamp": "html"
     },
     "qemu-binfmt": {
       "mode": "block",
