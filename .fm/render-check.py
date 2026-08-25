@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# fm-render: render-check sha256:d3b89f3d4b4027bc004832465bd2b0d4f2d59801a29b3624bdf8a0c2bd7e9e47 — rendered by the First Motive render plane — edit the upstream source, not this file
+# fm-render: render-check sha256:405935ed00b9cfe5a28a712042b4c00c4614d71aad44333bbea056d4ca1923d0 — rendered by the First Motive render plane — edit the upstream source, not this file
 """Verify that this repo's rendered artifacts still match what the plane rendered.
 
 Some files here are not authored in this repo. They are rendered from a single
@@ -38,6 +38,11 @@ JSON_KEY = "_fm_render"
 # How each block style writes a comment. A block artifact lands inside a file the
 # consumer owns, so the markers have to be comments in that file's own language.
 BLOCK_COMMENT = {"html": ("<!-- ", " -->"), "sh": ("# ", "")}
+# How each whole-file style writes its one stamp line. A rendered file carries the
+# stamp in its own comment syntax, which is why the style is named per artifact
+# rather than assumed: `#` is a comment in a shell script and a syntax error in a
+# stylesheet.
+FILE_COMMENT = {"hash": ("#", ""), "slash": ("//", ""), "css": ("/*", " */")}
 ORIGIN = "rendered by the First Motive render plane — edit the upstream source, not this file"
 LOCK_PATH = ".fm/render.lock.json"
 LOCK_ID = "render-lock"
@@ -65,14 +70,17 @@ def normalize(body: str) -> str:
 # --- stamping -------------------------------------------------------------
 
 
-def stamp_file(artifact_id: str, body: str, comment: str = "#") -> str:
+def stamp_file(artifact_id: str, body: str, style: str = "hash") -> str:
     """Render a whole-file artifact: body plus one stamp line.
 
     A shebang keeps line 1 — the stamp goes under it — so a rendered script
-    stays executable.
+    stays executable. ``style`` picks the comment syntax (see FILE_COMMENT); an
+    unknown one falls back to ``#`` rather than raising, because a consumer
+    running an older check script must still be able to read a newer stamp.
     """
     body = normalize(body)
-    line = f"{comment} {STAMP_PREFIX} {artifact_id} sha256:{digest(body)} — {ORIGIN}\n"
+    open_mark, close_mark = FILE_COMMENT.get(style, FILE_COMMENT["hash"])
+    line = f"{open_mark} {STAMP_PREFIX} {artifact_id} sha256:{digest(body)} — {ORIGIN}{close_mark}\n"
     lines = body.splitlines(keepends=True)
     if lines and lines[0].startswith("#!"):
         return lines[0] + line + "".join(lines[1:])
