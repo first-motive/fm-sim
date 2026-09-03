@@ -4,7 +4,7 @@ Thanks for contributing.
 
 ## Workflow
 
-<!-- fm-render:begin contributing-workflow sha256:4a3ac9a4c1cbb5995c5a0e4d5b6beb580f50090c14bc5170cd21c84ee4635dd0 — rendered by the First Motive render plane — edit the upstream source, not this file -->
+<!-- fm-render:begin contributing-workflow sha256:0b338cf09d4d1b502e22336f5422ce7326b73d01761b04fd581159748aea6bb4 — rendered by the First Motive render plane — edit the upstream source, not this file -->
 Work reaches `main` by merging a pull request with green checks — never by
 pushing to it. This holds for everyone, the owner included. The rendered
 `.fm/hooks/pre-push` refuses a direct push, a tripwire workflow files an issue
@@ -18,6 +18,10 @@ everyone:  branch -> PR -> green checks -> merge
 `FM_ALLOW_MAIN_PUSH=1` is the loud escape for an emergency; a push that takes
 it is still reported by the tripwire. The repo owner is set in
 [`.github/CODEOWNERS`](.github/CODEOWNERS).
+
+Coding agents follow the same path and merge their own PRs once checks are
+green. `gh pr merge --admin` is allowed when a required review is the only
+blocker; it is never used to get past a failing check.
 <!-- fm-render:end contributing-workflow -->
 
 ## Branch Naming

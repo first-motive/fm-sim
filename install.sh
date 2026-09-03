@@ -39,11 +39,11 @@ FM_TOOLS_RAW="https://raw.githubusercontent.com/first-motive/fm-tools/v0.4.1"
 # shellcheck disable=SC2034
 FM_TOOLS="fm-tools @ git+https://github.com/first-motive/fm-tools@v0.4.1"
 # fm-render:end fm-tools-pin
-# fm-render:begin fm-docker-pin sha256:532190583135a4c86953f451232f5e222ebd1750e65438ea252618f0c3b44cd2 — rendered by the First Motive render plane — edit the upstream source, not this file
+# fm-render:begin fm-docker-pin sha256:19a047f515a3016c31c93a42aef126d53c3efd4aa3f314511e4c1a49ba4ce6d7 — rendered by the First Motive render plane — edit the upstream source, not this file
 # The container runtime install is delegated to fm-docker, fetched from one
 # pinned release tag. Re-pin in the render plane, never in a consumer.
 # shellcheck disable=SC2034
-FM_DOCKER_RAW="https://raw.githubusercontent.com/first-motive/fm-docker/v0.1.3"
+FM_DOCKER_RAW="https://raw.githubusercontent.com/first-motive/fm-docker/v0.1.7"
 # fm-render:end fm-docker-pin
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fm-sim"
 
