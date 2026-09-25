@@ -2,7 +2,7 @@
   "_fm_render": {
     "artifact": "render-lock",
     "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
-    "sha256": "bb46ae862d3f4de6489ae3aeff85aa028b7f66a5cc88d71749c9e9927d2ed5b5"
+    "sha256": "ef14a106860885e1ddb9336c9e879e30c374daaec237b8deb724ed2cf5e662c4"
   },
   "artifacts": {
     "agents-invariants": {
@@ -84,7 +84,7 @@
       "paths": [
         ".github/pull_request_template.md"
       ],
-      "sha256": "77ffa0c7e2a4effbca5ea4af0e436b1f6cdc3cd2235cce096110229e5cda4f3b",
+      "sha256": "a54b579e3a04cf302f04cf2e63bfb74569a3d258819edfca30fa645aa3d6f60e",
       "stamp": "html"
     },
     "qemu-binfmt": {
