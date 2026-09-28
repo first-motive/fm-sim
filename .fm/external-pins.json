@@ -3,15 +3,15 @@
   "_fm_render": {
     "artifact": "external-pins",
     "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
-    "sha256": "f25be94c05300268b80668c02adf5381ffb1a13a626b9f9db3515012dc7f0405"
+    "sha256": "76ebeee263040ab772e0d5a657e6f3aca36d03fe7303ff7da59f35b51736f4ee"
   },
   "pins": {
     "lerobot": {
       "license": "Apache-2.0",
-      "note": "No release tag upstream yet; re-pin with git ls-remote.",
-      "ref": "main @ 2026-06-03",
+      "note": "The one First Motive LeRobot release; every consumer pins this commit, including pyproject pins.",
+      "ref": "tag v0.6.1",
       "url": "https://github.com/huggingface/lerobot.git",
-      "version": "741c2d0a3939ba54d6cf47f29a7fbbba3766a600"
+      "version": "7e241bd630a3719a56157a497ce5d08f244784f1"
     },
     "mujoco_ros2_control": {
       "license": "Apache-2.0",
