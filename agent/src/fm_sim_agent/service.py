@@ -44,8 +44,10 @@ from fm_sim_agent.env import EndpointError, router_endpoint
 from fm_sim_agent.runner import (
     DEFAULT_BAG_SPLIT_BYTES,
     DEFAULT_BAG_SPLIT_S,
+    DEFAULT_DDS_RANGE,
     DEFAULT_MEMORY,
     DEFAULT_PIDS_LIMIT,
+    DDS_RANGES,
     DockerRunner,
 )
 from fm_sim_agent.runs import RunStore, default_runs_dir
@@ -219,6 +221,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Extra `docker run` argument, repeatable (host specifics).",
     )
+    parser.add_argument(
+        "--dds-range",
+        choices=DDS_RANGES,
+        default=DEFAULT_DDS_RANGE,
+        help="How far a run's DDS discovery reaches (ROS_AUTOMATIC_DISCOVERY_RANGE). Keep LOCALHOST "
+        "on a host that shares a LAN with real robots.",
+    )
     parser.add_argument("--pids-limit", type=int, default=DEFAULT_PIDS_LIMIT, help="Process ceiling per run.")
     parser.add_argument(
         "--memory", default=DEFAULT_MEMORY, help="Memory ceiling per run, as docker takes it."
@@ -291,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         memory=args.memory,
         bag_split_s=args.bag_split_seconds,
         bag_split_bytes=args.bag_split_mb * 2**20,
+        dds_range=args.dds_range,
     )
     agent = SimAgent(host, runner, RunStore(runs_dir))
     agent.max_run_s = args.max_run_minutes * 60

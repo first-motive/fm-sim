@@ -50,8 +50,21 @@ CYCLONE_MOUNT = "/etc/fm-comms/cyclonedds.xml"
 #: fm-docker compose base passes them, so a run's DDS graph is the one the host's
 #: zenoh bridge routes. Only names are on the command line (``-e NAME``); Docker
 #: reads the values from the environment it inherits.
-PASSTHROUGH_ENV = ("ROS_DOMAIN_ID", "RMW_IMPLEMENTATION", "ROS_LOCALHOST_ONLY", "FM_COMMS_PROFILE")
+#:
+#: Nothing that sets how far DDS discovery reaches is passed through: that is
+#: ``--dds-range`` below, and a host env var must not widen it silently.
+PASSTHROUGH_ENV = ("ROS_DOMAIN_ID", "RMW_IMPLEMENTATION", "FM_COMMS_PROFILE")
 DEFAULT_RMW = "rmw_cyclonedds_cpp"
+
+#: How far a run's DDS discovery reaches (Jazzy's ROS_AUTOMATIC_DISCOVERY_RANGE).
+#: LOCALHOST by default: a sim host with --network host shares a LAN with real
+#: robots, and on a shared ROS_DOMAIN_ID a wider range would let sim topics —
+#: joint states, controller commands — reach a real robot's graph. The zenoh
+#: bridge runs on the same host, so it still sees the run. Only an operator flag
+#: changes it. ROS_LOCALHOST_ONLY is not set as well: the image is Jazzy-only,
+#: where that variable is deprecated and setting both draws a warning.
+DDS_RANGES = ("LOCALHOST", "SUBNET", "OFF", "SYSTEM_DEFAULT")
+DEFAULT_DDS_RANGE = "LOCALHOST"
 
 #: Labels that mark a container as this agent's, so a restarted agent can find
 #: and remove a run its predecessor left behind — and only that.
@@ -218,8 +231,12 @@ class DockerRunner:
         memory: str = DEFAULT_MEMORY,
         bag_split_s: int = DEFAULT_BAG_SPLIT_S,
         bag_split_bytes: int = DEFAULT_BAG_SPLIT_BYTES,
+        dds_range: str = DEFAULT_DDS_RANGE,
         docker: str = "docker",
     ) -> None:
+        if dds_range not in DDS_RANGES:
+            raise ValueError(f"dds_range must be one of {DDS_RANGES}")
+        self.dds_range = dds_range
         self.image = image
         self.pids_limit = pids_limit
         self.memory = memory
@@ -286,7 +303,9 @@ class DockerRunner:
 
         The agent's own account, never root, with every capability dropped and
         no way to gain one back through a setuid binary. HOME moves with the
-        account: ROS writes ``~/.ros/log`` on start.
+        account: ROS writes ``~/.ros/log`` on start. DDS discovery stays within
+        ``dds_range``; every ``docker exec`` into the container (reset, probes,
+        the recorder) inherits the container's environment, so it does too.
         """
         return [
             "--user", f"{os.getuid()}:{os.getgid()}",
@@ -295,6 +314,7 @@ class DockerRunner:
             "--security-opt", "no-new-privileges",
             "--pids-limit", str(self.pids_limit),
             "--memory", self.memory,
+            "--env", f"ROS_AUTOMATIC_DISCOVERY_RANGE={self.dds_range}",
         ]  # fmt: skip
 
     def run_argv(self, run_id: str, spec: dict) -> list[str]:

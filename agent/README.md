@@ -157,6 +157,11 @@ narrow, and confines what it starts:
   default).
 - Host networking, host IPC, GPUs and extra `docker run` arguments are the
   operator's flags on the agent. No query can turn them on.
+- Runs are host-local on DDS: every container gets
+  `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, so on a LAN shared with real
+  robots no sim topic reaches a robot's graph. Only the zenoh bridge on the
+  host carries anything off it. `--dds-range` is the only way to change this;
+  the host's own environment is not passed through for it.
 - A run sees only its own `bag/` directory under the runs directory.
 - A run's length and the disk it needs are bounded: a maximum run duration,
   MCAP file splitting, and a free-space check at `up`.
@@ -177,6 +182,7 @@ uv run fm-sim-agent --host local --no-host-network --image fm-sim:jazzy
 | `--gpus` | off | `--gpus all` for Isaac |
 | `--no-host-network` | host network on | macOS, where the container cannot share the host's network |
 | `--docker-arg ARG` | none | extra `docker run` argument, repeatable |
+| `--dds-range R` | `LOCALHOST` | `ROS_AUTOMATIC_DISCOVERY_RANGE` for every container: `LOCALHOST`, `SUBNET`, `OFF` or `SYSTEM_DEFAULT` |
 | `--pids-limit N` | 4096 | process ceiling per run |
 | `--memory SIZE` | `16g` | memory ceiling per run, as `docker run --memory` takes it |
 | `--max-run-minutes M` | 120 | bring a run down after this long |
@@ -189,9 +195,9 @@ The host name comes from the identity card that fm-robot-agent also reads:
 `/etc/fm/machine.json` elsewhere. The router comes from `FM_ROUTER_ENDPOINT`,
 read from the environment or from `/etc/fm-comms.env`. Runs inherit
 `ROS_DOMAIN_ID`, `RMW_IMPLEMENTATION` (default `rmw_cyclonedds_cpp`),
-`ROS_LOCALHOST_ONLY`, `FM_COMMS_PROFILE` and, through `FM_CYCLONEDDS_XML`, the
-host's Cyclone profile. These are the same passthroughs fm-docker's compose base
-makes.
+`FM_COMMS_PROFILE` and, through `FM_CYCLONEDDS_XML`, the
+host's Cyclone profile. These are fm-docker's compose base passthroughs, less
+`ROS_LOCALHOST_ONLY`: discovery range is set by `--dds-range` instead.
 
 ### As A Service
 

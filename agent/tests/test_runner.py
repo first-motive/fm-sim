@@ -145,6 +145,39 @@ def test_transport_env_is_passed_by_name_not_value(docker, monkeypatch, tmp_path
     assert f"{xml}:/etc/fm-comms/cyclonedds.xml:ro" in argv
 
 
+def test_dds_discovery_is_host_local_by_default(docker):
+    docker.catalog()
+    for argv in (docker.run_argv(RUN_ID, SPEC), docker.calls()[-1]):
+        image = argv.index("fm-sim:jazzy")
+        assert "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST" in argv[:image]
+        assert not any(a.startswith("ROS_LOCALHOST_ONLY") for a in argv)
+
+
+def test_only_the_operator_flag_changes_the_dds_range(tmp_path):
+    runner = DockerRunner("fm-sim:jazzy", tmp_path, "fm_ws_01", dds_range="SUBNET")
+    assert "ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET" in runner.run_argv(RUN_ID, SPEC)
+    with pytest.raises(ValueError):
+        DockerRunner("fm-sim:jazzy", tmp_path, "fm_ws_01", dds_range="EVERYWHERE")
+
+
+def test_the_host_environment_cannot_widen_the_dds_range(docker, monkeypatch):
+    monkeypatch.setenv("ROS_AUTOMATIC_DISCOVERY_RANGE", "SUBNET")
+    monkeypatch.setenv("ROS_LOCALHOST_ONLY", "0")
+    argv = docker.run_argv(RUN_ID, SPEC)
+    ranges = [a for a in argv if a.startswith("ROS_AUTOMATIC_DISCOVERY_RANGE")]
+    assert ranges == ["ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"]
+    assert "ROS_LOCALHOST_ONLY" not in argv
+
+
+def test_the_cli_flag_reaches_the_runner():
+    from fm_sim_agent.service import build_parser
+
+    assert build_parser().parse_args([]).dds_range == "LOCALHOST"
+    assert build_parser().parse_args(["--dds-range", "SUBNET"]).dds_range == "SUBNET"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dds-range", "EVERYWHERE"])
+
+
 def test_gpus_and_extra_args_land_before_the_image(docker):
     docker.gpus = True
     docker.docker_args = ("--shm-size", "1g")
