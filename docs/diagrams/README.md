@@ -34,6 +34,7 @@ backends   sim_backend → {mujoco · gazebo · isaac} launch hosts → in-engin
 sim_loop   fm_sim_core headless dev loop — MujocoStepper → sim_loop node → /joint_states
 ```
 
-`backends` is included by `fm_bringup/sim.launch.py` (in
-[`fm-app`](https://github.com/first-motive/fm-app)); this layer provides the hosts
-it selects. See [ARCHITECTURE.md](../ARCHITECTURE.md).
+`backends` shows the engine hosts a robot bringup includes by `sim_backend`; the
+description each host loads comes from
+[`fm-robot`](https://github.com/first-motive/fm-robot). See
+[ARCHITECTURE.md](../ARCHITECTURE.md).

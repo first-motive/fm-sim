@@ -34,8 +34,9 @@ colcon test && colcon test-result --verbose
 ## Run
 
 `run.sh` is the standalone front door: it launches the headless sim loop that
-Foxglove Studio renders at `ws://localhost:8765`. ROS2 Humble has no macOS build,
-so on a Mac every backend runs inside the fm-docker Linux container (OrbStack) —
+Foxglove Studio renders at `ws://localhost:8765`. The sim stack targets ROS2
+Jazzy only (Humble sim is retired). Jazzy has no macOS build, so on a Mac every
+backend runs inside the fm-docker Linux container (OrbStack) —
 there is no native-Mac path for any sim engine. Linux runs bare-metal native.
 
 ### Curl quickstart (macOS, no clone)
@@ -79,15 +80,16 @@ It is terminal-gated: `--backend` and the `curl | bash` path (no TTY) skip it, s
 the curl-to-launch flow is untouched. The chosen engine is forwarded to
 `sim.launch.py` as `backend:=<engine>`. `mujoco` runs the in-process `sim_loop`;
 `gazebo`/`isaac` need a robot description and a controllers file fm-sim does not
-own, and fail with a clear pointer to the assembled stack (`fm_bringup`) when run
-standalone.
+own yet, and fail with a clear pointer when run without them. The description is
+[`fm-robot`](https://github.com/first-motive/fm-robot)'s
+`fm_control/urdf/<robot>.sim.urdf.xacro`, expanded with `sim_backend:=mujoco|gz|isaac`.
 
-The standalone launch here is the sim loop; the per-robot, per-backend
-orchestration lives in `fm-app`'s `fm_bringup`. The clone container path imports
+The standalone launch here is the sim loop. The clone container path imports
 the shared compose overlays from
 [`fm-docker`](https://github.com/first-motive/fm-docker) into `docker/` (via
-`fm-sim.repos`) and builds this repo's `Dockerfile`, which is `FROM` the
-`fm-robot` layer. Tear it down with
+`fm-sim.repos`) and builds this repo's `Dockerfile`, which is `FROM`
+`ghcr.io/first-motive/fm-docker:jazzy`. fm-robot publishes only a Humble image, so
+this image installs the ros2_control stack itself rather than inheriting it. Tear it down with
 `docker compose -f docker/compose.yaml -f docker/compose.macos.yaml down`.
 
 ### Backend × host

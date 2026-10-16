@@ -6,7 +6,7 @@
 # Install gets it running; clone is the dev path. This does not clone a workspace
 # — for the edit-rebuild loop, clone fm-sim and use run.sh from the checkout.
 #
-# Linux is not handled here — it runs ROS2 Humble natively (see run.sh), with no
+# Linux is not handled here — it runs ROS2 Jazzy natively (see run.sh), with no
 # container runtime to install.
 #
 # Curl-able (no clone needed):
@@ -25,7 +25,7 @@
 # an incomplete function that never runs.
 set -euo pipefail
 
-IMAGE="ghcr.io/first-motive/fm-sim:humble"
+IMAGE="ghcr.io/first-motive/fm-sim:jazzy"
 FM_SIM_RAW="https://raw.githubusercontent.com/first-motive/fm-sim/main"
 # fm-render:begin fm-tools-pin sha256:5de9c0a921c441407f1aea8b6e32f37ca9d3f654d1116c636f0a7136da03b7d2 — rendered by the First Motive render plane — edit the upstream source, not this file
 # fm-tools owns both shared bootstrap pieces: lib.sh (fetched raw, before any
@@ -191,7 +191,7 @@ main() {
   fi
 
   if [ "$os" != "macos" ]; then
-    echo "error: install.sh is macOS-only; Linux runs ROS2 Humble natively (see run.sh)." >&2
+    echo "error: install.sh is macOS-only; Linux runs ROS2 Jazzy natively (see run.sh)." >&2
     return 1
   fi
 

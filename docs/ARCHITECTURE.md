@@ -5,9 +5,11 @@ physics stepper (ROS-free, testable in isolation) from the ROS comms, hosts a
 `controller_manager` per engine so the same controllers drive any backend, and
 keeps one registry mapping each robot to its MuJoCo model.
 
-This repo is the sim layer in isolation. The full sim stack — how a backend is
-selected, the description built, and controllers spawned — is composed by
-`fm_bringup` in [`fm-app`](https://github.com/first-motive/fm-app). For the
+This repo is the sim layer, on ROS2 Jazzy only (Humble sim is retired). The robot
+descriptions it hosts come from
+[`fm-robot`](https://github.com/first-motive/fm-robot):
+`fm_control/urdf/<robot>.sim.urdf.xacro`, whose `sim_backend:=mock|mujoco|gz|gazebo|isaac|real`
+arg selects the `<hardware>` plugin and fails on any other value. For the
 system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 
 ## Packages
@@ -21,10 +23,12 @@ system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 
 ## Backend Hosts
 
-`fm_bringup/sim.launch.py` picks a backend by the `sim_backend` argument and
-includes the matching `fm_sim_backends` launch file. Each launch file hosts a
+A robot bringup picks a backend by its `sim_backend` argument and includes the
+matching `fm_sim_backends` launch file. Each launch file hosts a
 `controller_manager` inside its engine, so the controllers above the hardware
-interface are identical across every backend.
+interface are identical across every backend. Each one also runs the
+`robot_state_publisher`: the Jazzy `controller_manager` reads the description
+from the `/robot_description` topic, never from a node parameter.
 
 ![backends](diagrams/backends.svg)
 
@@ -33,17 +37,20 @@ Source: [`diagrams/backends.d2`](diagrams/backends.d2).
 | Backend | Launch file | Hosts | Notes |
 |---------|-------------|-------|-------|
 | `mujoco` | `mujoco.launch.py` | `mujoco_ros2_control/ros2_control_node` under `xvfb-run` | **Daily driver**, native arm64 on M5 (CPU, no GPU) |
-| `gazebo` | `gazebo.launch.py` | `gz_sim` + `ros_gz_sim/create` + `ros_gz_bridge` (clock) | Wired; Linux/GPU only |
-| `isaac` | `isaac.launch.py` | standalone `controller_manager` bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Wired; Linux + NVIDIA, Isaac runs externally |
+| `gazebo` | `gazebo.launch.py` | Gazebo Harmonic via `ros_gz_sim` + `create` + `ros_gz_bridge` (clock); `gz_ros2_control` in-engine | Wired; Linux/GPU, headless server-only anywhere |
+| `isaac` | `isaac.launch.py` | standalone `controller_manager` with `topic_based_ros2_control`, bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Wired; Linux + NVIDIA, Isaac runs externally |
 
-The `mock` and `real` backends do not live here — they spawn a standalone
-`controller_manager` directly from `fm_bringup`. The `<hardware>` plugin each
+`topic_based_ros2_control` has no Jazzy apt release, so `fm-sim.repos` pins it as
+a source external that CI and the image build.
+
+The `mock` and `real` backends do not live here — a robot bringup spawns a
+standalone `controller_manager` for them directly. The `<hardware>` plugin each
 backend binds to is defined in [`fm-robot`](https://github.com/first-motive/fm-robot)
 (`fm_control`); this layer provides the engine hosts, not the interface.
 
 ## Host Verification
 
-ROS2 Humble has no native macOS build, so on a Mac every backend runs inside the
+ROS2 Jazzy has no native macOS build, so on a Mac every backend runs inside the
 fm-docker Linux container (OrbStack) — there is no native-Mac path for any sim
 engine. Linux runs bare-metal native. `run.sh` picks the path from the host OS;
 `scripts/smoke.sh` drives the matrix on a Mac and the `smoke-container` CI job
@@ -56,9 +63,9 @@ drives it on amd64 ubuntu.
 | `gazebo` | headless | yes (GPU) | `gz -s` server-only, software GL |
 | `isaac` | — | yes (NVIDIA) | not on macOS — Isaac Sim is Linux + NVIDIA |
 
-`gazebo` headless on arm64 under software GL is the genuine unknown — it had
-never been run, so `smoke.sh` captures PASS / SKIP / FAIL rather than assuming
-success, and the amd64 CI lane proves the launch logic regardless.
+On Jazzy, Gazebo Harmonic ships arm64 binaries, and `gazebo` runs headless on
+arm64 under software GL. `smoke.sh` still captures PASS / SKIP / FAIL rather than
+assuming success, and the amd64 CI lane covers the same matrix.
 
 `isaac` is out on macOS by design. The Isaac Sim application is Linux + NVIDIA
 only and never runs on Apple silicon or the container base image; only its topic
@@ -68,8 +75,8 @@ macOS isaac code, by intent — not an omission.
 ## MJCF Registry
 
 `fm_sim_models.mjcf_path(robot_key)` is the sole source of MuJoCo model paths — no
-path is hardcoded in any xacro. When `sim_backend == "mujoco"`, `fm_bringup`
-injects the looked-up path as the `mujoco_model` xacro argument.
+path is hardcoded in any xacro. With `sim_backend:=mujoco`, the caller expanding
+fm-robot's sim xacro passes the looked-up path as its `mujoco_model` argument.
 
 | Robot key | MJCF | Status |
 |-----------|------|--------|
@@ -101,9 +108,7 @@ Source: [`diagrams/sim_loop.d2`](diagrams/sim_loop.d2).
 | `rate_hz` | double | `100.0` | Step + publish frequency |
 
 The stepper takes an injected `mujoco` module, so unit tests run against a fake —
-no native wheel required. Note `fm_sim_core/sim.launch.py` is a *different* file
-from `fm_bringup/sim.launch.py` (the full sim stack); they share a name but neither
-includes the other.
+no native wheel required.
 
 ## Design Notes
 

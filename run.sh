@@ -9,7 +9,7 @@
 #   ./run.sh [--backend NAME] [--native|--container] [-h|--help] [params_file:=my.yaml]
 #
 # The host OS picks the path (override with --native / --container):
-#   linux  -> native:    build + launch directly on the host (ROS2 Humble + the
+#   linux  -> native:    build + launch directly on the host (ROS2 Jazzy + the
 #                        sim deps must be installed)
 #   macos  -> container: run the fm-sim image via the fm-docker compose overlays,
 #                        build + launch inside it (OrbStack)
@@ -19,7 +19,7 @@
 # so later runs work offline.
 #
 # --backend names the sim engine (the standalone launch here is the sim loop; the
-# per-robot, per-backend orchestration lives in fm-app's fm_bringup). On the
+# robot descriptions it pairs with live in fm-robot's fm_control). On the
 # container path every backend runs under the one macOS overlay — mock, mujoco,
 # and gazebo all come up headless in the Mac container (gazebo server-only via
 # `gz -s` under software GL). Linux runs bare-metal native, so it takes no overlay
@@ -37,8 +37,8 @@
 set -euo pipefail
 
 # --- Per-repo config (downstream repos retune these) --------------------------
-LOCAL_IMAGE=fm-sim:humble                          # locally-built tag for the clone dev loop
-BAKED_IMAGE=ghcr.io/first-motive/fm-sim:humble     # published image for the no-clone baked path
+LOCAL_IMAGE=fm-sim:jazzy                           # locally-built tag for the clone dev loop
+BAKED_IMAGE=ghcr.io/first-motive/fm-sim:jazzy      # published image for the no-clone baked path
 LAUNCH=(ros2 launch fm_sim_core sim.launch.py)     # what `run.sh` launches
 FM_SIM_RAW="https://raw.githubusercontent.com/first-motive/fm-sim/main"
 # fm-render:begin fm-tools-pin sha256:5de9c0a921c441407f1aea8b6e32f37ca9d3f654d1116c636f0a7136da03b7d2 — rendered by the First Motive render plane — edit the upstream source, not this file
@@ -124,8 +124,8 @@ EOF
 
 # The backend names the sim engine. sim.launch.py dispatches it (mujoco runs the
 # in-process sim_loop; gazebo/isaac delegate to fm_sim_backends). mock has no
-# sim.launch backend — it is the fm_bringup no-engine path — so it falls through
-# to the mujoco default.
+# sim.launch backend — it is the no-engine robot bringup path — so it falls
+# through to the mujoco default.
 VALID_BACKENDS=(mock mujoco gazebo isaac)
 # The interactive picker offers only the engines sim.launch.py dispatches.
 PICK_BACKENDS=(mujoco gazebo isaac)
@@ -204,7 +204,7 @@ main() {
 run_native() {
   set +u  # ROS setup scripts reference unbound vars; nounset would abort the source
   # shellcheck source=/dev/null
-  source "/opt/ros/${ROS_DISTRO:-humble}/setup.bash"
+  source "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
   set -u
   cd "$INVOKE_DIR"
   if [[ ! -d external ]]; then
@@ -265,7 +265,7 @@ run_container() {
   export FM_IMAGE="$LOCAL_IMAGE"
   export FM_WS="$INVOKE_DIR"
 
-  echo ">> building $LOCAL_IMAGE (FROM the fm-robot layer)"
+  echo ">> building $LOCAL_IMAGE (FROM the fm-docker jazzy base)"
   docker build -t "$LOCAL_IMAGE" .
   echo ">> bringing the container up (idempotent) — overlay $(basename "$overlay")"
   "${compose[@]}" up -d

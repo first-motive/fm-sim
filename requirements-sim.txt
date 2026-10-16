@@ -1,0 +1,3 @@
+# Python wheels the sim nodes import that rosdep cannot resolve. One pin shared by
+# the Dockerfile and CI's smoke job (pip-packages: -r requirements-sim.txt).
+mujoco==3.16.0
