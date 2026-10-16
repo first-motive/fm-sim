@@ -1,0 +1,27 @@
+# fm-sim-agent — this sim host's run control verbs, served over Zenoh.
+#
+# A template in fm-robot-agent's form: @USER@, @WORKDIR@ (this agent/ directory)
+# and @UV@ are replaced by whatever installs it (fm-setup's sim workload). Edit
+# this file and re-run the installer, never the rendered unit.
+[Unit]
+Description=fm-sim-agent: this sim host's run control verbs over Zenoh
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKDIR@
+# The fleet-wide facts — the router endpoint above all — come from the same file
+# every other First Motive unit reads. FM_SIM_IMAGE, when set there, pins the
+# image runs use; set it to a digest so a moved tag never changes a host silently.
+EnvironmentFile=/etc/fm-comms.env
+ExecStart=@UV@ run --project @WORKDIR@ fm-sim-agent
+# The agent stops its active run on SIGTERM; docker stop takes up to 20 s.
+TimeoutStopSec=60
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

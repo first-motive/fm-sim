@@ -1,0 +1,42 @@
+# fm-sim-agent — the host-side agent that serves a sim host's run control verbs.
+#
+# Its own uv project, not a colcon package (agent/COLCON_IGNORE keeps colcon out):
+# it runs on the host beside Docker, outside any ROS environment, and starts the
+# ROS stack in the fm-sim image rather than importing it.
+#
+# The zenoh wheel is pinned to the version fm-robot-agent locks, on the same
+# 1.9.x line as fm-comms' zenoh/zenoh.version. An agent that speaks a different
+# protocol version than the router is the split the single pin exists to prevent.
+
+[project]
+name = "fm-sim-agent"
+version = "0.1.0"
+description = "Serve a First Motive sim host's run control verbs over Zenoh"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "First Motive", email = "nish@ubundi.co.za" }]
+dependencies = [
+    "eclipse-zenoh==1.9.0",
+    # `ros2 topic echo` prints YAML; this parses the latched /sim/outcome.
+    "pyyaml==6.0.3",
+]
+
+[project.scripts]
+fm-sim-agent = "fm_sim_agent.service:main"
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2", "ruff==0.14.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fm_sim_agent"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

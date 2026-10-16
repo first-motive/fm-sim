@@ -113,6 +113,13 @@ below and prints a pass/skip/fail table).
 NVIDIA only and never runs on Apple silicon or the container base image. Only its
 topic bridge node is portable, and that stays on the Linux/NVIDIA host.
 
+## Sim Agent
+
+[`agent/`](agent/README.md) is a uv project, not a colcon package. It serves a
+sim host's run control verbs (`status`, `catalog`, `up`, `down`, `reset`, `runs`,
+`logs`) under `fm/sim/<host>/` over Zenoh, and runs each run as a container of
+this repo's image.
+
 ### Run Contract
 
 One launch runs a backend × robot × scenario × controller combination the catalog
