@@ -1,0 +1,10 @@
+# Catalog entry (fm_sim.backends): the MuJoCo host, the CPU daily driver.
+name: mujoco
+description: MuJoCo via mujoco_ros2_control; CPU, headless under xvfb
+available: true
+launch:
+  package: fm_sim_backends
+  path: launch/mujoco.launch.py
+description_args:
+  sim_backend: mujoco
+  mujoco_model: '{mjcf_path}'

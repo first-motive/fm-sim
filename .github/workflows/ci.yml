@@ -11,9 +11,10 @@ on:
 
 # Standalone build (hybrid CI): fm-sim builds its own packages on Jazzy, the only
 # distro the sim stack targets. Its MJCF model externals (SO-ARM, OpenArm, Unitree)
-# are file-vendored, not colcon packages, so they are COLCON_IGNORE'd; the one
-# external it builds is topic_based_ros2_control, which has no Jazzy apt release.
-# The full integration build lives in fm-ros2.
+# are file-vendored, not colcon packages, so they are COLCON_IGNORE'd. It builds the
+# externals with no Jazzy apt release: topic_based_ros2_control, and fm-robot (the
+# robot descriptions) with openarm_description and unitree_ros2. The full
+# integration build lives in fm-ros2.
 jobs:
   # Rendered files (AGENTS.md, .fm/) come from the render plane and carry a hash of
   # their own body. This fails the PR when one was edited in place.
@@ -37,16 +38,19 @@ jobs:
   selftest:
     uses: first-motive/.github/.github/workflows/bootstrap-selftest.yml@main
 
-  # The colcon block lives in first-motive/.github. topic_based_ros2_control is the
-  # one external built (the Isaac backend's plugin); the default fm_ prefix keeps
-  # its upstream tests out of the run.
+  # The colcon block lives in first-motive/.github. The fm_sim prefix tests only
+  # this repo's packages: fm-robot's own fm_* tests are its CI's to keep green. The
+  # apt packages are the ones unitree_ros2's messages build with, as in fm-robot.
   build-test:
     uses: first-motive/.github/.github/workflows/ros2-build-test.yml@main
     with:
       distro: jazzy
       checkout-path: src/fm-sim
       repos-file: fm-sim.repos
-      build-externals: topic_based_ros2_control
+      build-externals: topic_based_ros2_control fm-robot openarm_description unitree_ros2
+      apt-packages: >-
+        ros-jazzy-rosidl-generator-dds-idl ros-jazzy-cyclonedds ros-jazzy-rmw-cyclonedds-cpp
+      package-prefix: fm_sim
 
   image:
     name: build + publish image (FROM fm-docker jazzy base)
@@ -107,7 +111,9 @@ jobs:
     with:
       distro: jazzy
       repos-file: fm-sim.repos
-      build-externals: topic_based_ros2_control
+      build-externals: topic_based_ros2_control fm-robot openarm_description unitree_ros2
+      apt-packages: >-
+        ros-jazzy-rosidl-generator-dds-idl ros-jazzy-cyclonedds ros-jazzy-rmw-cyclonedds-cpp
       # Word-split by the shared workflow into `uv pip install --system ...`. Noble
       # marks the system Python externally managed (PEP 668), so the override is
       # needed here as it is in the Dockerfile.

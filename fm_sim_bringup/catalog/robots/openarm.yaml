@@ -1,0 +1,26 @@
+# Catalog entry (fm_sim.robots): the bimanual OpenArm v2 in fm-robot's canonical
+# openarm_* names. Controller names follow the fm_openarm_v2 robot profile.
+name: openarm
+description: OpenArm v2, bimanual with pinch grippers (fm-robot openarm_* names)
+available: true
+description_file:
+  package: fm_control
+  path: urdf/openarm.sim.urdf.xacro
+description_args:
+  robot_preset: default_bimanual
+  # The profile's TCP is the pinch gripper's grasp frame.
+  emit_grasp_frame: 'true'
+mjcf: openarm
+controllers_file:
+  package: fm_sim_bringup
+  path: config/openarm/default_bimanual.controllers.yaml
+controller_roles:
+  broadcasters: [joint_state_broadcaster]
+  arm_trajectory: [openarm_left_arm_controller, openarm_right_arm_controller]
+  arm_forward_position:
+    [openarm_left_forward_position_controller, openarm_right_forward_position_controller]
+  gripper: [openarm_left_gripper_controller, openarm_right_gripper_controller]
+robot_profile: fm_openarm_v2
+# gazebo is left out until the Gazebo step: its controller_manager never loads this
+# description's two arm systems (fm_sim_bringup README, Known Gaps).
+supported_backends: [mujoco, isaac]

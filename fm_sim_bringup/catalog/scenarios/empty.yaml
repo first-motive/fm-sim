@@ -1,0 +1,5 @@
+# Catalog entry (fm_sim.scenarios): the robot alone in each backend's default world.
+name: empty
+description: The robot alone, no objects
+available: true
+objects: []

@@ -1,0 +1,127 @@
+r"""Run one simulation: backend x robot x scenario x controller.
+
+Every dimension is a catalog entry registered in the ament index (see
+``fm_sim_bringup.catalog``); an unknown or unavailable value fails before anything
+starts, naming the registered ones. ``ros2 run fm_sim_bringup catalog`` lists them.
+
+    ros2 launch fm_sim_bringup run.launch.py \
+        backend:=mujoco robot:=openarm scenario:=empty controller:=idle
+
+What comes up:
+
+1. the robot description: the robot entry's xacro, expanded with the robot's args
+   plus the backend's (which select the hardware plugin);
+2. the backend launch (given the backend's ``launch_args``), which publishes the
+   description and hosts the controller_manager;
+3. the controller spawners: broadcasters and the roles the controller activates
+   start active, the robot's other controllers load inactive;
+4. the controller entry's launch, if it has one, given ``use_sim``,
+   ``robot_profile`` and ``scenario``.
+
+The scenario is resolved and validated; ``empty`` adds nothing to the scene.
+"""
+
+from fm_sim_bringup import catalog, run
+from fm_sim_models.models import mjcf_path
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+import xacro
+
+
+# Spawners wait this long for the controller_manager; a software-GL engine on a
+# small host can take most of it to come up.
+_CONTROLLER_MANAGER_TIMEOUT_S = '120'
+
+
+def _spawner(controllers, controllers_file, inactive=False):
+    arguments = [
+        *controllers,
+        '--param-file', controllers_file,
+        '--controller-manager-timeout', _CONTROLLER_MANAGER_TIMEOUT_S,
+    ]
+    if inactive:
+        arguments.append('--inactive')
+    return Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=arguments,
+        output='screen',
+    )
+
+
+def _launch_setup(context):
+    choice = {
+        dimension: LaunchConfiguration(dimension).perform(context)
+        for dimension in ('backend', 'robot', 'scenario', 'controller')
+    }
+    use_sim = LaunchConfiguration('use_sim').perform(context)
+    if use_sim not in ('true', 'false'):
+        raise catalog.CatalogError(f"use_sim must be 'true' or 'false', got {use_sim!r}")
+    entries = run.resolve(**choice)
+    backend, robot, controller = entries['backend'], entries['robot'], entries['controller']
+
+    controllers_file = catalog.share_file(robot['controllers_file'])
+    robot_description = xacro.process_file(
+        catalog.share_file(robot['description_file']),
+        mappings=run.description_args(
+            backend, robot, mjcf_path(robot['mjcf']), controllers_file
+        ),
+    ).toxml()
+    active, inactive = run.controller_sets(robot, controller)
+
+    actions = [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(catalog.share_file(backend['launch'])),
+            launch_arguments={
+                **backend.get('launch_args', {}),
+                'robot_description': robot_description,
+                'controllers_file': controllers_file,
+            }.items(),
+        ),
+        _spawner(active, controllers_file),
+    ]
+    if inactive:
+        actions.append(_spawner(inactive, controllers_file, inactive=True))
+    if controller['launch']:
+        actions.append(
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(catalog.share_file(controller['launch'])),
+                launch_arguments={
+                    'use_sim': use_sim,
+                    'robot_profile': robot['robot_profile'],
+                    'scenario': choice['scenario'],
+                }.items(),
+            )
+        )
+    return actions
+
+
+def generate_launch_description():
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                'backend', default_value='mujoco',
+                description='Sim backend (catalog fm_sim.backends).',
+            ),
+            DeclareLaunchArgument(
+                'robot', default_value='openarm',
+                description='Robot (catalog fm_sim.robots).',
+            ),
+            DeclareLaunchArgument(
+                'scenario', default_value='empty',
+                description='Scenario (catalog fm_sim.scenarios).',
+            ),
+            DeclareLaunchArgument(
+                'controller', default_value='idle',
+                description='Controller under test (catalog fm_sim.controllers).',
+            ),
+            DeclareLaunchArgument(
+                'use_sim', default_value='true',
+                description="'true' or 'false'; passed to the controller's launch.",
+            ),
+            OpaqueFunction(function=_launch_setup),
+        ]
+    )

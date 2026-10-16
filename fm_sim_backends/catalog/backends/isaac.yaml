@@ -1,0 +1,10 @@
+# Catalog entry (fm_sim.backends): Isaac Sim bridged over topics. Isaac Sim itself
+# runs separately on a Linux + NVIDIA host.
+name: isaac
+description: Isaac Sim over topic_based_ros2_control (/isaac_joint_states, /isaac_joint_commands)
+available: true
+launch:
+  package: fm_sim_backends
+  path: launch/isaac.launch.py
+description_args:
+  sim_backend: isaac

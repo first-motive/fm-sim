@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/first-motive/fm-sim/blob/main/fm_sim_bringup/schema/catalog.schema.json",
+  "title": "fm-sim catalog",
+  "description": "Output of `ros2 run fm_sim_bringup catalog --json`. Each entry is one registered catalog yaml plus the package that registered it; the definitions also validate each yaml on its own.",
+  "type": "object",
+  "required": ["schema_version", "backends", "robots", "scenarios", "controllers"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "backends": {"type": "array", "items": {"$ref": "#/definitions/backend"}},
+    "robots": {"type": "array", "items": {"$ref": "#/definitions/robot"}},
+    "scenarios": {"type": "array", "items": {"$ref": "#/definitions/scenario"}},
+    "controllers": {"type": "array", "items": {"$ref": "#/definitions/controller"}}
+  },
+  "definitions": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "share_file": {
+      "description": "A file in a package's install share directory.",
+      "type": "object",
+      "required": ["package", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "package": {"type": "string", "minLength": 1},
+        "path": {"$ref": "#/definitions/relative_path"}
+      }
+    },
+    "relative_path": {
+      "description": "A path relative to a package share: no leading slash, no '..' segment.",
+      "type": "string",
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$)).+$"
+    },
+    "string_map": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "entry": {
+      "type": "object",
+      "required": ["name", "package", "description", "available"],
+      "properties": {
+        "name": {"$ref": "#/definitions/name"},
+        "package": {"type": "string", "description": "The package that registered the entry."},
+        "description": {"type": "string", "minLength": 1},
+        "available": {"type": "boolean", "description": "False for a listed placeholder that run.launch.py refuses."}
+      }
+    },
+    "backend": {
+      "allOf": [
+        {"$ref": "#/definitions/entry"},
+        {
+          "required": ["launch", "description_args"],
+          "properties": {
+            "launch": {"$ref": "#/definitions/share_file"},
+            "launch_args": {
+              "$ref": "#/definitions/string_map",
+              "description": "Optional extra arguments for the backend launch."
+            },
+            "description_args": {
+              "$ref": "#/definitions/string_map",
+              "description": "xacro args this backend adds to the robot description; {mjcf_path} and {controllers_file} are filled in."
+            }
+          }
+        }
+      ]
+    },
+    "robot": {
+      "allOf": [
+        {"$ref": "#/definitions/entry"},
+        {
+          "required": ["description_file", "description_args", "mjcf", "controllers_file", "controller_roles", "robot_profile", "supported_backends"],
+          "properties": {
+            "supported_backends": {
+              "description": "Backends this robot is known to run on; run.launch.py refuses the others.",
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/definitions/name"}
+            },
+            "description_file": {"$ref": "#/definitions/share_file"},
+            "description_args": {"$ref": "#/definitions/string_map"},
+            "mjcf": {"type": "string", "description": "fm_sim_models registry key of the MuJoCo model."},
+            "controllers_file": {"$ref": "#/definitions/share_file"},
+            "controller_roles": {
+              "description": "Controller names by role. broadcasters always start active; a controller entry activates other roles, and the rest load inactive.",
+              "type": "object",
+              "required": ["broadcasters"],
+              "additionalProperties": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1}
+              }
+            },
+            "robot_profile": {"type": "string", "description": "Robot profile the controllers read joint, controller and frame names from."}
+          }
+        }
+      ]
+    },
+    "scenario": {
+      "allOf": [
+        {"$ref": "#/definitions/entry"},
+        {
+          "required": ["objects"],
+          "properties": {
+            "objects": {"type": "array", "description": "Objects placed in the scene; the schema for each lands with the scenario generators."}
+          }
+        }
+      ]
+    },
+    "controller": {
+      "allOf": [
+        {"$ref": "#/definitions/entry"},
+        {
+          "required": ["activate", "launch"],
+          "properties": {
+            "activate": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1},
+              "description": "Robot controller roles this controller needs active."
+            },
+            "launch": {
+              "oneOf": [{"type": "null"}, {"$ref": "#/definitions/share_file"}],
+              "description": "Launch file run.launch.py includes, or null for none."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

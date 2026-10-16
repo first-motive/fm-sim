@@ -32,6 +32,7 @@ token table and block grammar:
 ```
 backends   sim_backend → {mujoco · gazebo · isaac} launch hosts → in-engine controller_manager
 sim_loop   fm_sim_core headless dev loop — MujocoStepper → sim_loop node → /joint_states
+run        fm_sim_bringup run.launch.py — catalog → description → backend host → spawners
 ```
 
 `backends` shows the engine hosts a robot bringup includes by `sim_backend`; the
