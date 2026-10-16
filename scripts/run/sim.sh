@@ -23,4 +23,4 @@ set -euo pipefail
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="$(cd "$_here/../.." && pwd)"
 
-exec uv run --quiet --project "$FM_ROOT/agent" fm-sim "$@"
+exec uv run --quiet --locked --project "$FM_ROOT/agent" fm-sim "$@"

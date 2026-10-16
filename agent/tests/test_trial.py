@@ -154,3 +154,10 @@ def test_poll_interval_is_read_when_a_run_is_driven(monkeypatch):
     host = ScriptedHost([{"ok": True, "state": "starting", "run_id": RUN_ID}, IDLE])
     drive(host, SPEC, timeout_s=None, sleep=slept.append)
     assert slept == [0.25]
+
+
+def test_a_refused_down_with_no_summary_says_so_in_the_row():
+    host = ScriptedHost([IDLE], down=error_body("not_running", "no run"), runs=[])
+    summary = drive(host, SPEC, timeout_s=None, sleep=lambda _s: None)
+    row = row_of(7, summary)
+    assert row["success"] is None and row["reason"] == "down refused: not_running"

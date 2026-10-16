@@ -23,11 +23,20 @@ long as this process:
 - ``up`` stays in the foreground, streams the run's logs, and brings the run
   down on Ctrl-C, on its outcome, or after ``--duration``. A remote ``up``
   returns once the run is started; the host's agent keeps it.
+- ``up`` and ``trial`` first ask Docker whether another ``fm sim`` process on
+  this machine holds a run under the ``local`` label, and refuse with ``busy``
+  if one does. The check and the start are not atomic: two processes started
+  in the same moment can both pass it, and the second run then fails on the
+  simulator's ports rather than with ``busy``.
 - ``down`` with no run in this process clears what another ``fm sim`` process
   on this machine left: it removes every local run container and closes its
-  summary, as an agent does when it starts.
+  summary, as an agent does when it starts. With ``--run-id`` it does so only
+  if that is the run it finds.
 - ``status`` and ``logs`` find a run another local process holds through
   Docker's labels.
+- ``up --duration`` is checked between polls, and a poll can wait on the
+  container's ``/sim/outcome`` for up to its 5 s timeout, so a run can
+  outlast its duration by that much.
 
 Exit codes: 0 success, 1 the host refused, 2 usage, 3 precondition (no router
 endpoint, or the host did not answer), 130 interrupted.
@@ -51,7 +60,7 @@ from fm_sim_agent.env import EndpointError, router_endpoint
 from fm_sim_agent.runner import DockerRunner, RunnerError
 from fm_sim_agent.runs import RunStore, default_runs_dir
 from fm_sim_agent.service import DEFAULT_IMAGE, key_of
-from fm_sim_agent.spec import DIMENSIONS, SpecError, valid_run_id
+from fm_sim_agent.spec import DIMENSIONS, NAME_PATTERN, SpecError, valid_name, valid_run_id
 from fm_sim_agent.trial import (
     DEFAULT_RUN_TIMEOUT_S,
     Refused,
@@ -78,14 +87,32 @@ EX_USAGE = 2
 EX_PRECONDITION = 3
 EX_INTERRUPTED = 130
 
-#: Control characters a reply must not carry into a terminal (as fm-robot-agent's
-#: client strips them): the text comes off the fabric, and could otherwise
-#: repaint the line an operator is reading.
-CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+#: What a field off the fabric must not carry into a terminal: control
+#: characters, newlines and tabs included (every field prints on one line), and
+#: the bidi overrides and isolates. The text comes from a host, and could
+#: otherwise repaint or reorder the line an operator is reading.
+UNSAFE_CHARACTERS = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+
+#: A reply or log record is a few kilobytes at most. One past this is not
+#: decoded: a host, or anything speaking as one, must not spend this machine's
+#: memory.
+MAX_PAYLOAD_BYTES = 1 << 20
 
 
 def safe(text: object) -> str:
-    return CONTROL_CHARACTERS.sub("", str(text))
+    """One field as a single safe line."""
+    return UNSAFE_CHARACTERS.sub("", str(text))
+
+
+def decode(payload) -> dict | None:
+    """A Zenoh payload as a JSON object, or ``None`` if it is oversized or not one."""
+    if payload is None or len(payload) > MAX_PAYLOAD_BYTES:
+        return None
+    try:
+        decoded = json.loads(payload.to_bytes())
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
 
 
 class NoAnswer(Exception):
@@ -106,11 +133,8 @@ class Remote:
             # A refusal is an error reply carrying the agent's body; read it the
             # same as a success. Zenoh's own error (a timeout) is not JSON.
             sample = reply.ok if reply.ok is not None else reply.err
-            try:
-                decoded = json.loads(sample.payload.to_bytes())
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if isinstance(decoded, dict):
+            decoded = decode(sample.payload)
+            if decoded is not None:
                 return decoded
         raise NoAnswer(f"{self.host} did not answer {verb}")
 
@@ -121,11 +145,8 @@ class Remote:
         """Print the run's log records as the agent publishes them, until ``stop``."""
 
         def received(sample) -> None:
-            try:
-                record = json.loads(sample.payload.to_bytes())
-            except (ValueError, UnicodeDecodeError):
-                return
-            if isinstance(record, dict):
+            record = decode(sample.payload)
+            if record is not None:
                 on_record(record)
 
         subscriber = self.session.declare_subscriber(f"{key_of(self.host, 'logs')}/{run_id}", received)
@@ -171,6 +192,9 @@ class Local:
             return error_body(
                 "busy", f"run {other} is active on {self.host}; `fm sim down --host local` ends it"
             )
+        wanted = (body or {}).get("run_id")
+        if wanted is not None and wanted != other:
+            return error_body("run_mismatch", f"the active run is {other}")
         removed = self.agent.recover()  # down: the agent's own clean-up of a run nobody drives
         return {"ok": True, "summary": self.agent.store.read(other), "removed": removed}
 
@@ -287,6 +311,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             parser.error("--image, --runs-dir and --duration apply only to --host local")
     if getattr(args, "run_id", None) is not None and not valid_run_id(args.run_id):
         parser.error(f"{args.run_id!r} is not a run id")
+    if args.verb in ("up", "trial"):
+        for dimension in DIMENSIONS:
+            # Checked here as well as by the agent: a trial's report is named after them.
+            if not valid_name(getattr(args, dimension)):
+                parser.error(f"--{dimension} must match {NAME_PATTERN.pattern}")
     if args.verb == "trial":
         try:
             args.seed_list = parse_seeds(args.seeds) if args.seeds else seed_run(args.count, args.seed_start)
@@ -324,14 +353,14 @@ def emit(reply: dict, as_json: bool, line) -> int:
             file=sys.stderr,
         )
     else:
-        print(safe(line(reply)))
+        print(line(reply))  # each renderer makes its own fields safe
     return 0 if reply.get("ok") is True else EX_REFUSED
 
 
 def status_line(status: dict) -> str:
-    run = f" {status['run_id']}" if status.get("run_id") else ""
-    error = f" ({status['error']})" if status.get("error") else ""
-    return f"{status.get('host')}: {status.get('state')}{run}{error} since {status.get('since')}"
+    run = f" {safe(status['run_id'])}" if status.get("run_id") else ""
+    error = f" ({safe(status['error'])})" if status.get("error") else ""
+    return f"{safe(status.get('host'))}: {safe(status.get('state'))}{run}{error} since {safe(status.get('since'))}"
 
 
 def catalog_lines(reply: dict) -> str:
@@ -339,7 +368,7 @@ def catalog_lines(reply: dict) -> str:
     lines = []
     for dimension in DIMENSIONS:
         names = [
-            f"{e.get('name')}{'' if e.get('available') is True else ' (unavailable)'}"
+            f"{safe(e.get('name'))}{'' if e.get('available') is True else ' (unavailable)'}"
             for e in catalog.get(f"{dimension}s", [])
         ]
         lines.append(f"{dimension}s: {', '.join(names) or '-'}")
@@ -351,13 +380,13 @@ def outcome_text(summary: dict | None) -> str:
     if not isinstance(outcome, dict):
         return "no outcome"
     verdict = "success" if outcome.get("success") is True else "failure"
-    return f"{verdict}: {outcome.get('reason', '')} ({outcome.get('elapsed_s')} s)"
+    return f"{verdict}: {safe(outcome.get('reason', ''))} ({safe(outcome.get('elapsed_s'))} s)"
 
 
 def summary_line(summary: dict | None) -> str:
     if not summary:
         return "no summary filed"
-    return f"{summary.get('run_id')}: {outcome_text(summary)}"
+    return f"{safe(summary.get('run_id'))}: {outcome_text(summary)}"
 
 
 def runs_lines(reply: dict) -> str:
@@ -366,7 +395,7 @@ def runs_lines(reply: dict) -> str:
 
 def down_line(reply: dict) -> str:
     removed = reply.get("removed")
-    cleared = f"\nremoved {', '.join(removed)}" if removed else ""
+    cleared = f"\nremoved {', '.join(safe(name) for name in removed)}" if removed else ""
     return summary_line(reply.get("summary")) + cleared
 
 
@@ -375,7 +404,10 @@ def print_record(record: dict) -> None:
         stamp = datetime.fromtimestamp(float(record.get("t", 0)), timezone.utc).strftime("%H:%M:%S")
     except (TypeError, ValueError, OverflowError, OSError):
         stamp = "--:--:--"
-    print(safe(f"{stamp} [{record.get('level')}] {record.get('node')}: {record.get('msg')}"), flush=True)
+    print(
+        f"{stamp} [{safe(record.get('level'))}] {safe(record.get('node'))}: {safe(record.get('msg'))}",
+        flush=True,
+    )
 
 
 TABLE_COLUMNS = ("seed", "result", "reason", "elapsed_s", "run_id")
@@ -383,8 +415,9 @@ TABLE_COLUMNS = ("seed", "result", "reason", "elapsed_s", "run_id")
 
 def table_row(row: dict) -> tuple[str, ...]:
     result = {True: "success", False: "failure", None: "unscored"}[row["success"]]
-    elapsed = "" if row["elapsed_s"] is None else f"{row['elapsed_s']:.1f}"
-    return (str(row["seed"]), result, safe(row["reason"])[:40], elapsed, str(row["run_id"]))
+    elapsed_s = row["elapsed_s"]
+    elapsed = f"{elapsed_s:.1f}" if isinstance(elapsed_s, (int, float)) else safe(elapsed_s or "")
+    return (str(row["seed"]), result, safe(row["reason"])[:40], elapsed, safe(row["run_id"]))
 
 
 def trial_table(report: dict) -> str:
@@ -409,12 +442,14 @@ def trial_table(report: dict) -> str:
 def cmd_up(host, args) -> int:
     spec = spec_of(args, args.seed)
     if not isinstance(host, Local):
-        return emit(host.call("up", spec), args.as_json, lambda r: f"started {r['run_id']} on {args.host}")
+        return emit(
+            host.call("up", spec), args.as_json, lambda r: f"started {safe(r['run_id'])} on {args.host}"
+        )
     # Local: this process is the agent, so the run lives in the foreground.
     host.agent.log_sink = lambda _run_id, record: print_record(record)
     try:
         summary = drive(
-            host, spec, timeout_s=args.duration, on_up=lambda r: print(f"started {r}", flush=True)
+            host, spec, timeout_s=args.duration, on_up=lambda r: print(f"started {safe(r)}", flush=True)
         )
     except Refused as exc:
         print(f"refused ({exc.code}): {safe(exc.message)}", file=sys.stderr)
@@ -432,6 +467,11 @@ def cmd_logs(host, args) -> int:
         run_id = status.get("run_id")
         if not run_id:
             return emit(error_body("not_running", f"no run is active on {args.host}"), args.as_json, str)
+        if not valid_run_id(run_id):
+            # It becomes a key expression, where `*` would widen it over every run.
+            return emit(
+                error_body("invalid_reply", "the host named a run id that is not one"), args.as_json, str
+            )
     print(f"following {run_id}; Ctrl-C stops", file=sys.stderr, flush=True)
     stop = threading.Event()
     try:
@@ -450,7 +490,7 @@ def cmd_trial(host, args) -> int:
     print(f"trial: {len(seeds)} runs of {'/'.join(spec[d] for d in DIMENSIONS)} on {args.host}", flush=True)
 
     def progress(row: dict) -> None:
-        print(safe("  ".join(table_row(row))), flush=True)
+        print("  ".join(table_row(row)), flush=True)
 
     report, stopped = run_trial(host, args.host, spec, seeds, timeout_s=args.run_timeout, on_row=progress)
     path = (args.report or default_report_path(spec)).expanduser()

@@ -51,6 +51,8 @@ def test_host_is_required_and_becomes_a_key_segment():
         ["trial", "--host", "local", "--seeds", "1,1"],
         ["trial", "--host", "local", "--count", "3", "--run-timeout", "0"],
         ["nope", "--host", "local"],
+        ["up", "--host", "local", "--scenario", "../etc"],
+        ["trial", "--host", "local", "--count", "2", "--robot", "Open-Arm"],
     ],
 )
 def test_bad_flags_are_usage_errors(argv):
@@ -297,3 +299,65 @@ def test_local_trial_runs_seeds_one_at_a_time_and_scores_them(local, runner, cap
     assert lifecycle == ["start", "stop"] * 4
     assert "success 2/4 (50.0%), 0 unscored" in out
     assert f"report: {report_path}" in out
+
+
+def test_local_down_with_another_run_id_leaves_that_run_alone(local, runner, capsys):
+    runner.live = [OTHER_RUN]
+    wrong = "20261016T120000-mujoco-openarm-empty-idle-9"
+    code, _, err = run(["down", "--host", "local", "--run-id", wrong], local, capsys)
+    assert code == 1 and "refused (run_mismatch)" in err
+    assert "stop_stale" not in runner.names() and "stop" not in runner.names()
+
+
+def test_interrupting_a_local_up_mid_start_still_downs_the_run(local, runner, capsys, monkeypatch):
+    original = runner.start
+
+    def interrupted(run_id, spec):
+        original(run_id, spec)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner, "start", interrupted)
+    code, _, _ = run(["up", "--host", "local"], local, capsys)
+    assert code == 130
+    assert "stop" in runner.names()
+    assert local.agent.status()["run_id"] is None
+
+
+def test_safe_keeps_a_field_on_one_unreordered_line():
+    assert client.safe("a\nb\tc\x1b[2Jd\u202eе\u2066f\u2069") == "ab" + "c[2Jd" + "е" + "f"
+
+
+class Payload:
+    def __init__(self, raw: bytes):
+        self.raw = raw
+
+    def __len__(self):
+        return len(self.raw)
+
+    def to_bytes(self):
+        return self.raw
+
+
+def test_an_oversized_or_non_object_payload_is_not_decoded():
+    assert client.decode(Payload(b'{"ok": true}')) == {"ok": True}
+    assert client.decode(Payload(b"[1]")) is None
+    assert client.decode(Payload(b"x" * (client.MAX_PAYLOAD_BYTES + 1))) is None
+    assert client.decode(None) is None
+
+
+class NamesABadRun:
+    host = "fm_ws_01"
+
+    def call(self, verb, body=None):
+        return {"ok": True, "state": "running", "run_id": "*"}
+
+    def follow_logs(self, *_args):
+        raise AssertionError("must not subscribe")
+
+    def close(self):
+        pass
+
+
+def test_logs_refuse_a_run_id_the_host_made_up(capsys):
+    code, _, err = run(["logs", "--host", "fm-ws-01"], NamesABadRun(), capsys)
+    assert code == 1 and "invalid_reply" in err

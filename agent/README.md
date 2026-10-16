@@ -243,7 +243,8 @@ success rate, and writes a JSON report to `--report`, by default
 The report holds the spec, the seeds, one row per run (`seed`, `run_id`,
 `success`, `reason`, `elapsed_s`, `wall_s`, `seed_applied`), and `attempted`,
 `successes`, `unscored` and `success_rate`. A run with no outcome counts as a
-failure in `success_rate`. A refused `up` (`busy` included) or a host that
+failure in `success_rate`. A run whose `down` was refused and whose summary
+cannot be found has the reason `down refused: <code>`. A refused `up` (`busy` included) or a host that
 stops answering ends the trial early, and Ctrl-C ends it after the current run
 is brought down. Either way the report is still written, with `complete` false.
 
@@ -264,10 +265,14 @@ The agent lives only as long as the command, which changes three verbs:
   Whichever way the command exits short of being killed, Ctrl-C mid-start
   included, it brings its run down first.
 - `up` and `trial` refuse with `busy` while another process's run container is
-  up under the `local` label.
+  up under the `local` label. The check and the start are not atomic: two
+  commands started in the same moment can both pass it.
 - `down` with no run in this process removes every container under the `local`
   label and closes the summaries left open, as the agent does when it starts.
-  It prints the summary of the run it found.
+  It prints the summary of the run it found. With `--run-id`, a different run
+  is refused with `run_mismatch` and nothing is removed.
+- `--duration` is checked between polls, and a poll can wait up to 5 s on the
+  container's `/sim/outcome`, so a run can outlast its duration by that much.
 
 `status` and `logs` find another process's run through the same label. `logs`
 then reads the container's own output with `docker logs --follow`.

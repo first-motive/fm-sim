@@ -135,7 +135,9 @@ def drive(
     waits until interrupted. ``poll_s`` is how often the host is asked,
     :data:`POLL_S` unless given. Whatever ends the wait, an interrupt included, the
     run is brought down before this returns or raises, so it never outlives the
-    caller. Raises :class:`Refused` if ``up`` is refused.
+    caller. Raises :class:`Refused` if ``up`` is refused. A run whose ``down``
+    is refused and whose summary cannot be found comes back as a stand-in
+    summary with no outcome and ``error`` naming the refusal.
     """
     poll_s = POLL_S if poll_s is None else poll_s
     run_id = _checked("up", host.call("up", spec))["run_id"]
@@ -151,11 +153,15 @@ def drive(
                 break
             sleep(poll_s)
     finally:
-        reply = host.call("down", {"run_id": run_id})
-        if reply.get("ok") is True:
-            summary = reply["summary"]
+        down = host.call("down", {"run_id": run_id})
+        if down.get("ok") is True:
+            summary = down["summary"]
     # Not ours to down any more: the run was finalised before the down landed.
-    return summary or find_summary(host, run_id) or {"run_id": run_id, "outcome": None, "metrics": {}}
+    summary = summary or find_summary(host, run_id)
+    if summary is None:
+        refusal = Refused("down", down)
+        return {"run_id": run_id, "outcome": None, "metrics": {}, "error": f"down refused: {refusal.code}"}
+    return summary
 
 
 def row_of(seed: int, summary: dict) -> dict:
@@ -166,7 +172,7 @@ def row_of(seed: int, summary: dict) -> dict:
         "seed": seed,
         "run_id": summary.get("run_id"),
         "success": outcome.get("success") is True if outcome else None,
-        "reason": str(outcome.get("reason", "")) if outcome else "no outcome",
+        "reason": str(outcome.get("reason", "")) if outcome else str(summary.get("error", "no outcome")),
         "elapsed_s": outcome.get("elapsed_s") if outcome else None,
         "wall_s": metrics.get("wall_s"),
         "seed_applied": metrics.get("seed_applied"),
