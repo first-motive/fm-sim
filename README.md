@@ -18,7 +18,8 @@ with the other six package repos by
 | `fm_sim_backends` | ament_python | Backend hosts (MuJoCo and others) behind one interface |
 | `fm_sim_models` | ament_python | MJCF model registry |
 | `fm_sim_ee_follower` | ament_python | DLS IK node that follows `/commanded_ee_right` in place of the loader's IK |
-| `fm_sim` | ament_cmake | Metapackage tying the packages together for a single install |
+| `fm_sim_bringup` | ament_python | `run.launch.py` (backend × robot × scenario × controller) and the ament-index catalog |
+| `fm_sim` | ament_cmake | Metapackage tying the four together for a single install |
 
 ## Standalone Build
 
@@ -27,8 +28,9 @@ Clone into a colcon workspace's `src/`, pull dependencies, then build:
 ```bash
 mkdir -p ws/src && cd ws/src
 git clone https://github.com/first-motive/fm-sim.git
-vcs import < fm-sim/fm-sim.repos     # externals (MJCF model sources)
-cd .. && colcon build --symlink-install
+vcs import < fm-sim/fm-sim.repos     # externals: MJCF models, fm-robot, topic_based_ros2_control
+cd .. && rosdep install --from-paths src external --ignore-src -y
+colcon build --symlink-install
 colcon test && colcon test-result --verbose
 ```
 
@@ -111,6 +113,22 @@ below and prints a pass/skip/fail table).
 NVIDIA only and never runs on Apple silicon or the container base image. Only its
 topic bridge node is portable, and that stays on the Linux/NVIDIA host.
 
+### Run Contract
+
+One launch runs a backend × robot × scenario × controller combination the catalog
+marks supported; each value is an entry registered through the ament index:
+
+```bash
+ros2 launch fm_sim_bringup run.launch.py \
+  backend:=mujoco robot:=openarm scenario:=empty controller:=idle
+ros2 run fm_sim_bringup catalog --json   # every registered entry
+```
+
+See [`fm_sim_bringup`](fm_sim_bringup/README.md) for the contract, the catalog
+convention and the JSON schema, and its
+[Known Gaps](fm_sim_bringup/README.md#known-gaps) for the pairs not yet supported
+(OpenArm on Gazebo).
+
 ## Architecture
 
 Each engine hosts a `controller_manager` behind one interface, so the same
@@ -120,7 +138,7 @@ testability.
 
 ![backends](docs/diagrams/backends.svg)
 
-Full backend table, MJCF registry, and dev loop:
+Full backend table, run contract, MJCF registry, and dev loop:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Governance

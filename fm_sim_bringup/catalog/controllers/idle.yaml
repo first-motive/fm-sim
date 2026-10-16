@@ -1,0 +1,7 @@
+# Catalog entry (fm_sim.controllers): no controller node; only the broadcasters run
+# and every other robot controller loads inactive, so the robot holds its spawn pose.
+name: idle
+description: Broadcasters only; the robot holds its spawn pose
+available: true
+activate: []
+launch: null

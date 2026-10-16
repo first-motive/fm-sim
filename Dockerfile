@@ -37,27 +37,38 @@ COPY requirements-sim.txt /tmp/requirements-sim.txt
 RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --no-cache-dir -r /tmp/requirements-sim.txt
 
 # --- Bake the workspace ------------------------------------------------------
-# Copy the fm-sim package sources and colcon build them into the image, so the
+# Import the manifest's sources and build them with fm-sim into the image, so the
 # published image carries a built /ws/install overlay the inherited entrypoint
 # sources. `curl run.sh | bash` then reaches a running sim with no clone and no
 # runtime build. A host mount at /ws (run.sh's dev loop) shadows this baked
 # overlay entirely, so mounting source overrides the baked build for the
 # edit-rebuild loop — baked for the demo, mounted for development.
 #
-# topic_based_ros2_control (the Isaac backend's hardware plugin) has no Jazzy apt
-# release, so it is built from source at the commit fm-sim.repos pins. The commit
-# is read from the manifest and must be a full 40-hex sha before git sees it. The
-# clone URL is duplicated from the manifest, so change both together. The MJCF
-# model externals are file-only sources and the default sim_loop demo falls back
-# to a 1-DOF model, so they are left out to keep the image lean — mount them for
-# full bringup.
+# fm-sim.repos lands at /ws/external, where fm_sim_models looks for the MJCF
+# models. The sources built here are the ones with no Jazzy apt release:
+# topic_based_ros2_control (the Isaac backend's plugin) and fm-robot (the robot
+# descriptions run.launch.py expands) with the two externals it builds against.
+# Every other external is file-only and COLCON_IGNORE'd. CI's build-externals
+# input names the same list. The import and rosdep sit before the source copy so
+# an fm-sim edit does not refetch them; jsonschema (the sim catalog's validator)
+# rides this layer so the engine layer above stays cached.
+COPY fm-sim.repos /ws/fm-sim.repos
+# Every source must be pinned to a full commit sha; a tag or branch can move.
+RUN cd /ws \
+    && bad="$(awk '/^ *version:/{print $2}' fm-sim.repos | grep -Evx '[0-9a-f]{40}' || true)" \
+    && { [ -z "$bad" ] || { echo "fm-sim.repos: unpinned version(s): $bad" >&2; exit 1; }; } \
+    && vcs import < fm-sim.repos \
+    && for d in external/*/; do touch "${d}COLCON_IGNORE"; done \
+    && for name in topic_based_ros2_control fm-robot openarm_description unitree_ros2; do \
+         rm "external/$name/COLCON_IGNORE"; \
+       done \
+    && touch external/unitree_ros2/example/src/COLCON_IGNORE \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends python3-jsonschema \
+    && rosdep update --rosdistro "$ROS_DISTRO" \
+    && rosdep install --from-paths external --ignore-src -y -r \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . /ws/src/fm-sim
-RUN ref="$(awk '/external\/topic_based_ros2_control:/{found=1} found && /version:/{print $2; exit}' \
-        /ws/src/fm-sim/fm-sim.repos)" \
-    && { printf '%s\n' "$ref" | grep -Eqx '[0-9a-f]{40}' \
-         || { echo "fm-sim.repos: bad topic_based_ros2_control version '$ref'" >&2; exit 1; }; } \
-    && git clone --quiet https://github.com/PickNikRobotics/topic_based_ros2_control.git \
-         /ws/src/external/topic_based_ros2_control \
-    && git -C /ws/src/external/topic_based_ros2_control checkout --quiet "$ref" -- \
-    && . "/opt/ros/${ROS_DISTRO}/setup.sh" \
+RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" \
     && colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
