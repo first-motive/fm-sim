@@ -1,0 +1,60 @@
+# fm_sim_bringup run contract. run.launch.py takes four names, resolves each from
+# the ament index (fm_sim.* resource types), expands the robot's fm-robot xacro
+# with the backend's args, includes the backend host, spawns the robot's
+# controllers by role, and includes the controller entry's launch.
+# Each block: role, package, artifact.
+...@styles
+direction: down
+
+run: "" {
+  grid-rows: 3
+  class: block
+  r: Run Launch { class: role }
+  p: fm_sim_bringup { class: pkg }
+  a: "run.launch.py backend robot scenario controller" { class: art }
+}
+
+index: "" {
+  grid-rows: 3
+  class: block
+  r: Catalog { class: role }
+  p: ament index { class: pkg }
+  a: "fm_sim.backends · robots · scenarios · controllers" { class: art }
+}
+
+robot: "" {
+  grid-rows: 3
+  class: block
+  r: Robot Description { class: role }
+  p: fm_control (fm-robot) { class: pkg }
+  a: "<robot>.sim.urdf.xacro sim_backend:=…" { class: art }
+}
+
+backend: "" {
+  grid-rows: 3
+  class: zoom
+  r: Backend Host { class: role }
+  p: fm_sim_backends { class: pkg }
+  a: "robot_state_publisher · controller_manager" { class: art }
+}
+
+spawn: "" {
+  grid-rows: 2
+  class: block
+  r: Controller Spawners { class: role }
+  a: "broadcasters + activated roles active · rest inactive" { class: art }
+}
+
+ctl: "" {
+  grid-rows: 2
+  class: block
+  r: Controller Under Test { class: role }
+  a: "entry launch · use_sim · robot_profile" { class: art }
+}
+
+run -> index: resolve + validate
+index -> robot
+robot -> backend: robot_description
+index -> spawn
+spawn -> backend
+index -> ctl

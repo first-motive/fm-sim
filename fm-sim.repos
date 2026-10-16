@@ -8,7 +8,7 @@ repositories:
   docker:
     type: git
     url: https://github.com/first-motive/fm-docker.git
-    version: v0.1.0
+    version: ba304cc2cbf85fbb1da98168e718147198dfd279  # tag v0.1.0
   external/so_arm:
     type: git
     url: https://github.com/TheRobotStudio/SO-ARM100.git
@@ -28,3 +28,18 @@ repositories:
     type: git
     url: https://github.com/PickNikRobotics/topic_based_ros2_control.git
     version: aa9f9ef9525a60f8becea322537dd1d6d1bf9123
+  # fm-robot owns the robot descriptions run.launch.py expands (fm_control's
+  # <robot>.sim.urdf.xacro). It publishes only a Humble image, so it is built from
+  # source here, with the two externals its own manifest imports for that build.
+  external/fm-robot:
+    type: git
+    url: https://github.com/first-motive/fm-robot.git
+    version: 2b12c08eaa13baaef3c8c9b23af171256746b6ce
+  external/openarm_description:
+    type: git
+    url: https://github.com/enactic/openarm_description.git
+    version: 846a82d8baf64efdbb7f55c7f64b9b004939061b
+  external/unitree_ros2:
+    type: git
+    url: https://github.com/unitreerobotics/unitree_ros2.git
+    version: 5204e6e098ee53f4bd929bd77eb1d387cd0fa842

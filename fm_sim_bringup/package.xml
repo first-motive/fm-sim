@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fm_sim_bringup</name>
+  <version>0.0.0</version>
+  <description>Sim run launch (backend x robot x scenario x controller) and the ament-index catalog it resolves them from</description>
+  <maintainer email="nish@ubundi.co.za">First Motive</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-jsonschema</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <!-- Spawners and the controller types the OpenArm controllers file names. -->
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>position_controllers</exec_depend>
+  <!-- Catalog entries: backends, MJCF paths, and the OpenArm description. -->
+  <exec_depend>fm_sim_backends</exec_depend>
+  <exec_depend>fm_sim_models</exec_depend>
+  <exec_depend>fm_control</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>launch_testing</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>controller_manager_msgs</test_depend>
+  <test_depend>xvfb</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

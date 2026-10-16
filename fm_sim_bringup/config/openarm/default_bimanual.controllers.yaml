@@ -1,0 +1,101 @@
+# OpenArm controllers for the default_bimanual preset in sim (left + right arm, each
+# with a pinch gripper). fm-robot ships no controllers file, so the sim catalog owns
+# this one. Names and joints match fm_ros2's fm_bringup openarm config and the
+# fm_openarm_v2 robot profile: <side>_arm_controller is its trajectory_controller,
+# <side>_forward_position_controller its arm_controller. A controller and its
+# forward-position twin claim the same joints, so only one of the pair is active.
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz — software-GL MuJoCo on a headless Mac cannot hold 200
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    openarm_left_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    openarm_right_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    openarm_left_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+    openarm_right_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+
+    openarm_left_gripper_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    openarm_right_gripper_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+openarm_left_arm_controller:
+  ros__parameters:
+    joints:
+      - openarm_left_joint1
+      - openarm_left_joint2
+      - openarm_left_joint3
+      - openarm_left_joint4
+      - openarm_left_joint5
+      - openarm_left_joint6
+      - openarm_left_joint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
+
+openarm_right_arm_controller:
+  ros__parameters:
+    joints:
+      - openarm_right_joint1
+      - openarm_right_joint2
+      - openarm_right_joint3
+      - openarm_right_joint4
+      - openarm_right_joint5
+      - openarm_right_joint6
+      - openarm_right_joint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
+
+openarm_left_forward_position_controller:
+  ros__parameters:
+    joints:
+      - openarm_left_joint1
+      - openarm_left_joint2
+      - openarm_left_joint3
+      - openarm_left_joint4
+      - openarm_left_joint5
+      - openarm_left_joint6
+      - openarm_left_joint7
+
+openarm_right_forward_position_controller:
+  ros__parameters:
+    joints:
+      - openarm_right_joint1
+      - openarm_right_joint2
+      - openarm_right_joint3
+      - openarm_right_joint4
+      - openarm_right_joint5
+      - openarm_right_joint6
+      - openarm_right_joint7
+
+openarm_left_gripper_controller:
+  ros__parameters:
+    joints:
+      - openarm_left_finger_joint1
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+
+openarm_right_gripper_controller:
+  ros__parameters:
+    joints:
+      - openarm_right_finger_joint1
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
