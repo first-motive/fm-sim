@@ -53,7 +53,9 @@ class FakeRunner:
         self.image = "sha256:one"
         self.catalog_doc: object = CATALOG
         self.catalog_fetches = 0
-        self.outcome_value: dict | None = {"success": True, "reason": "placed", "elapsed_s": 4.5}
+        self.outcome_value: dict | None = {
+            "scenario": "empty", "seed": 7, "success": True, "reason": "placed", "elapsed_s": 4.5,
+        }  # fmt: skip
         self.fail: dict[str, str] = {}
         self.start_gate: threading.Event | None = None
         self.reset_gate: threading.Event | None = None

@@ -17,6 +17,8 @@
 
   <!-- Engine hosts and the hardware plugins each backend's description loads. -->
   <exec_depend>mujoco_ros2_control</exec_depend>
+  <!-- config/mujoco_plugins.yaml: the free-joint state publisher. -->
+  <exec_depend>mujoco_ros2_control_plugins</exec_depend>
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>gz_ros2_control</exec_depend>

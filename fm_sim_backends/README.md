@@ -36,8 +36,12 @@ which Jazzy ignores and that Humble launch still needs.
 
 - **MuJoCo** hosts the `controller_manager` inside the simulation: it loads the
   description, steps the MJCF physics, and exposes the hardware interfaces the
-  controllers drive. The MJCF is the vendored `openarm_mujoco` v2 model, loaded in
-  place so its relative `meshdir="assets"` resolves.
+  controllers drive. The MJCF is the `mujoco_model` the description names: under
+  `run.launch.py`, the world `fm_sim_scenarios` generates around the vendored
+  `openarm_mujoco` v2 model, which it attaches in place so its relative
+  `meshdir="assets"` resolves. [`config/mujoco_plugins.yaml`](config/mujoco_plugins.yaml)
+  always loads mujoco_ros2_control's free-joint state publisher, putting every
+  free body's world pose on `/mujoco/free_joint_states` at 30 Hz of sim time.
 - **Gazebo** starts gz-sim, spawns the robot from `/robot_description`, and bridges
   the sim clock; a `<gazebo>` world plugin in the description hosts the
   `controller_manager`.
@@ -75,13 +79,14 @@ ros2 launch fm_sim_core sim.launch.py backend:=isaac \
 ## Tests
 
 `test/test_launch.py` reads each launch's actions: the `robot_state_publisher`
-gets the `robot_description` argument, and the mujoco and isaac
-`controller_manager` still get it as a parameter. `test/test_description_topic.py`
+gets the `robot_description` argument, the mujoco and isaac
+`controller_manager` still get it as a parameter, and mujoco's also gets the
+plugins file. `test/test_description_topic.py`
 launches mujoco (under `xvfb-run`) and isaac live with the one-joint probe robots
 in `test/fixtures/` and waits for `/robot_description`.
 
 ## Build Type
 
-`ament_python`. Ships launch files only — no nodes of its own. Its exec
-dependencies name every engine host and hardware plugin, so `rosdep` installs the
-whole backend set.
+`ament_python`. Ships launch files and the mujoco plugins config — no nodes of
+its own. Its exec dependencies name every engine host and hardware plugin, so
+`rosdep` installs the whole backend set.

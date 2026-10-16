@@ -87,7 +87,10 @@ idle ─up─▶ starting ─broadcasters active─▶ running ─down─▶ sto
   4 GiB, whichever comes first.
 - `down` reads the latched `/sim/outcome`, stops the recorder with SIGINT so
   the MCAP is closed properly, stops and removes the container, and writes
-  the summary.
+  the summary. The outcome is kept only when its scenario and seed are the
+  run's: the spec's seed, or the last `reset` that took. A run stopped after a
+  reset but before the new episode ended reports a null outcome, not the
+  previous episode's.
 - `up` is refused with `insufficient_space` when the runs directory has less
   than 10 GiB free. A run still up after 2 hours is brought down by the agent,
   and its summary's `metrics.max_duration_reached` is true.

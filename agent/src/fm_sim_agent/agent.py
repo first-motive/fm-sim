@@ -131,6 +131,9 @@ class Run:
     outcome: dict | None = None
     mcap: str | None = None
     metrics: dict = field(default_factory=dict)
+    #: The seed of the last reset that took, or None while the spec's seed holds.
+    #: Only an outcome under the seed in force is this run's. Set under ``write_lock``.
+    reset_seed: int | None = None
     #: Set once the run is finalised, whoever finalised it.
     done: threading.Event = field(default_factory=threading.Event)
     #: True while ``docker run`` is in flight. Guarded by the agent's ``_lock``:
@@ -453,6 +456,8 @@ class SimAgent:
         except RunnerError as exc:
             log(f"{run.run_id}: reset failed: {exc}")
             raise VerbError("reset_failed", "the reset did not take; see the agent log") from None
+        with run.write_lock:
+            run.reset_seed = seed
 
     def recover(self) -> list[str]:
         """Clear what a previous agent left: its containers, and its open summaries.
@@ -631,6 +636,25 @@ class SimAgent:
                 log(f"{run.run_id}: could not write its summary: {exc}")
         return summary
 
+    @staticmethod
+    def _own_outcome(run: Run, outcome: dict | None) -> dict | None:
+        """The RunSummary outcome, or None when the latched one is another episode's.
+
+        ``/sim/outcome`` keeps the latest verdict: after a reset, a run stopped
+        before the new episode ends would otherwise report the previous one.
+        Called under ``run.write_lock``.
+        """
+        if outcome is None:
+            return None
+        seed = run.spec["seed"] if run.reset_seed is None else run.reset_seed
+        if (outcome["scenario"], outcome["seed"]) != (run.spec["scenario"], seed):
+            log(
+                f"{run.run_id}: latched outcome is for {outcome['scenario']} seed {outcome['seed']},"
+                f" not {run.spec['scenario']} seed {seed}; reporting none"
+            )
+            return None
+        return {key: outcome[key] for key in ("success", "reason", "elapsed_s")}
+
     def _finish(self, run: Run, *, query_outcome: bool, stop: bool = True) -> dict:
         """Collect the outcome, stop the recorder and the run, and write the summary.
 
@@ -641,7 +665,7 @@ class SimAgent:
             if query_outcome:
                 outcome = self.runner.outcome(run.run_id)  # slow: outside the lock
                 with run.write_lock:
-                    run.outcome = outcome
+                    run.outcome = self._own_outcome(run, outcome)
             if run.spec["record"]:
                 try:
                     self.runner.stop_recording(run.run_id)

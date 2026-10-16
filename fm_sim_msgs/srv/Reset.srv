@@ -1,0 +1,5 @@
+# Reseed the scenario and respawn its objects (/sim/reset); starts a new episode.
+uint32 seed
+---
+bool ok
+string message

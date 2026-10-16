@@ -14,8 +14,12 @@ robot_state_publisher that publishes it. The description comes from fm-robot's
 openarm_mujoco v2 model, whose joint names (openarm_left_*, openarm_right_*) match
 the description exactly. The model is bimanual; pair it with the default_bimanual
 preset for a full joint map (a single-arm preset leaves the other arm passive).
+
+``config/mujoco_plugins.yaml`` loads mujoco_ros2_control's free-joint state
+publisher, so every loose object's pose is on ``/mujoco/free_joint_states``.
 """
 
+import os
 import platform
 from shutil import which
 
@@ -79,6 +83,9 @@ def generate_launch_description():
 
     robot_description = robot_description_parameter()
     controllers_file = LaunchConfiguration('controllers_file')
+    plugins_file = os.path.join(
+        get_package_share_directory('fm_sim_backends'), 'config', 'mujoco_plugins.yaml'
+    )
 
     return LaunchDescription(
         [
@@ -106,7 +113,9 @@ def generate_launch_description():
                 # Jazzy reads the description from the topic and ignores this
                 # parameter; fm-app's Humble fm_bringup still includes this
                 # backend and needs it until that launch moves to Jazzy.
-                parameters=[{'robot_description': robot_description}, controllers_file],
+                parameters=[
+                    {'robot_description': robot_description}, controllers_file, plugins_file,
+                ],
                 output='screen',
             ),
         ]

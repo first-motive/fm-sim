@@ -226,7 +226,9 @@ def test_a_refused_reset_raises(docker, monkeypatch):
 
 
 def test_outcome_reads_the_latched_message(docker):
-    assert docker.outcome(RUN_ID) == {"success": False, "reason": "dropped: cube", "elapsed_s": 3.0}
+    assert docker.outcome(RUN_ID) == {
+        "scenario": "empty", "seed": 7, "success": False, "reason": "dropped: cube", "elapsed_s": 3.0,
+    }  # fmt: skip
 
 
 def test_recording_writes_mcap_into_the_runs_mount(docker):
@@ -307,6 +309,9 @@ def test_an_over_long_log_line_is_cut_and_the_rest_dropped():
         "not: [yaml",
         "success: maybe\nreason: x\nelapsed_s: 1",
         "success: true\nreason: x\nelapsed_s: true",
+        "scenario: empty\nsuccess: true\nreason: x\nelapsed_s: 1",
+        "scenario: empty\nseed: true\nsuccess: true\nreason: x\nelapsed_s: 1",
+        "seed: 7\nsuccess: true\nreason: x\nelapsed_s: 1",
     ],
 )
 def test_an_unusable_outcome_is_none(text):

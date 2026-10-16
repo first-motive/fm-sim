@@ -84,8 +84,14 @@ def test_controller_manager_keeps_the_description_parameter(backend, monkeypatch
         c for c in recorder.calls
         if c['package'] == CONTROLLER_MANAGER_PACKAGES[backend]
     ]
-    parameters, controllers_file = call['parameters']
+    parameters, controllers_file, *extra = call['parameters']
     assert parameters['robot_description'].evaluate(_context()) == DESCRIPTION
     context = _context()
     context.launch_configurations['controllers_file'] = '/c.yaml'
     assert perform_substitutions(context, [controllers_file]) == '/c.yaml'
+    if backend == 'mujoco':
+        (plugins_file,) = extra
+        assert plugins_file.endswith('/fm_sim_backends/config/mujoco_plugins.yaml')
+        assert os.path.isfile(plugins_file)
+    else:
+        assert extra == []
