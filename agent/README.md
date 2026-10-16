@@ -199,6 +199,79 @@ read from the environment or from `/etc/fm-comms.env`. Runs inherit
 host's Cyclone profile. These are fm-docker's compose base passthroughs, less
 `ROS_LOCALHOST_ONLY`: discovery range is set by `--dds-range` instead.
 
+## The fm sim CLI
+
+`fm sim` runs `scripts/run/sim.sh` at the repo root, which runs this project's
+`fm-sim` entry point (`fm_sim_agent.client`). Every verb takes `--host`: a
+machine name (`fm-ws-01`, sent as `fm_ws_01`) or `local`.
+
+```bash
+fm sim catalog --host fm-ws-01                  # what the host can run
+fm sim status  --host fm-ws-01                  # state and active run
+fm sim up      --host fm-ws-01 [--backend B] [--robot R] [--scenario S] [--controller C] [--seed N] [--record]
+fm sim logs    --host fm-ws-01 [--run-id ID]    # follow the run's log records; Ctrl-C stops
+fm sim down    --host fm-ws-01 [--run-id ID]    # stop the run; prints its outcome
+fm sim runs    --host fm-ws-01 [--limit N]      # summaries, newest first
+fm sim trial   --host fm-ws-01 (--seeds 0..19 | --count 20 [--seed-start 0]) [--run-timeout S] [--report PATH]
+```
+
+The spec flags default to `mujoco`, `openarm`, `empty`, `idle`, seed 0, no
+recording. `--json` prints the raw reply. Exit codes: 0 success, 1 the host
+refused, 2 usage, 3 no router endpoint or no answer, 130 interrupted.
+
+A remote host is one Zenoh query per verb through the fleet router, which is
+read from `FM_ROUTER_ENDPOINT` or `/etc/fm-comms.env` as for the agent. `up`
+returns once the run is started; the host's agent keeps it.
+
+### Trials
+
+`trial` runs one spec once per seed, in order, since a host runs one run at a
+time. `--seeds` takes `0..19` (inclusive), `0,3,7` or a mix; `--count N
+--seed-start S` is the same as `S..S+N-1`. A seed named twice is refused. Each
+run is brought up, then brought down when its outcome is in, when it ends on
+its own, or after `--run-timeout` seconds (300 by default, start-up included).
+`down` reads the latched `/sim/outcome`, and its RunSummary is the score.
+
+A remote agent shows the outcome only at `down`, so on a remote host every run
+is given its whole `--run-timeout` unless it ends on its own. In local mode the
+CLI asks the run's container for `/sim/outcome` while the run is up, so a run
+ends as soon as it is scored.
+
+Each run prints one row as it finishes. The trial then prints a table and the
+success rate, and writes a JSON report to `--report`, by default
+`$XDG_STATE_HOME/fm-sim/trials/<UTC stamp>-<backend>-<robot>-<scenario>-<controller>.json`.
+The report holds the spec, the seeds, one row per run (`seed`, `run_id`,
+`success`, `reason`, `elapsed_s`, `wall_s`, `seed_applied`), and `attempted`,
+`successes`, `unscored` and `success_rate`. A run with no outcome counts as a
+failure in `success_rate`. A refused `up` (`busy` included) or a host that
+stops answering ends the trial early, and Ctrl-C ends it after the current run
+is brought down. Either way the report is still written, with `complete` false.
+
+### Local Mode
+
+`--host local` builds the same `SimAgent` and `DockerRunner` the service does,
+in this process, under the host name `local`, against this machine's Docker
+(OrbStack on a Mac). No router, Zenoh session or systemd unit is involved.
+Runs do not share the host's network. The image is `--image`, else
+`$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy`, and it must already
+be on the machine, since runs use `--pull=never`. Summaries go under
+`--runs-dir`, by default the agent's own runs directory.
+
+The agent lives only as long as the command, which changes three verbs:
+
+- `up` stays in the foreground and prints the run's log lines. It brings the
+  run down on Ctrl-C, once its outcome is in, or after `--duration` seconds.
+  Whichever way the command exits short of being killed, Ctrl-C mid-start
+  included, it brings its run down first.
+- `up` and `trial` refuse with `busy` while another process's run container is
+  up under the `local` label.
+- `down` with no run in this process removes every container under the `local`
+  label and closes the summaries left open, as the agent does when it starts.
+  It prints the summary of the run it found.
+
+`status` and `logs` find another process's run through the same label. `logs`
+then reads the container's own output with `docker logs --follow`.
+
 ### As A Service
 
 `systemd/fm-sim-agent.service.in` is a template in fm-robot-agent's form.
@@ -214,6 +287,8 @@ uv run ruff check src tests
 ```
 
 The suite drives every verb through `SimAgent.answer` with a fake runner, and
-again over a pair of in-process Zenoh peer sessions on 127.0.0.1. It runs
+again over a pair of in-process Zenoh peer sessions on 127.0.0.1. The CLI is
+driven the same two ways: against that peer pair, and in local mode against
+the in-process agent with the fake runner. It runs
 `DockerRunner` against a stand-in `docker` executable that records its argv. No
 router, Docker daemon or image is needed.
