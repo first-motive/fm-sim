@@ -124,9 +124,7 @@ ros2 run fm_sim_bringup catalog --json   # every registered entry
 ```
 
 See [`fm_sim_bringup`](fm_sim_bringup/README.md) for the contract, the catalog
-convention and the JSON schema, and its
-[Known Gaps](fm_sim_bringup/README.md#known-gaps) for the pairs not yet supported
-(OpenArm on Gazebo).
+convention and the JSON schema.
 
 ## Architecture
 

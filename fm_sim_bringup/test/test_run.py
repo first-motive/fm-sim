@@ -61,8 +61,17 @@ def test_openarm_idle_loads_every_controller_once():
     assert len(inactive) == len(set(inactive)) == 6
 
 
-def test_resolve_refuses_a_backend_the_robot_does_not_support():
+def test_resolve_refuses_a_backend_the_robot_does_not_support(monkeypatch):
+    load = catalog.require_available
+
+    def mujoco_only_robot(kind, name):
+        entry = load(kind, name)
+        if kind == 'robots':
+            entry['supported_backends'] = ['mujoco']
+        return entry
+
+    monkeypatch.setattr(catalog, 'require_available', mujoco_only_robot)
     with pytest.raises(
-        catalog.CatalogError, match="not supported on backend 'gazebo'.*mujoco, isaac"
+        catalog.CatalogError, match="not supported on backend 'gazebo' yet; supported: mujoco$"
     ):
         run.resolve('gazebo', 'openarm', 'empty', 'idle')

@@ -68,12 +68,12 @@ fi
 kill $pid 2>/dev/null || true
 [ $fails -eq 0 ] || { echo "== launch log =="; tail -40 /tmp/sim.log; exit 1; }'
 
-# The run check drives the full run contract: OpenArm on MuJoCo through
-# fm_sim_bringup's run.launch.py, idle controller. It passes once the broadcaster is
-# active, which needs the description, the engine, the controller_manager and the
-# spawners all working.
+# The run check drives the full run contract: OpenArm through fm_sim_bringup's
+# run.launch.py, idle controller, on the backend that replaces BACKEND. It passes
+# once the broadcaster is active, which needs the description, the engine, the
+# controller_manager and the spawners all working.
 RUN_ASSERT='set -uo pipefail
-ros2 launch fm_sim_bringup run.launch.py backend:=mujoco robot:=openarm \
+ros2 launch fm_sim_bringup run.launch.py backend:=BACKEND robot:=openarm \
   scenario:=empty controller:=idle >/tmp/run.log 2>&1 &
 # Wall-clock bound: each CLI call can itself block while the controller_manager
 # comes up, so counting iterations undercounts the wait.
@@ -98,8 +98,9 @@ backend_cmd() {
   case "$1" in
     # %q escapes a multi-line payload into one shell-safe token for `bash -lc`.
     mock)   printf 'bash -c %q' "$MOCK_ASSERT" ;;
-    # The run-contract check: openarm on mujoco through fm_sim_bringup run.launch.py.
-    run)    printf 'bash -c %q' "$RUN_ASSERT" ;;
+    # The run-contract check: openarm through fm_sim_bringup run.launch.py.
+    run)        printf 'bash -c %q' "${RUN_ASSERT//BACKEND/mujoco}" ;;
+    run-gazebo) printf 'bash -c %q' "${RUN_ASSERT//BACKEND/gazebo}" ;;
     mujoco) printf 'timeout %s xvfb-run -a python3 -c %q' "$TIMEOUT" "$MUJOCO_CHECK" ;;
     # Server-only headless Gazebo Harmonic: no GUI, run a bounded number of
     # iterations on the empty world. --iterations makes it finite, so exit 0 is
@@ -139,6 +140,7 @@ run_backend mock
 run_backend mujoco
 run_backend gazebo
 run_backend run
+run_backend run-gazebo
 RESULTS+=("isaac SKIP (Linux + NVIDIA only — never on macOS or the container base)")
 
 echo
