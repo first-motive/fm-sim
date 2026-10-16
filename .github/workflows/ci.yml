@@ -108,8 +108,10 @@ jobs:
       distro: jazzy
       repos-file: fm-sim.repos
       build-externals: topic_based_ros2_control
-      # Word-split by the shared workflow into `uv pip install --system -r ...`.
-      pip-packages: -r requirements-sim.txt
+      # Word-split by the shared workflow into `uv pip install --system ...`. Noble
+      # marks the system Python externally managed (PEP 668), so the override is
+      # needed here as it is in the Dockerfile.
+      pip-packages: --break-system-packages -r requirements-sim.txt
       launch: ./run.sh --native --backend mock
       expect-nodes: /sim_loop
       expect-topics: /joint_states
