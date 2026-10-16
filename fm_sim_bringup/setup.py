@@ -16,6 +16,8 @@ setup(
         (share + '/launch', glob('launch/*.launch.py')),
         (share + '/schema', glob('schema/*.json')),
         (share + '/config/openarm', glob('config/openarm/*.yaml')),
+        (share + '/config/so101', glob('config/so101/*.yaml')),
+        (share + '/config/axol', glob('config/axol/*.yaml')),
         # Catalog entries: one index marker per entry, pointing at its yaml.
         (index + 'fm_sim.robots', glob('resource/fm_sim.robots/*')),
         (index + 'fm_sim.scenarios', glob('resource/fm_sim.scenarios/*')),
