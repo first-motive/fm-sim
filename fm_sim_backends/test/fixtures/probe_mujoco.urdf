@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!-- One-joint robot on MujocoSystemInterface. MJCF_PATH is replaced by the test. -->
+<robot name="probe_mujoco">
+  <link name="base"/>
+  <link name="l1"/>
+  <joint name="j1" type="revolute">
+    <parent link="base"/>
+    <child link="l1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="1" velocity="1"/>
+  </joint>
+  <ros2_control name="probe_system" type="system">
+    <hardware>
+      <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+      <param name="mujoco_model">MJCF_PATH</param>
+      <param name="headless">true</param>
+    </hardware>
+    <joint name="j1">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+    </joint>
+  </ros2_control>
+</robot>

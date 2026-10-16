@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!-- One-joint robot on TopicBasedSystem, bridged over the Isaac topics. -->
+<robot name="probe_isaac">
+  <link name="base"/>
+  <link name="l1"/>
+  <joint name="j1" type="revolute">
+    <parent link="base"/>
+    <child link="l1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="1" velocity="1"/>
+  </joint>
+  <ros2_control name="probe_system" type="system">
+    <hardware>
+      <plugin>topic_based_ros2_control/TopicBasedSystem</plugin>
+      <param name="joint_commands_topic">/isaac_joint_commands</param>
+      <param name="joint_states_topic">/isaac_joint_states</param>
+    </hardware>
+    <joint name="j1">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+    </joint>
+  </ros2_control>
+</robot>

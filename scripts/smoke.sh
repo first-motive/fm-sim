@@ -2,9 +2,8 @@
 # macOS smoke test for the fm-sim backends. Builds the sim image from the working
 # tree, then runs each backend bounded inside the container (real arm64 + OrbStack)
 # and prints a pass/skip/fail table. This is the hand-run truth on a Mac that the
-# ubuntu container CI (amd64) cannot give — gazebo headless on arm64 under software
-# GL has never been proven, so each backend is captured as PASS/SKIP/FAIL rather
-# than assumed.
+# ubuntu container CI (amd64) cannot give: each backend on arm64 under software GL
+# is captured as PASS/SKIP/FAIL rather than assumed.
 #
 #   ./scripts/smoke.sh                 # build + smoke all backends
 #   SMOKE_TIMEOUT=120 ./scripts/smoke.sh   # widen the per-backend window
@@ -17,7 +16,7 @@
 # when one fails.
 set -uo pipefail
 
-IMAGE="fm-sim:humble"
+IMAGE="fm-sim:jazzy"
 TIMEOUT="${SMOKE_TIMEOUT:-90}"
 PLATFORM="${SMOKE_PLATFORM:-linux/arm64}"   # macOS Apple silicon; override for amd64
 
@@ -77,10 +76,10 @@ backend_cmd() {
     # %q escapes a multi-line payload into one shell-safe token for `bash -lc`.
     mock)   printf 'bash -c %q' "$MOCK_ASSERT" ;;
     mujoco) printf 'timeout %s xvfb-run -a python3 -c %q' "$TIMEOUT" "$MUJOCO_CHECK" ;;
-    # Server-only headless gazebo: no GUI, run a bounded number of iterations on
-    # the empty world. `gz` (Garden+) or `ign` (Fortress) depending on the image.
-    # --iterations makes it finite, so exit 0 is the assertion — a hang is a FAIL.
-    gazebo) printf 'timeout %s sh -c %q' "$TIMEOUT" 'if command -v gz >/dev/null 2>&1; then gz sim -s -r --iterations 200 empty.sdf; else ign gazebo -s -r --iterations 200 empty.sdf; fi' ;;
+    # Server-only headless Gazebo Harmonic: no GUI, run a bounded number of
+    # iterations on the empty world. --iterations makes it finite, so exit 0 is
+    # the assertion — a hang is a FAIL.
+    gazebo) printf 'timeout %s gz sim -s -r --iterations 200 empty.sdf' "$TIMEOUT" ;;
     *)      return 1 ;;
   esac
 }
@@ -107,7 +106,7 @@ run_backend() {
 
 echo ">> building $IMAGE from the working tree ..."
 if ! docker build -t "$IMAGE" .; then
-  echo "error: image build failed — need ghcr access to the fm-robot base FROM." >&2
+  echo "error: image build failed — need ghcr access to the fm-docker base FROM." >&2
   exit 1
 fi
 

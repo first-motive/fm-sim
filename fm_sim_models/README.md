@@ -6,13 +6,15 @@ backend loads. Single source of truth for those paths.
 ## Role
 
 ```
-fm_bringup robot registry  →  fm_sim_models.mjcf_path(robot_key)  →  MJCF path
-                              injected as the `mujoco_model` xacro arg
+robot key  →  fm_sim_models.mjcf_path(robot_key)  →  MJCF path
+                passed as the `mujoco_model` xacro arg of fm-robot's
+                fm_control/urdf/<robot>.sim.urdf.xacro
 ```
 
-`fm_bringup` looks a path up here whenever `sim_backend == "mujoco"` and injects it
-into the description, so the MJCF path lives in one place instead of being hardcoded
-in each robot's `*.sim.urdf.xacro`. Keys match `fm_bringup`'s `RobotSpec.key`.
+Whoever expands the [`fm-robot`](https://github.com/first-motive/fm-robot) sim
+xacro with `sim_backend:=mujoco` looks a path up here and passes it as
+`mujoco_model`, so the MJCF path lives in one place instead of being hardcoded in
+each robot's `*.sim.urdf.xacro`.
 
 ## Usage
 

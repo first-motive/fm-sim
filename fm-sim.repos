@@ -1,8 +1,9 @@
 # vcs import < fm-sim.repos   (run from the workspace root)
 #
-# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree), plus the
-# shared fm-docker compose overlays (imported into docker/ so run.sh's container
-# path can `docker compose -f docker/compose.yaml ...`).
+# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree), the Isaac
+# backend's topic_based_ros2_control plugin (source-built on Jazzy), plus the shared
+# fm-docker compose overlays (imported into docker/ so run.sh's container path can
+# `docker compose -f docker/compose.yaml ...`).
 repositories:
   docker:
     type: git
@@ -20,3 +21,10 @@ repositories:
     type: git
     url: https://github.com/unitreerobotics/unitree_mujoco.git
     version: ae6a8403e272733e9996ef59990880330496177f
+  # The Isaac backend's hardware plugin. It has no Jazzy apt release, so it is
+  # built from source: CI lists it in build-externals, and the Dockerfile reads
+  # this pin.
+  external/topic_based_ros2_control:
+    type: git
+    url: https://github.com/PickNikRobotics/topic_based_ros2_control.git
+    version: aa9f9ef9525a60f8becea322537dd1d6d1bf9123

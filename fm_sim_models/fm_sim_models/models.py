@@ -1,10 +1,10 @@
 """MJCF model registry: maps each robot to the MuJoCo model the sim loads.
 
 Single source of truth for the MJCF the ``mujoco`` sim backend feeds to
-MujocoSystemInterface. The fm_bringup robot registry looks a path up here and
-injects it into the description as the ``mujoco_model`` xacro arg whenever
-``sim_backend == "mujoco"``, so the path lives in one place instead of being
-hardcoded in each robot's ``*.sim.urdf.xacro``.
+MujocoSystemInterface. Whoever expands fm-robot's
+``fm_control/urdf/<robot>.sim.urdf.xacro`` with ``sim_backend:=mujoco`` looks a
+path up here and passes it as the ``mujoco_model`` xacro arg, so the path lives in
+one place instead of being hardcoded in each robot's xacro.
 
 Vendored models live under ``<workspace>/external`` (gitignored, imported by vcs).
 The container mounts that workspace at ``/ws``; natively it stays at the checkout
@@ -13,7 +13,7 @@ workspace root at call time — ``/ws/external/...`` in the container,
 ``<checkout>/external/...`` on the Mac — instead of hardcoding the container mount.
 Axol is the exception: Almond Bot ships no upstream MJCF, so its model is authored
 and committed into this package's share (see ``models/axol/``), resolved from the
-share dir. Keys match ``fm_bringup``'s ``RobotSpec.key``.
+share dir. Keys are the robot keys: ``openarm``, ``so101``, ``g1_d``, ``axol``.
 """
 
 import os
@@ -31,22 +31,22 @@ def _workspace_root():
     the source layout but overshot the build layout to outside the workspace, landing
     on ``/ws``). Fall back to ``/ws`` for an installed-only container tree.
     """
-    env = os.environ.get("FM_WS")
+    env = os.environ.get('FM_WS')
     if env:
         return env
     here = os.path.dirname(os.path.abspath(__file__))
     while True:
-        if os.path.isdir(os.path.join(here, "external")):
+        if os.path.isdir(os.path.join(here, 'external')):
             return here
         parent = os.path.dirname(here)
         if parent == here:  # reached the filesystem root
-            return "/ws"
+            return '/ws'
         here = parent
 
 
 def _vendored(*parts):
     """Absolute path to a vendored MJCF under ``<workspace>/external``."""
-    return os.path.join(_workspace_root(), "external", *parts)
+    return os.path.join(_workspace_root(), 'external', *parts)
 
 
 def _axol_mjcf():
@@ -61,12 +61,12 @@ def _axol_mjcf():
     try:
         from ament_index_python.packages import get_package_share_directory
 
-        base = get_package_share_directory("fm_sim_models")
+        base = get_package_share_directory('fm_sim_models')
     except Exception:
         # No ament index (or package not installed): resolve relative to this file,
         # where models/ sits one level up from the inner package dir.
-        base = os.path.join(os.path.dirname(__file__), "..")
-    return os.path.join(base, "models", "axol", "axol.xml")
+        base = os.path.join(os.path.dirname(__file__), '..')
+    return os.path.join(base, 'models', 'axol', 'axol.xml')
 
 
 # robot key -> zero-arg callable returning the MJCF path the mujoco backend loads.
@@ -74,15 +74,15 @@ def _axol_mjcf():
 # registry works in the container (/ws) and natively (the checkout root).
 _MJCF = {
     # Vendored OpenArm v2 bimanual model; joint names match the description exactly.
-    "openarm": lambda: _vendored("openarm_mujoco", "v2", "openarm_bimanual.xml"),
+    'openarm': lambda: _vendored('openarm_mujoco', 'v2', 'openarm_bimanual.xml'),
     # Vendored official SO101 model; joint names match the system exactly.
-    "so101": lambda: _vendored("so_arm", "Simulation", "SO101", "so101_new_calib.xml"),
+    'so101': lambda: _vendored('so_arm', 'Simulation', 'SO101', 'so101_new_calib.xml'),
     # Bipedal g1_29dof: right-arm joints match, but its legs differ from the wheeled
     # G1-D, so mujoco is wired-not-yet-validated (pending a wheeled-G1 MJCF).
-    "g1_d": lambda: _vendored("unitree_mujoco", "unitree_robots", "g1", "g1_29dof.xml"),
+    'g1_d': lambda: _vendored('unitree_mujoco', 'unitree_robots', 'g1', 'g1_29dof.xml'),
     # Authored + committed into this package's share; joint names match the
     # description + ros2_control exactly. Resolved lazily (see _axol_mjcf).
-    "axol": _axol_mjcf,
+    'axol': _axol_mjcf,
 }
 
 

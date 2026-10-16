@@ -1,0 +1,12 @@
+<!-- One-hinge MJCF the mujoco backend test loads; joint j1 matches probe_mujoco.urdf. -->
+<mujoco model="probe">
+  <worldbody>
+    <body name="l1">
+      <joint name="j1" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" size="0.02 0.1" mass="1"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="j1" joint="j1" kp="10"/>
+  </actuator>
+</mujoco>

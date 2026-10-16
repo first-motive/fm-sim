@@ -1,0 +1,4 @@
+# The backend test only needs the controller_manager up; it spawns no controllers.
+controller_manager:
+  ros__parameters:
+    update_rate: 50
