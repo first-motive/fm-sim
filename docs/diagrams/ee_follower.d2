@@ -1,0 +1,29 @@
+# fm_sim_ee_follower: a pose controller streams /commanded_ee_right; the ee_follower
+# node takes one damped-least-squares step per tick from the measured joints and sends
+# it to the right arm's forward position controller. The DLS core is a basic block (no
+# ROS); kinematics come from the URDF through KDL. A gate holds on stale or bad input.
+# Nodes are plum boxes, topics cream pills.
+...@styles
+direction: right
+
+pose: /commanded_ee_right { class: topic }
+js: /joint_states { class: topic }
+desc: /robot_description { class: topic }
+
+follower: "" {
+  grid-rows: 4
+  class: block
+  r: ee_follower { class: role }
+  g: "gate · frame, NaN, max age" { class: art }
+  k: "ArmKinematics · URDF → KDL" { class: art }
+  d: "dls_step · ROS-free" { class: art }
+}
+
+cmd: /<arm_controller>/commands { class: topic }
+fpc: forward position controller { class: node }
+
+pose -> follower: PoseStamped in base_frame
+js -> follower
+desc -> follower
+follower -> cmd: Float64MultiArray
+cmd -> fpc

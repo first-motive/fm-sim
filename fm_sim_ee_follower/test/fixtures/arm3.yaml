@@ -1,0 +1,11 @@
+# Robot profile for fixtures/arm3.urdf.
+name: arm3
+base_frame: base_link
+arms:
+  right:
+    joints: [arm_joint1, arm_joint2, arm_joint3]
+    gripper_joint: arm_gripper_joint
+    arm_controller: arm3_forward_position_controller
+    trajectory_controller: arm3_arm_controller
+    ee_frame: tool
+    hand_frame: link3
