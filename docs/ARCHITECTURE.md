@@ -19,8 +19,8 @@ system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 | `fm_sim_core` | ament_python | Headless MuJoCo stepper + `sim_loop` node; physics split from ROS comms for testability |
 | `fm_sim_backends` | ament_python | One launch file per engine (MuJoCo, Gazebo, Isaac), each hosting a `controller_manager` |
 | `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `axol`'s committed MJCF resolves from this package's share |
+| `fm_sim_ee_follower` | ament_python | `ee_follower` node: damped-least-squares IK from `/commanded_ee_right` to the right arm's forward position controller, standing in for the loader's IK; ROS-free DLS core |
 | `fm_sim_bringup` | ament_python | `run.launch.py` and the catalog of backends, robots, scenarios and controllers, resolved from the ament index |
-| `fm_sim` | ament_cmake (meta) | Metapackage tying the four together for a single install |
 
 ## Run Contract
 
@@ -43,6 +43,7 @@ fm-robot is built from source (pinned in `fm-sim.repos`) because it publishes no
 Jazzy image. Its `fm_control` needs moveit_servo and the Unitree messages: rosdep
 installing MoveIt is most of the cost, while building fm-robot and its two
 externals takes seconds.
+| `fm_sim` | ament_cmake (meta) | Metapackage tying the four together for a single install |
 
 ## Backend Hosts
 
@@ -132,6 +133,20 @@ Source: [`diagrams/sim_loop.d2`](diagrams/sim_loop.d2).
 
 The stepper takes an injected `mujoco` module, so unit tests run against a fake —
 no native wheel required.
+
+## EE Follower
+
+On the real OpenArm, the Anvil loader turns a commanded tool pose into joint commands.
+In the sim, `fm_sim_ee_follower`'s `ee_follower` node does that job: it reads
+`/commanded_ee_right` (`PoseStamped` in the profile's `base_frame`), takes one
+damped-least-squares step per tick from `/joint_states`, and streams the result to the
+right arm's forward position controller. Missing, stale or non-finite input means no
+command that tick, and a command in another frame clears the last good one. See the
+[package README](../fm_sim_ee_follower/README.md).
+
+![ee_follower](diagrams/ee_follower.svg)
+
+Source: [`diagrams/ee_follower.d2`](diagrams/ee_follower.d2).
 
 ## Design Notes
 

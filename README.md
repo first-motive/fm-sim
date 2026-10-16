@@ -17,6 +17,7 @@ with the other six package repos by
 | `fm_sim_core` | ament_python | Headless dev loop, launch, and shared sim config |
 | `fm_sim_backends` | ament_python | Backend hosts (MuJoCo and others) behind one interface |
 | `fm_sim_models` | ament_python | MJCF model registry |
+| `fm_sim_ee_follower` | ament_python | DLS IK node that follows `/commanded_ee_right` in place of the loader's IK |
 | `fm_sim_bringup` | ament_python | `run.launch.py` (backend × robot × scenario × controller) and the ament-index catalog |
 | `fm_sim` | ament_cmake | Metapackage tying the four together for a single install |
 
