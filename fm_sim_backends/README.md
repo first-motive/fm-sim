@@ -46,6 +46,13 @@ which Jazzy ignores and that Humble launch still needs.
   `topic_based_ros2_control` has no Jazzy apt release; `fm-sim.repos` pins it as a
   source external.
 
+## Catalog
+
+The package registers each backend in the sim catalog (`fm_sim.backends` in the
+ament index; see [`fm_sim_bringup`](../fm_sim_bringup/README.md)). An entry in
+`catalog/backends/` names its launch file and the xacro args that select its
+hardware plugin, so `run.launch.py backend:=<name>` needs no per-backend code.
+
 ## Usage
 
 Include one from a robot bringup, or reach gazebo and isaac standalone through

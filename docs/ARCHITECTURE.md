@@ -19,7 +19,31 @@ system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 | `fm_sim_core` | ament_python | Headless MuJoCo stepper + `sim_loop` node; physics split from ROS comms for testability |
 | `fm_sim_backends` | ament_python | One launch file per engine (MuJoCo, Gazebo, Isaac), each hosting a `controller_manager` |
 | `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `axol`'s committed MJCF resolves from this package's share |
-| `fm_sim` | ament_cmake (meta) | Metapackage tying the three together for a single install |
+| `fm_sim_bringup` | ament_python | `run.launch.py` and the catalog of backends, robots, scenarios and controllers, resolved from the ament index |
+| `fm_sim` | ament_cmake (meta) | Metapackage tying the four together for a single install |
+
+## Run Contract
+
+`fm_sim_bringup/run.launch.py` takes four names, `backend`, `robot`, `scenario` and
+`controller`, plus `use_sim`. Each is an entry in an ament resource type
+(`fm_sim.backends`, `fm_sim.robots`, `fm_sim.scenarios`, `fm_sim.controllers`)
+whose content points at the entry's yaml, so any package registers an entry by
+installing two files. The launch validates all four, expands the robot's fm-robot
+xacro with the backend's args, includes the backend host, spawns the robot's
+controllers by role, and includes the controller's own launch.
+
+![run](diagrams/run.svg)
+
+Source: [`diagrams/run.d2`](diagrams/run.d2). Entry fields, the `catalog --json`
+output and its schema: [`fm_sim_bringup`](../fm_sim_bringup/README.md). A robot
+lists the backends it runs on (`supported_backends`) and the launch refuses the
+rest; [Known Gaps](../fm_sim_bringup/README.md#known-gaps) records why OpenArm on
+Gazebo is not among them yet.
+
+fm-robot is built from source (pinned in `fm-sim.repos`) because it publishes no
+Jazzy image. Its `fm_control` needs moveit_servo and the Unitree messages: rosdep
+installing MoveIt is most of the cost, while building fm-robot and its two
+externals takes seconds.
 
 ## Backend Hosts
 
@@ -117,5 +141,6 @@ no native wheel required.
 | **Physics split from ROS** | `MujocoStepper` (no ROS) + `SimLoop` (node wrapper) | Step logic unit-tests without rclpy or the native wheel |
 | **One interface, many engines** | Each backend hosts a `controller_manager`; controllers are backend-agnostic | Sim ↔ sim ↔ real is a launch arg |
 | **Single MJCF source** | `fm_sim_models.mjcf_path` is the only path lookup | No model path duplicated across xacros |
+| **Catalog by registration** | Every run dimension is an ament index entry checked against one schema | A controller or robot joins from its own package |
 
 Per-package detail lives in each `<package>/README.md`.
