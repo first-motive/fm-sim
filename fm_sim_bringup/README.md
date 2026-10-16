@@ -46,7 +46,12 @@ What `run.launch.py` does, in order:
 3. Spawns the robot's controllers. The `broadcasters` role and every role the
    controller entry `activate`s start active; the others load inactive, so a
    controller can switch to them.
-4. Includes the controller entry's `launch`, if any, with `use_sim`,
+4. Includes each launch role the controller entry `activate`s (the robot's
+   `launch_roles`, below) once the active spawner has exited cleanly, with the
+   role's `launch_args` and the run's `robot_description`. A launch role's
+   `requires` roles start active with it, and a role listed twice starts once. If
+   the spawner fails, the run shuts down.
+5. Includes the controller entry's `launch`, if any, with `use_sim`,
    `robot_profile` and `scenario`.
 
 The scenario is resolved and validated; `empty` adds nothing to the scene. The
@@ -75,7 +80,7 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm` (`supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends` |
+| `robots` | `openarm` (`supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `launch_roles` |
 | `scenarios` | `empty` | `objects` |
 | `controllers` | `idle` | `activate`, `launch` |
 
@@ -90,6 +95,15 @@ since fm-robot ships none. Its roles follow the `fm_openarm_v2` robot profile:
 | `arm_trajectory` | `openarm_{left,right}_arm_controller` (JTC) |
 | `arm_forward_position` | `openarm_{left,right}_forward_position_controller` |
 | `gripper` | `openarm_{left,right}_gripper_controller` (JTC) |
+
+A controller entry's `activate` names controller roles or launch roles; any other
+name fails the run. The schema checks each launch role's shape on load; whether its
+`requires` are controller roles, and whether a name is in both maps, is checked
+when a run resolves the robot. OpenArm has one launch role:
+
+| Launch role | Requires | Starts |
+|-------------|----------|--------|
+| `servo` | `arm_trajectory` | fm-robot's `fm_control/launch/openarm_sim_servo.launch.py` with `sim_only:=true`, `command_type:=joint_jog`: sim-only MoveIt Servo on `/servo_node`, streaming to `openarm_right_arm_controller`. That launch refuses to start unless ROS discovery is host-local (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, as the fm-sim agent sets) |
 
 ### `catalog`
 
@@ -108,10 +122,12 @@ is the contract for that output.
 | Test | Checks |
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation, `catalog --json` against the schema, path confinement, robot roles against the controllers file |
-| `test_run.py` | Description args, active and inactive controller sets, unknown values, unsupported robot-backend pairs |
+| `test_run.py` | Description args, active and inactive controller sets, launch roles and what they require, unknown values, unsupported robot-backend pairs |
+| `test_run_launch_roles.py` | `run.launch.py`'s setup with a controller that activates `servo`: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down |
 | `test_run_launch.py` | Live: `openarm` on `mujoco` and on `gazebo` (server-only), `empty`, `idle` — broadcaster active, the other six controllers inactive, both arms in one hardware component. Needs the `openarm_mujoco` external and `xvfb-run` |
 
 ## Build Type
 
 `ament_python`. One console script, `catalog`. fm-robot's `fm_control` is an exec
-dependency (the OpenArm xacro); `fm-sim.repos` builds it from source.
+dependency (the OpenArm xacro and sim Servo launch); `fm-sim.repos` builds it from
+source.

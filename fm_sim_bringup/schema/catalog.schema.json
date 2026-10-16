@@ -88,6 +88,26 @@
                 "items": {"type": "string", "minLength": 1}
               }
             },
+            "launch_roles": {
+              "description": "Optional nodes a controller entry activates by role, such as MoveIt Servo. run.launch.py activates each role's requires, then includes its launch with launch_args and the run's robot_description once the active spawner has exited cleanly. A name may not also be a controller role.",
+              "type": "object",
+              "propertyNames": {"$ref": "#/definitions/name"},
+              "additionalProperties": {
+                "type": "object",
+                "required": ["requires", "launch"],
+                "additionalProperties": false,
+                "properties": {
+                  "requires": {
+                    "description": "Controller roles that must be active before the launch starts.",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 1}
+                  },
+                  "launch": {"$ref": "#/definitions/share_file"},
+                  "launch_args": {"$ref": "#/definitions/string_map"}
+                }
+              }
+            },
             "robot_profile": {"type": "string", "description": "Robot profile the controllers read joint, controller and frame names from."}
           }
         }
@@ -113,7 +133,7 @@
             "activate": {
               "type": "array",
               "items": {"type": "string", "minLength": 1},
-              "description": "Robot controller roles this controller needs active."
+              "description": "Robot roles this controller needs active: controller_roles names or launch_roles names."
             },
             "launch": {
               "oneOf": [{"type": "null"}, {"$ref": "#/definitions/share_file"}],
