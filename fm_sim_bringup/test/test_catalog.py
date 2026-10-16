@@ -65,7 +65,7 @@ def test_catalog_json_matches_the_schema(capsys):
     assert output['schema_version'] == catalog.SCHEMA_VERSION
     assert [entry['name'] for entry in output['scenarios']] == catalog.names('scenarios')
     (openarm,) = [entry for entry in output['robots'] if entry['name'] == 'openarm']
-    assert openarm['supported_backends'] == ['mujoco', 'isaac']
+    assert openarm['supported_backends'] == ['mujoco', 'gazebo', 'isaac']
 
 
 def test_unavailable_entry_is_listed_but_refused(extra_prefix):

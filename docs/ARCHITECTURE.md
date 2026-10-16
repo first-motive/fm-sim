@@ -37,8 +37,7 @@ controllers by role, and includes the controller's own launch.
 Source: [`diagrams/run.d2`](diagrams/run.d2). Entry fields, the `catalog --json`
 output and its schema: [`fm_sim_bringup`](../fm_sim_bringup/README.md). A robot
 lists the backends it runs on (`supported_backends`) and the launch refuses the
-rest; [Known Gaps](../fm_sim_bringup/README.md#known-gaps) records why OpenArm on
-Gazebo is not among them yet.
+rest.
 
 fm-robot is built from source (pinned in `fm-sim.repos`) because it publishes no
 Jazzy image. Its `fm_control` needs moveit_servo and the Unitree messages: rosdep

@@ -23,7 +23,7 @@ ros2 launch fm_sim_bringup run.launch.py \
 
 An unknown value fails before anything starts and lists the registered ones; an
 entry marked `available: false` is listed but refused, and so is a robot on a
-backend missing from its `supported_backends` (see [Known Gaps](#known-gaps)).
+backend missing from its `supported_backends`.
 `use_sim` takes only `true` or `false`.
 
 ```mermaid
@@ -75,7 +75,7 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm` (`supported_backends: [mujoco, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends` |
+| `robots` | `openarm` (`supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends` |
 | `scenarios` | `empty` | `objects` |
 | `controllers` | `idle` | `activate`, `launch` |
 
@@ -109,20 +109,7 @@ is the contract for that output.
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation, `catalog --json` against the schema, path confinement, robot roles against the controllers file |
 | `test_run.py` | Description args, active and inactive controller sets, unknown values, unsupported robot-backend pairs |
-| `test_run_launch.py` | Live: `openarm` on `mujoco`, `empty`, `idle` — broadcaster active, the other six controllers inactive. Needs the `openarm_mujoco` external and `xvfb-run` |
-
-## Known Gaps
-
-- `openarm` on `gazebo` (left out of its `supported_backends`, so `run.launch.py`
-  refuses the pair): the server starts and the robot spawns, but the
-  gz_ros2_control `controller_manager` stays at "Waiting RM to load and initialize
-  hardware". A one-joint robot comes up on the same backend, so the suspect is the
-  description's two `<ros2_control>` systems (one per arm). The Gazebo generator
-  step takes this up.
-- `openarm` on `mujoco`: each arm's `<ros2_control>` system loads its own copy of
-  the MJCF, so the two arms step in separate MuJoCo worlds. Joint states and
-  controllers work; contact between the arms, or with scenario objects, needs one
-  system for both arms in fm-robot's xacro.
+| `test_run_launch.py` | Live: `openarm` on `mujoco` and on `gazebo` (server-only), `empty`, `idle` — broadcaster active, the other six controllers inactive, both arms in one hardware component. Needs the `openarm_mujoco` external and `xvfb-run` |
 
 ## Build Type
 
