@@ -1,0 +1,20 @@
+# Catalog entry (fm_sim.robots): the single-arm SO-101 in fm-robot's bare joint
+# names. No robot profile describes it yet, so a controller with a launch of its own
+# is refused on it; idle and teleop run.
+name: so101
+description: SO-101, 5-DOF arm with a gripper (fm-robot so101 names)
+available: true
+description_file:
+  package: fm_control
+  path: urdf/so101.sim.urdf.xacro
+description_args: {}
+mjcf: so101
+controllers_file:
+  package: fm_sim_bringup
+  path: config/so101/so101.controllers.yaml
+controller_roles:
+  broadcasters: [joint_state_broadcaster]
+  arm_trajectory: [so101_arm_controller]
+  gripper: [so101_gripper_controller]
+robot_profile: null
+supported_backends: [mujoco, gazebo, isaac]

@@ -43,9 +43,9 @@ def test_schema_is_valid_json_schema():
 
 def test_registered_entries():
     assert {'mujoco', 'gazebo', 'isaac'} <= set(catalog.names('backends'))
-    assert 'openarm' in catalog.names('robots')
+    assert {'openarm', 'so101', 'axol'} <= set(catalog.names('robots'))
     assert 'empty' in catalog.names('scenarios')
-    assert 'idle' in catalog.names('controllers')
+    assert {'idle', 'teleop'} <= set(catalog.names('controllers'))
 
 
 def test_load_adds_the_registering_package():
@@ -64,8 +64,8 @@ def test_catalog_json_matches_the_schema(capsys):
     jsonschema.validate(output, catalog.load_schema())
     assert output['schema_version'] == catalog.SCHEMA_VERSION
     assert [entry['name'] for entry in output['scenarios']] == catalog.names('scenarios')
-    (openarm,) = [entry for entry in output['robots'] if entry['name'] == 'openarm']
-    assert openarm['supported_backends'] == ['mujoco', 'gazebo', 'isaac']
+    for robot in output['robots']:
+        assert robot['supported_backends'] == ['mujoco', 'gazebo', 'isaac'], robot['name']
 
 
 def test_unavailable_entry_is_listed_but_refused(extra_prefix):
@@ -145,3 +145,14 @@ def test_schema_accepts_the_openarm_servo_role():
 def test_schema_rejects_a_malformed_launch_role(servo):
     with pytest.raises(jsonschema.ValidationError):
         _validate_robot(_openarm_with_servo(servo))
+
+
+@pytest.mark.parametrize('profile,valid', [('fm_openarm_v2', True), (None, True), ('', False)])
+def test_schema_robot_profile_is_a_name_or_null(profile, valid):
+    robot = dict(catalog.load('robots', 'so101'), robot_profile=profile)
+    schema = {**catalog.load_schema(), '$ref': '#/definitions/robot'}
+    if valid:
+        jsonschema.validate(robot, schema)
+    else:
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(robot, schema)

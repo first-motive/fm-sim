@@ -1,0 +1,20 @@
+# Catalog entry (fm_sim.robots): the bimanual Almond Bot Axol in fm-robot's axol
+# names. Its grippers are fixed, so it has no gripper role. No robot profile
+# describes it yet, so a controller with a launch of its own is refused on it; idle
+# and teleop run.
+name: axol
+description: Almond Bot Axol, two 7-DOF arms with fixed grippers (fm-robot axol names)
+available: true
+description_file:
+  package: fm_control
+  path: urdf/axol.sim.urdf.xacro
+description_args: {}
+mjcf: axol
+controllers_file:
+  package: fm_sim_bringup
+  path: config/axol/axol.controllers.yaml
+controller_roles:
+  broadcasters: [joint_state_broadcaster]
+  arm_trajectory: [axol_left_arm_controller, axol_right_arm_controller]
+robot_profile: null
+supported_backends: [mujoco, gazebo, isaac]

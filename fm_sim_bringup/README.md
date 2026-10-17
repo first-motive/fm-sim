@@ -52,7 +52,8 @@ What `run.launch.py` does, in order:
    `requires` roles start active with it, and a role listed twice starts once. If
    the spawner fails, the run shuts down.
 5. Includes the controller entry's `launch`, if any, with `use_sim`,
-   `robot_profile` and `scenario`.
+   `robot_profile` and `scenario`. A robot whose `robot_profile` is `null` refuses
+   a controller with a `launch`, since that launch reads its names from the profile.
 
 The scenario is resolved and validated; `empty` adds nothing to the scene. The
 scenario schema and its per-backend generators come next.
@@ -80,9 +81,9 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm` (`supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `launch_roles` |
+| `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `launch_roles` |
 | `scenarios` | `empty` | `objects` |
-| `controllers` | `idle` | `activate`, `launch` |
+| `controllers` | `idle`, `teleop` | `activate`, `launch` |
 
 The OpenArm entry expands fm-robot's `fm_control/urdf/openarm.sim.urdf.xacro`
 (`default_bimanual`, `emit_grasp_frame:=true`) and owns the sim controllers file,
@@ -105,6 +106,26 @@ when a run resolves the robot. OpenArm has one launch role:
 |-------------|----------|--------|
 | `servo` | `arm_trajectory` | fm-robot's `fm_control/launch/openarm_sim_servo.launch.py` with `sim_only:=true`, `command_type:=joint_jog`: sim-only MoveIt Servo on `/servo_node`, streaming to `openarm_right_arm_controller`. That launch refuses to start unless ROS discovery is host-local (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, as the fm-sim agent sets) |
 
+The SO-101 and Axol entries expand fm-robot's `so101.sim.urdf.xacro` and
+`axol.sim.urdf.xacro` with no extra args, and own their controllers files under
+`config/so101/` and `config/axol/`, named as fm_ros2's `fm_bringup` names them. No
+robot profile describes either yet, so their `robot_profile` is `null`.
+
+| Robot | `arm_trajectory` | `gripper` |
+|-------|------------------|-----------|
+| `so101` | `so101_arm_controller` | `so101_gripper_controller` |
+| `axol` | `axol_{left,right}_arm_controller` | none (the grippers are fixed) |
+
+Both also have `broadcasters: [joint_state_broadcaster]`. On Gazebo their meshes
+do not resolve yet (the SO-101 URDF's are relative, the Axol's
+`package://assembly/...`), so the arms load with no visual or collision geometry;
+the controllers still come up.
+
+| Controller | Activates | Launch |
+|------------|-----------|--------|
+| `idle` | nothing beyond the broadcasters | none |
+| `teleop` | `arm_trajectory`, for an operator's teleop source such as fm-teleop's leader source, which runs outside this launch | none |
+
 ### `catalog`
 
 ```bash
@@ -121,13 +142,13 @@ is the contract for that output.
 
 | Test | Checks |
 |------|--------|
-| `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation, `catalog --json` against the schema, path confinement, robot roles against the controllers file |
-| `test_run.py` | Description args, active and inactive controller sets, launch roles and what they require, unknown values, unsupported robot-backend pairs |
+| `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation (`robot_profile` a name or `null`), `catalog --json` against the schema, path confinement, robot roles against the controllers file |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile |
 | `test_run_launch_roles.py` | `run.launch.py`'s setup with a controller that activates `servo`: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down |
-| `test_run_launch.py` | Live: `openarm` on `mujoco` and on `gazebo` (server-only), `empty`, `idle` — broadcaster active, the other six controllers inactive, both arms in one hardware component. Needs the `openarm_mujoco` external and `xvfb-run` |
+| `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition. Needs the MJCF and description externals, `topic_based_ros2_control` and `xvfb-run` |
 
 ## Build Type
 
 `ament_python`. One console script, `catalog`. fm-robot's `fm_control` is an exec
-dependency (the OpenArm xacro and sim Servo launch); `fm-sim.repos` builds it from
-source.
+dependency (the robot xacros and OpenArm's sim Servo launch); `fm-sim.repos` builds it
+from source.

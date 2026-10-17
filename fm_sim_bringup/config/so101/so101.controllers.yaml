@@ -1,0 +1,42 @@
+# SO101 controllers in sim: the 5-joint arm and the gripper, each a JTC. fm-robot
+# ships no controllers file, so the sim catalog owns this one. Names and joints
+# match fm_ros2's fm_bringup so101 config and the so101_system joints in fm-robot's
+# so101.ros2_control.xacro (the vendored URDF's bare joint names).
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz, as the OpenArm
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    so101_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    so101_gripper_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+so101_arm_controller:
+  ros__parameters:
+    joints:
+      - shoulder_pan
+      - shoulder_lift
+      - elbow_flex
+      - wrist_flex
+      - wrist_roll
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
+
+so101_gripper_controller:
+  ros__parameters:
+    joints:
+      - gripper
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true

@@ -2,7 +2,9 @@
 
 The Jazzy controller_manager initialises only from that topic, so a backend that
 stops publishing it hangs on "Waiting for data on 'robot_description' topic".
-Each backend launches with a one-joint probe robot from ``fixtures/``.
+Each backend launches with a one-joint probe robot from ``fixtures/``. After
+shutdown no controller_manager may be left: a survivor answers the next launch's
+spawners in place of that launch's own.
 """
 
 import os
@@ -21,7 +23,9 @@ from std_msgs.msg import String
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, 'fixtures')
+CONTROLLERS_FILE = os.path.join(FIXTURES, 'controllers.yaml')
 TIMEOUT_S = 30.0
+EXIT_TIMEOUT_S = 10.0
 
 
 def _probe_description(backend):
@@ -38,7 +42,7 @@ def generate_test_description(backend):
         ),
         launch_arguments={
             'robot_description': _probe_description(backend),
-            'controllers_file': os.path.join(FIXTURES, 'controllers.yaml'),
+            'controllers_file': CONTROLLERS_FILE,
         }.items(),
     )
     # The returned dict is how launch_testing hands `backend` to the test method.
@@ -68,3 +72,28 @@ class TestRobotDescriptionTopic(unittest.TestCase):
             rclpy.shutdown()
         self.assertTrue(received, f'{backend}: nothing on /robot_description')
         self.assertIn(f'probe_{backend}', received[0])
+
+
+def _processes_naming(path):
+    """Return the pids whose command line contains ``path``."""
+    pids = []
+    for entry in os.listdir('/proc'):
+        try:
+            with open(os.path.join('/proc', entry, 'cmdline'), 'rb') as cmdline:
+                if path.encode() in cmdline.read():
+                    pids.append(int(entry))
+        except (OSError, ValueError):
+            continue  # Not a process, or it exited while being read.
+    return pids
+
+
+@launch_testing.post_shutdown_test()
+class TestShutdown(unittest.TestCase):
+
+    @unittest.skipUnless(os.path.isdir('/proc'), 'finds processes through /proc')
+    def test_controller_manager_exits_with_the_launch(self, backend):
+        # The controller_manager is the one process given the probe controllers file.
+        deadline = time.monotonic() + EXIT_TIMEOUT_S
+        while (pids := _processes_naming(CONTROLLERS_FILE)) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.assertEqual(pids, [], f'{backend}: controller_manager outlived the launch')

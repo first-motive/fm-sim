@@ -1,9 +1,9 @@
 # vcs import < fm-sim.repos   (run from the workspace root)
 #
-# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree), the Isaac
-# backend's topic_based_ros2_control plugin (source-built on Jazzy), plus the shared
-# fm-docker compose overlays (imported into docker/ so run.sh's container path can
-# `docker compose -f docker/compose.yaml ...`).
+# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree), the Axol
+# description fm-robot vendors, the Isaac backend's topic_based_ros2_control plugin
+# (source-built on Jazzy), plus the shared fm-docker compose overlays (imported into
+# docker/ so run.sh's container path can `docker compose -f docker/compose.yaml ...`).
 repositories:
   docker:
     type: git
@@ -39,6 +39,13 @@ repositories:
     type: git
     url: https://github.com/enactic/openarm_description.git
     version: 846a82d8baf64efdbb7f55c7f64b9b004939061b
+  # Axol's flat URDF and meshes, which fm-robot's fm_description vendors into its
+  # share for axol.sim.urdf.xacro. File-only, so it stays COLCON_IGNORE'd. Same
+  # pin as fm-robot.repos.
+  external/axol:
+    type: git
+    url: https://github.com/almond-bot/axol.git
+    version: ca5de52e5938c6bb174782dd5d504f8d6ec07662
   external/unitree_ros2:
     type: git
     url: https://github.com/unitreerobotics/unitree_ros2.git
