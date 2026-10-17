@@ -29,3 +29,15 @@ controller_roles:
   gripper: [openarm_left_gripper_controller, openarm_right_gripper_controller]
 robot_profile: fm_openarm_v2
 supported_backends: [mujoco, gazebo, isaac]
+# Nodes a controller can activate by role; each starts once the active spawner has
+# exited cleanly. servo is fm-robot's sim-only MoveIt Servo on /servo_node, which
+# streams JointJog commands to the right arm's trajectory controller.
+launch_roles:
+  servo:
+    requires: [arm_trajectory]
+    launch:
+      package: fm_control
+      path: launch/openarm_sim_servo.launch.py
+    launch_args:
+      sim_only: 'true'
+      command_type: joint_jog
