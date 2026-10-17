@@ -1,0 +1,580 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Scale-to-zero AWS sim host for fm-sim, joined to the tailnet and gated by a monthly budget.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Host}
+        Parameters: [HostName, InstanceType, ImageParameter, ImageIdOverride, RootVolumeGiB, VpcCidr]
+      - Label: {default: Provisioning (pinned)}
+        Parameters:
+          - FmSetupRepoUrl
+          - FmSetupCommit
+          - FmSetupRole
+          - FmSimRepoUrl
+          - FmSimCommit
+          - SimImageDigest
+          - RouterEndpoint
+          - TailscaleAuthKeyParameterName
+      - Label: {default: Lifecycle}
+        Parameters: [IdleMinutes, MaxLifetimeMinutes, ControllerCodeBucket, ControllerCodeKey]
+      - Label: {default: Budget}
+        Parameters: [MonthlyBudgetUsd, BudgetBlockPercent, BudgetNotificationEmail, CostTagKey, CostTagValue]
+
+Parameters:
+  HostName:
+    Type: String
+    Default: sim-cloud
+    AllowedPattern: "^[a-z][a-z0-9-]{0,62}$"
+    Description: Machine and tailnet name. The sim agent serves fm/sim/<name with - as _>/.
+  InstanceType:
+    Type: String
+    Default: g6e.xlarge
+    AllowedValues: [g6e.xlarge, g6e.2xlarge, g6.xlarge, g6.2xlarge]
+  ImageParameter:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-24.04/latest/ami-id
+    Description: SSM parameter naming the GPU AMI. It is resolved once per stack deploy.
+  ImageIdOverride:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(|ami-[0-9a-f]{8,17})$"
+    Description: An exact AMI to use instead of ImageParameter. Empty uses ImageParameter.
+  RootVolumeGiB:
+    Type: Number
+    Default: 200
+    MinValue: 100
+    MaxValue: 1000
+  VpcCidr:
+    Type: String
+    Default: 10.83.0.0/24
+    AllowedPattern: "^((\\d{1,3}\\.){3}\\d{1,3}/(2[0-4]|1[6-9]))$"
+  FmSetupRepoUrl:
+    Type: String
+    Default: https://github.com/first-motive/fm-setup.git
+    AllowedPattern: "^https://[A-Za-z0-9./_-]+\\.git$"
+  FmSetupCommit:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{40}$"
+    Description: Full fm-setup commit the host provisions from.
+  FmSetupRole:
+    Type: String
+    Default: sim-cloud
+    AllowedPattern: "^[a-z][a-z0-9-]*$"
+    Description: fm-setup role, passed as ./install.sh --<role>.
+  FmSimRepoUrl:
+    Type: String
+    Default: https://github.com/first-motive/fm-sim.git
+    AllowedPattern: "^https://[A-Za-z0-9./_-]+\\.git$"
+  FmSimCommit:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{40}$"
+    Description: Full fm-sim commit for the idle check here and the sim agent the role installs.
+  SimImageDigest:
+    Type: String
+    AllowedPattern: "^sha256:[0-9a-f]{64}$"
+    Description: Digest of the fm-sim image runs use, as fm-setup's FM_SIM_IMAGE_DIGEST takes it.
+  RouterEndpoint:
+    Type: String
+    AllowedPattern: "^tcp/[A-Za-z0-9.-]+:7447$"
+    Description: Zenoh router the agent connects to over the tailnet, as tcp/<host>:7447.
+  TailscaleAuthKeyParameterName:
+    Type: String
+    Default: /fm-sim/cloud-host/tailscale-auth-key
+    AllowedPattern: "^(/[A-Za-z0-9_.-]+)+$"
+    Description: Name of the SecureString SSM parameter holding a tag:sim-cloud auth key. Only the name is passed.
+  IdleMinutes:
+    Type: Number
+    Default: 15
+    MinValue: 5
+    MaxValue: 120
+  MaxLifetimeMinutes:
+    Type: Number
+    Default: 480
+    MinValue: 30
+    MaxValue: 1440
+    Description: Hard instance lifetime. The controller terminates the host after this, busy or not.
+  ControllerCodeBucket:
+    Type: String
+    AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    Description: Operator-owned S3 bucket holding the controller ZIP that deploy.sh uploads.
+  ControllerCodeKey:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9/_.-]*[0-9a-f]{64}\\.zip$"
+    Description: Content-addressed key of the controller ZIP (its SHA-256).
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 100
+    MinValue: 1
+  BudgetBlockPercent:
+    Type: Number
+    Default: 100
+    MinValue: 50
+    MaxValue: 100
+    Description: Starts are refused once actual monthly spend reaches this percent of the budget.
+  BudgetNotificationEmail:
+    Type: String
+    Default: ""
+    Description: Optional address for 70/85/100 percent budget alerts. Empty sends none.
+  CostTagKey:
+    Type: String
+    Default: Project
+    AllowedPattern: "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$"
+    Description: Cost-allocation tag the budget filters on. It must be active in Billing.
+  CostTagValue:
+    Type: String
+    Default: fm-sim-cloud
+    AllowedPattern: "^[A-Za-z0-9_.:-]{1,256}$"
+
+Conditions:
+  UseImageOverride: !Not [!Equals [!Ref ImageIdOverride, ""]]
+  HasBudgetEmail: !Not [!Equals [!Ref BudgetNotificationEmail, ""]]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-vpc"}
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-igw"}
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # Two zones, so a GPU shortage in one zone does not block a start.
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 2, 6]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-a"}
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 2, 6]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-b"}
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-public"}
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetA
+
+  SubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetB
+
+  # No ingress rule at all. Tailscale reaches the host through outbound NAT
+  # traversal or its relays, and the tailnet ACL is the only way in.
+  HostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Sim host - no ingress, outbound for packages, images and Tailscale
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - {IpProtocol: "-1", CidrIp: 0.0.0.0/0, Description: "Packages, image pulls, Tailscale and AWS APIs"}
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-host"}
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  HostRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: sim-host
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadTailscaleAuthKey
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TailscaleAuthKeyParameterName}"
+              - Sid: DecryptTailscaleAuthKeyThroughSsm
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+                    "kms:EncryptionContext:PARAMETER_ARN": !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TailscaleAuthKeyParameterName}"
+              # Terminate-with-decrement can only lower capacity. Raising it
+              # stays with the controller and its budget gate.
+              - Sid: LeaveOwnGroup
+                Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: !Sub "arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${AWS::StackName}-host"
+      Tags:
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  HostInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref HostRole]
+
+  HostLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${AWS::StackName}-host"
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              VolumeSize: !Ref RootVolumeGiB
+              VolumeType: gp3
+        EbsOptimized: true
+        IamInstanceProfile:
+          Arn: !GetAtt HostInstanceProfile.Arn
+        ImageId: !If [UseImageOverride, !Ref ImageIdOverride, !Ref ImageParameter]
+        InstanceInitiatedShutdownBehavior: terminate
+        InstanceType: !Ref InstanceType
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpProtocolIpv6: disabled
+          HttpPutResponseHopLimit: 1
+          HttpTokens: required
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true
+            DeleteOnTermination: true
+            DeviceIndex: 0
+            Groups: [!GetAtt HostSecurityGroup.GroupId]
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - {Key: Name, Value: !Ref HostName}
+              - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+          - ResourceType: volume
+            Tags:
+              - {Key: Name, Value: !Ref HostName}
+              - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+          - ResourceType: network-interface
+            Tags:
+              - {Key: Name, Value: !Ref HostName}
+              - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+        # Only names and pinned identities go here; the auth key stays in SSM
+        # and is read by the fm-setup role from the parameter named below.
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -Eeuo pipefail
+            # This log and cloud-init's output log both capture what the bootstrap
+            # and the role print. Nothing here prints the auth key; the role must not.
+            install -m 0600 /dev/null /var/log/fm-sim-cloud-bootstrap.log
+            exec > >(tee -a /var/log/fm-sim-cloud-bootstrap.log) 2>&1
+
+            # Any failure leaves the group at once, so a broken host does not
+            # bill until the deadline. Needs only curl and the AWS CLI.
+            leave() {
+              echo "bootstrap failed at line $1; leaving the group"
+              imds=http://169.254.169.254/latest
+              token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$imds/api/token")" &&
+                id="$(curl -fsS -H "X-aws-ec2-metadata-token: $token" "$imds/meta-data/instance-id")" &&
+                aws --region '${AWS::Region}' autoscaling terminate-instance-in-auto-scaling-group \
+                  --instance-id "$id" --should-decrement-desired-capacity ||
+                echo "could not leave the group; the controller deadline will end this host"
+            }
+            trap 'leave "$LINENO"' ERR
+
+            install -d -m 0755 /etc/fm-sim-cloud
+            cat > /etc/fm-sim-cloud/host.env <<'EOF'
+            FM_SIM_CLOUD_REGION=${AWS::Region}
+            FM_SIM_IDLE_MINUTES=${IdleMinutes}
+            FM_SIM_MAX_LIFETIME_MINUTES=${MaxLifetimeMinutes}
+            FM_MACHINE_NAME=${HostName}
+            FM_SETUP_SHA=${FmSetupCommit}
+            FM_SIM_COMMIT=${FmSimCommit}
+            FM_SIM_IMAGE_DIGEST=${SimImageDigest}
+            FM_ROUTER_ENDPOINT=${RouterEndpoint}
+            FM_TS_AUTHKEY_SSM_PARAMETER=${TailscaleAuthKeyParameterName}
+            FM_TS_TAG=tag:sim-cloud
+            EOF
+            chmod 0444 /etc/fm-sim-cloud/host.env
+
+            for tool in curl git aws python3 iptables timeout; do
+              command -v "$tool" >/dev/null || { echo "missing $tool on the AMI"; false; }
+            done
+
+            # Fetch one exact commit and refuse anything else.
+            fetch_commit() {
+              install -d -m 0755 "$1"
+              git -C "$1" init -q
+              git -C "$1" fetch -q --depth 1 "$2" "$3"
+              git -C "$1" checkout -q --detach FETCH_HEAD
+              [ "$(git -C "$1" rev-parse HEAD)" = "$3" ]
+            }
+            fetch_commit /opt/fm-sim-cloud/fm-sim '${FmSimRepoUrl}' '${FmSimCommit}'
+
+            # What root runs from here on is copied out of the checkout into
+            # root-owned files that no other account can rewrite.
+            src=/opt/fm-sim-cloud/fm-sim/infra/aws/sim
+            lib=/usr/local/lib/fm-sim-cloud
+            install -d -o root -g root -m 0755 "$lib"
+            install -o root -g root -m 0644 "$src/idle_to_zero.py" "$lib/idle_to_zero.py"
+            for unit in fm-sim-idle.service fm-sim-idle.timer fm-sim-imds-block.service; do
+              install -o root -g root -m 0644 "$src/$unit" "/etc/systemd/system/$unit"
+            done
+            owned() {
+              [ "$(stat -c '%U:%G %a' "$2")" = "root:root $1" ] || { echo "$2 is not root:root $1"; false; }
+            }
+            owned 755 "$lib"
+            owned 644 "$lib/idle_to_zero.py"
+            for unit in fm-sim-idle.service fm-sim-idle.timer fm-sim-imds-block.service; do
+              owned 644 "/etc/systemd/system/$unit"
+            done
+
+            # The agent's account (fm-setup's FM_SIM_USER, created the way its
+            # sim step creates it) exists before the role runs, so the IMDS
+            # block is in place before any run can start.
+            if ! getent passwd fm-sim >/dev/null; then
+              useradd --system --user-group --create-home --home-dir /var/lib/fm-sim \
+                --shell /usr/sbin/nologin fm-sim
+            fi
+            systemctl daemon-reload
+            systemctl enable --now fm-sim-imds-block.service
+            iptables -C OUTPUT -d 169.254.169.254/32 -m owner --uid-owner fm-sim -j DROP
+
+            fetch_commit /opt/fm/fm-setup '${FmSetupRepoUrl}' '${FmSetupCommit}'
+            set -a
+            # shellcheck source=/dev/null
+            . /etc/fm-sim-cloud/host.env
+            set +a
+            # A hang fails like any other error, so the trap ends the host.
+            NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh '--${FmSetupRole}'
+
+            systemctl enable --now fm-sim-idle.timer
+            echo "bootstrap complete"
+
+  HostAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "${AWS::StackName}-host"
+      MinSize: "0"
+      MaxSize: "1"
+      DesiredCapacity: "0"
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 900
+      LaunchTemplate:
+        LaunchTemplateId: !Ref HostLaunchTemplate
+        Version: !GetAtt HostLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier: [!Ref SubnetA, !Ref SubnetB]
+      Tags:
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue, PropagateAtLaunch: true}
+        - {Key: Name, Value: !Ref HostName, PropagateAtLaunch: true}
+
+  StatusParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/status"
+      Type: String
+      Value: '{"schema_version":1,"state":"unknown"}'
+      Description: Sim host status, rewritten by the controller every minute.
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-monthly"
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+        BudgetType: COST
+        CostFilters:
+          TagKeyValue:
+            - !Sub "user:${CostTagKey}$${CostTagValue}"
+        TimeUnit: MONTHLY
+      NotificationsWithSubscribers: !If
+        - HasBudgetEmail
+        - - Notification: {ComparisonOperator: GREATER_THAN, NotificationType: ACTUAL, Threshold: 70, ThresholdType: PERCENTAGE}
+            Subscribers: [{Address: !Ref BudgetNotificationEmail, SubscriptionType: EMAIL}]
+          - Notification: {ComparisonOperator: GREATER_THAN, NotificationType: FORECASTED, Threshold: 85, ThresholdType: PERCENTAGE}
+            Subscribers: [{Address: !Ref BudgetNotificationEmail, SubscriptionType: EMAIL}]
+          - Notification: {ComparisonOperator: GREATER_THAN, NotificationType: ACTUAL, Threshold: 100, ThresholdType: PERCENTAGE}
+            Subscribers: [{Address: !Ref BudgetNotificationEmail, SubscriptionType: EMAIL}]
+        - !Ref AWS::NoValue
+
+  ControllerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-controller"
+      RetentionInDays: 30
+
+  ControllerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: control-one-sim-host
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt ControllerLogGroup.Arn
+              - Sid: DescribeOnly
+                Effect: Allow
+                Action: [autoscaling:DescribeAutoScalingGroups, ec2:DescribeInstances]
+                Resource: "*"
+              - Sid: CapacityOfThisGroupOnly
+                Effect: Allow
+                Action: [autoscaling:SetDesiredCapacity, autoscaling:TerminateInstanceInAutoScalingGroup]
+                Resource: !Sub "arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${AWS::StackName}-host"
+              - Sid: ReadThisBudget
+                Effect: Allow
+                Action: budgets:ViewBudget
+                Resource: !Sub "arn:${AWS::Partition}:budgets::${AWS::AccountId}:budget/${AWS::StackName}-monthly"
+              - Sid: WriteStatus
+                Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/status"
+      Tags:
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  ControllerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ControllerLogGroup
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-controller"
+      Description: Starts the sim host behind the budget gate, stops it, and enforces its deadline.
+      Runtime: python3.13
+      Handler: controller.handler
+      Role: !GetAtt ControllerRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      # Two, so an operator start does not throttle behind the minute reconcile.
+      ReservedConcurrentExecutions: 2
+      Code:
+        S3Bucket: !Ref ControllerCodeBucket
+        S3Key: !Ref ControllerCodeKey
+      Environment:
+        Variables:
+          AUTO_SCALING_GROUP: !Ref HostAutoScalingGroup
+          BUDGET_NAME: !Sub "${AWS::StackName}-monthly"
+          BUDGET_BLOCK_PERCENT: !Ref BudgetBlockPercent
+          MAX_LIFETIME_MINUTES: !Ref MaxLifetimeMinutes
+          IDLE_MINUTES: !Ref IdleMinutes
+          STATUS_PARAMETER: !Ref StatusParameter
+          AWS_ACCOUNT_ID: !Ref AWS::AccountId
+      Tags:
+        - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
+
+  ReconcileSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Enforces the sim host deadline and refreshes its status every minute.
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ControllerFunction.Arn
+          Id: Reconcile
+          Input: '{"action":"reconcile"}'
+
+  ReconcileSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ControllerFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReconcileSchedule.Arn
+
+  # Attach to whoever runs `fm sim host start|stop aws`. Starting goes only
+  # through the controller, so the budget gate cannot be skipped by this policy.
+  OperatorPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Start, stop and read the fm-sim cloud host through its controller.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !GetAtt ControllerFunction.Arn
+          - Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/status"
+
+  ViewerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Read the fm-sim cloud host status and budget only.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/status"
+
+Outputs:
+  AutoScalingGroupName:
+    Value: !Ref HostAutoScalingGroup
+  ControllerFunctionName:
+    Value: !Ref ControllerFunction
+  ControllerFunctionArn:
+    Value: !GetAtt ControllerFunction.Arn
+  StatusParameterName:
+    Value: !Ref StatusParameter
+  BudgetName:
+    Value: !Ref MonthlyBudget
+  OperatorPolicyArn:
+    Value: !Ref OperatorPolicy
+  ViewerPolicyArn:
+    Value: !Ref ViewerPolicy
+  HostName:
+    Value: !Ref HostName
+  IdleMinutes:
+    Value: !Ref IdleMinutes
+  MaxLifetimeMinutes:
+    Value: !Ref MaxLifetimeMinutes

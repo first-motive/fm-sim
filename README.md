@@ -134,6 +134,13 @@ ros2 run fm_sim_bringup catalog --json   # every registered entry
 See [`fm_sim_bringup`](fm_sim_bringup/README.md) for the contract, the catalog
 convention and the JSON schema.
 
+### Cloud Host
+
+[`infra/aws/sim/`](infra/aws/sim/README.md) is a CloudFormation stack for a sim
+host on an AWS GPU instance. It holds zero or one instance, starts behind a
+monthly budget gate, returns to zero after 15 idle minutes, and terminates at a
+hard deadline.
+
 ## Architecture
 
 Each engine hosts a `controller_manager` behind one interface, so the same

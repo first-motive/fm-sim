@@ -1,0 +1,10 @@
+# One idle check for the AWS sim host. The bootstrap copies this unit and the
+# script from the pinned fm-sim checkout; edit this file, never the copy.
+[Unit]
+Description=fm-sim cloud host: scale to zero after the idle period
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/fm-sim-cloud/host.env
+ExecStart=/usr/bin/python3 -I /usr/local/lib/fm-sim-cloud/idle_to_zero.py check
