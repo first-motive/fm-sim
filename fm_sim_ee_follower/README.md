@@ -145,7 +145,9 @@ rejects non-finite input. `test_gate.py` checks the gate decision directly.
 `test_kinematics.py` checks the KDL chain and its step bounds against a fixture URDF.
 `test_follower_node.py` runs the shipped node over real topics as a wiring check of each
 gate, with a fresh, valid input case as the control, and drives `/clock` for the clock
-jump.
+jump, waiting on sim time rather than wall time. Under ROS, `test/conftest.py` gives the
+tests a ROS domain of their own, so packages tested in parallel do not see each other's
+topics.
 
 ## Build Type
 
