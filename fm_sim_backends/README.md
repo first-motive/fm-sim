@@ -83,7 +83,9 @@ gets the `robot_description` argument, the mujoco and isaac
 `controller_manager` still get it as a parameter, and mujoco's also gets the
 plugins file. `test/test_description_topic.py`
 launches mujoco (under `xvfb-run`) and isaac live with the one-joint probe robots
-in `test/fixtures/` and waits for `/robot_description`.
+in `test/fixtures/`, waits for `/robot_description`, and after shutdown checks that
+no controller_manager is left running. `test/conftest.py` gives the package's tests a
+ROS domain of their own, so packages tested in parallel do not see each other's topics.
 
 ## Build Type
 

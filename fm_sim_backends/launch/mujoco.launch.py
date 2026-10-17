@@ -45,10 +45,20 @@ def _display_prefix():
     no session for, so it runs under a virtual one (``xvfb-run``). macOS has no X11:
     GLFW talks to Cocoa directly and a real window opens on the logged-in session, so
     the prefix is empty there — asking for xvfb-run would just fail to find it.
+
+    xvfb-run runs the node in the foreground of a ``/bin/sh`` that defers launch's
+    SIGINT and, killed by the SIGTERM that follows, leaves the node and Xvfb running:
+    the controller_manager outlived shutdown, and the next launch's spawners found
+    it. bash job control puts xvfb-run, Xvfb and the node in a process group of their
+    own, and the traps pass each shutdown signal to that whole group.
     """
     if platform.system() == 'Darwin':
         return ''
-    return 'xvfb-run -a'
+    return (
+        "bash -c 'set -m; xvfb-run -a \"$@\" & job=$!; "
+        'trap "kill -INT -$job" INT; trap "kill -TERM -$job" TERM; '
+        "wait $job; wait $job' xvfb-run"
+    )
 
 
 def _require_backend():
