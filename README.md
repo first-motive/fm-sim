@@ -130,6 +130,7 @@ fm sim up      --host fm-ws-01 --scenario empty --controller idle --seed 3
 fm sim down    --host fm-ws-01
 fm sim trial   --host fm-ws-01 --seeds 0..19      # one run per seed, scored, JSON report
 fm sim up      --host local                       # the agent in-process, on this Mac's OrbStack
+fm sim host start aws --stack fm-sim-cloud-host   # the AWS sim host, through its controller
 ```
 
 See [the agent's README](agent/README.md#the-fm-sim-cli) for every verb and flag.
