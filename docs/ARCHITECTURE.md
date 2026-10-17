@@ -68,7 +68,7 @@ Source: [`diagrams/backends.d2`](diagrams/backends.d2).
 | Backend | Launch file | Hosts | Notes |
 |---------|-------------|-------|-------|
 | `mujoco` | `mujoco.launch.py` | `mujoco_ros2_control/ros2_control_node`, headless; its CameraPlugin renders on EGL, or as `MUJOCO_GL` says | **Daily driver**, native arm64 on M5 (CPU, no GPU) |
-| `gazebo` | `gazebo.launch.py` | Gazebo Harmonic via `ros_gz_sim` + `create` + `ros_gz_bridge` (clock); `gz_ros2_control` in-engine | Wired; Linux/GPU, headless server-only anywhere |
+| `gazebo` | `gazebo.launch.py` | Gazebo Harmonic: `gz sim` in its own process group, `create`, `ros_gz_bridge` (clock, object poses, camera images, `set_pose`); `gz_ros2_control` in-engine | Linux/GPU, or server-only with headless rendering anywhere. Runs the generated world SDF, the robot with camera sensors, and the camera relays |
 | `isaac` | `isaac.launch.py` | standalone `controller_manager` with `topic_based_ros2_control`, bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Wired; Linux + NVIDIA. Builds the Isaac Sim 4.5 stage (URDF, objects, cameras, ROS 2 bridge graph) and starts Isaac when `FM_ISAAC_PYTHON` is set and a world is given |
 
 `topic_based_ros2_control` has no Jazzy apt release, so `fm-sim.repos` pins it as

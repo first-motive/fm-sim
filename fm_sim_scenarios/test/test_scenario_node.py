@@ -225,8 +225,8 @@ def test_a_non_finite_pose_is_left_out(ros):
 
 
 def test_unknown_backend_is_refused(ros):
-    with pytest.raises(sc.ScenarioError, match="backend 'gazebo' cannot read"):
-        ros(backend='gazebo')
+    with pytest.raises(sc.ScenarioError, match="backend 'bullet' cannot read"):
+        ros(backend='bullet')
 
 
 @pytest.mark.parametrize('parameters, match', [

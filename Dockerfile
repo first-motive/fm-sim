@@ -12,7 +12,8 @@ FROM ghcr.io/first-motive/fm-docker:jazzy
 ARG DEBIAN_FRONTEND=noninteractive
 
 # ros2_control + the controllers fm-robot's descriptions are written against, the
-# MuJoCo and Gazebo Harmonic bridges, and the headless GL stack MuJoCo's GLFW
+# MuJoCo and Gazebo Harmonic bridges (with the JPEG image_transport plugin the
+# camera relays compress with), and the headless GL stack MuJoCo's GLFW
 # viewer needs under a virtual display (xvfb). Every package here ships arm64 and
 # amd64 on the Jazzy (noble) mirror, so the image needs no per-arch split and no
 # extra Gazebo apt repo; Harmonic comes from the ros.org gz vendor packages.
@@ -24,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-gz-ros2-control \
       ros-jazzy-ros-gz-sim \
       ros-jazzy-ros-gz-bridge \
+      ros-jazzy-ros-gz-interfaces \
+      ros-jazzy-compressed-image-transport \
       xvfb \
       libgl1-mesa-dri \
       libglu1-mesa \

@@ -31,7 +31,7 @@ which Jazzy ignores and that Humble launch still needs.
 | Launch file | Engine | Plugin | Host | Status |
 |-------------|--------|--------|------|--------|
 | `mujoco.launch.py` | MuJoCo | `mujoco_ros2_control/MujocoSystemInterface` | CPU (arm64 ok) | Daily driver, incl. M5 |
-| `gazebo.launch.py` | Gazebo Harmonic | `gz_ros2_control/GazeboSimSystem` | Linux/GPU | Wired; engine smoked headless |
+| `gazebo.launch.py` | Gazebo Harmonic | `gz_ros2_control/GazeboSimSystem` | Linux/GPU, or headless anywhere | Scenarios and cameras; run live headless on software GL |
 | `isaac.launch.py` | Isaac Sim | `topic_based_ros2_control/TopicBasedSystem` | Linux + NVIDIA | Wired, not Mac-verifiable |
 
 - **MuJoCo** hosts the `controller_manager` inside the simulation: it loads the
@@ -61,14 +61,60 @@ which Jazzy ignores and that Humble launch still needs.
 
   Any other value, set but empty included, fails the launch, as do `egl` and
   `osmesa` on macOS.
-- **Gazebo** starts gz-sim, spawns the robot from `/robot_description`, and bridges
-  the sim clock; a `<gazebo>` world plugin in the description hosts the
-  `controller_manager`.
+- **Gazebo** runs the gz-sim server in a process group of its own, spawns the
+  robot, and bridges the sim clock; a `<gazebo>` plugin in the description hosts
+  the `controller_manager`. Under `run.launch.py` it runs the scenario's world
+  and builds the robot half beside it (see [Gazebo World](#gazebo-world)).
 - **Isaac** runs as its own process and is the physics authority; the connection is
   purely topic-based over `/isaac_joint_states` and `/isaac_joint_commands`.
   `topic_based_ros2_control` has no Jazzy apt release; `fm-sim.repos` pins it as a
   source external. Under `run.launch.py` this launch also builds the Isaac stage
   (see [Isaac Stage](#isaac-stage)).
+
+## Gazebo World
+
+Given `world` (the world SDF `fm_sim_scenarios.gazebo_world.write` wrote: physics
+at 1 ms, the scenario's objects with mass, inertia and friction, a PosePublisher
+on each free object), the gazebo launch (`fm_sim_backends.gazebo`):
+
+- writes `<robot>.urdf` beside it, only in the run's `fm_sim_world_*` directory
+  and never over a file or symlink already there: the description with every
+  mesh URI made an absolute `file://` path (`isaac_stage.mesh_path`: the robot
+  entry's `mesh_roots` first, then `package://` from the package's share; an
+  absolute path only inside a mesh root or an installed share) and a pinhole camera sensor
+  per camera in `cameras_file`, on its optical frame, rendering the real fx, fy,
+  cx, cy at the image size and `rate_hz`. The published `/robot_description` is
+  unchanged;
+- writes `bridge.yaml` and runs ros_gz_bridge on it:
+
+  | Gazebo | ROS | Type |
+  |--------|-----|------|
+  | `/clock` | `/clock` | `rosgraph_msgs/Clock` |
+  | `/model/<object>/pose` per free object, world frame `fm_sim` | same | `geometry_msgs/PoseStamped` |
+  | `/cam_<role>/image_raw`, frame = its optical frame | same | `sensor_msgs/Image` |
+  | `/world/fm_sim/set_pose` (service) | same | `ros_gz_interfaces/SetEntityPose` |
+
+- starts the gz-sim server on the world, spawns `<robot>.urdf` as `robot` (the
+  robot entry's name), and starts the same camera relays as the Isaac backend
+  ([`cameras`](fm_sim_backends/cameras.py)):
+  image_transport's republisher onto `/cam_<role>/image_raw/compressed` (JPEG)
+  and the `camera_info` node. Gazebo renders no lens distortion, so the
+  camera_info carries the real intrinsics with zero `plumb_bob` distortion, not
+  the real fisheye's.
+
+The server, the spawn and the bridge run with `GZ_IP=127.0.0.1` and
+`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (the relays with the latter), so
+neither gz-transport nor the bridge's DDS is reachable from the LAN.
+
+The server is `gz sim` run as a bash job whose traps pass launch's SIGINT and
+SIGTERM to its whole process group
+([`process_group`](fm_sim_backends/process_group.py), shared with the MuJoCo
+launch's `xvfb-run`, which spares Xvfb so the node stops first; checked with
+bash 5.2 on Linux, and not used on macOS).
+ros_gz_sim's `gz_sim.launch.py` ran `ruby gz sim` under
+`sh -c`, which swallowed SIGINT, and the server outlived the launch. The catalog
+entry runs it server-only with `--headless-rendering` (EGL), so cameras render
+with no display.
 
 ## Isaac Stage
 
@@ -154,8 +200,9 @@ ros2 launch fm_sim_core sim.launch.py backend:=isaac \
 | `robot_description` | all | Description XML expanded with the matching `sim_backend` |
 | `controllers_file` | all (gazebo: reserved) | `controllers.yaml` for the preset |
 | `world`, `cameras_file`, `mesh_roots`, `isaac_python`, `isaac_gui` | isaac | See [Isaac Stage](#isaac-stage) |
-| `gz_args` | gazebo | Passed to gz-sim; default `-r -v 3 empty.sdf` |
-| `entity_name` | gazebo | Spawned entity name; default `openarm` |
+| `world`, `cameras_file`, `mesh_roots` | gazebo | The scenario's world SDF, the robot's cameras file and its mesh roots (JSON `[[prefix, directory]]`); an empty `world` runs gz-sim's `empty.sdf`, spawns `/robot_description` and bridges `/clock` only |
+| `robot` | gazebo | Spawned model name; default `robot` (`run.launch.py` passes the robot entry's name) |
+| `gz_args` | gazebo | gz-sim flags, the world follows; default `-r -v 3` |
 
 ## Tests
 
@@ -166,7 +213,13 @@ plugins file, and `MUJOCO_GL` sets its environment and prefix as the table above
 says. `test/test_description_topic.py` launches mujoco (default `egl`, and
 `MUJOCO_GL=glfw` for the xvfb-run wrapper) and isaac live with the one-joint probe robots in `test/fixtures/`, waits for
 `/robot_description` and for the controller_manager to finish initialising, and
-after shutdown checks that no controller_manager is left running. `test/test_isaac.py`
+after shutdown checks that no controller_manager is left running.
+`test/test_gazebo.py` covers the gazebo wiring without gz-sim (the server
+command and its host-local environment, the robot half and bridge written beside
+a world, the camera relays with zero distortion, the spawn and bridge with no
+world) and runs the process-group wrapper around a SIGINT-deferring `sh` to
+check that SIGINT ends the whole group, and that a spared child outlives it.
+`test/test_isaac.py`
 covers the stage wiring without Isaac Sim: the runner's pure helpers (schema check,
 the `og.Controller.edit` arguments, object command validation), the `camera_info`
 node live, the relays and runner command the launch starts, and the launch

@@ -23,14 +23,14 @@ What comes up:
    (fm_sim_cameras) per role of the robot's ``cameras_file``, publishing
    ``/cam_<role>/image_raw/compressed`` and ``/cam_<role>/camera_info``.
 
-On a backend with a scenario generator (mujoco, isaac), the scenario's objects are
-first spawned from ``seed`` into a generated world: on mujoco the robot's model is
-built into it with the robot's cameras, and that world is the model the backend
-loads; on isaac it is the scenario half of the stage, which the backend launch
-(given ``world`` and the robot's ``cameras_file``) completes from the robot
-description. ``timeout_s`` overrides the scenario's episode timeout; empty keeps
-it. The world is written to a temporary directory that is removed when the launch
-shuts down.
+On a backend with a scenario generator (mujoco, gazebo, isaac), the scenario's
+objects are first spawned from ``seed`` into a generated world: on mujoco the
+robot's model is built into it with the robot's cameras, and that world is the
+model the backend loads; on gazebo and isaac it is the scenario half, which the
+backend launch (given ``world``, the robot's ``cameras_file``, ``mesh_roots`` and
+name) completes from the robot description. ``timeout_s`` overrides the
+scenario's episode timeout; empty keeps it. The world is written to a temporary
+directory that is removed when the launch shuts down.
 """
 
 import shutil

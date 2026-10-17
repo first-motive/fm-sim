@@ -32,6 +32,7 @@ from ament_index_python.packages import (
     PackageNotFoundError,
 )
 
+from fm_sim_backends import process_group
 from fm_sim_backends.description import (
     robot_description_parameter,
     robot_state_publisher_node,
@@ -103,7 +104,7 @@ def _display_prefix(renderer):
     xvfb-run runs the node in the foreground of a ``/bin/sh`` that defers launch's
     SIGINT and, killed by the SIGTERM that follows, leaves the node and Xvfb running:
     the controller_manager outlived shutdown, and the next launch's spawners found
-    it. The bash wrapper runs xvfb-run as a job (``set -m``, so the node does not
+    it. ``process_group`` runs xvfb-run as a job (``set -m``, so the node does not
     start with SIGINT ignored) and passes each shutdown signal to xvfb-run's children
     except Xvfb. The node stops first; xvfb-run then stops Xvfb, as on a normal exit,
     and returns the node's exit status. Signalling Xvfb in the same instant would cut
@@ -111,14 +112,7 @@ def _display_prefix(renderer):
     """
     if renderer != 'glfw' or platform.system() == 'Darwin':
         return ''
-    return (
-        "bash -c '"
-        'set -m; xvfb-run -a "$@" & job=$!; '
-        'forward() { for pid in $(pgrep -P $job); do '
-        '[ "$(cat /proc/$pid/comm)" = Xvfb ] || kill -$1 $pid; done; }; '
-        'trap "forward INT" INT; trap "forward TERM" TERM; '
-        "wait $job; wait $job' xvfb-run"
-    )
+    return process_group.prefix('xvfb-run', '-a', spare='Xvfb')
 
 
 def _require_backend(renderer):

@@ -49,10 +49,8 @@ ROWS = [
     for robot in EXPECTED_INACTIVE
     for backend in ('mujoco', 'gazebo', 'isaac')
 ]
-# A row's engine can outlive its launch (ros_gz_sim runs gz sim under a shell that
-# shutdown kills, leaving the server and its controller_manager running). Each row
-# gets its own ROS domain and Gazebo partition from here, so a survivor of an earlier
-# row cannot answer this one.
+# Each row gets its own ROS domain and Gazebo partition from here, so an engine
+# still shutting down from an earlier row cannot answer this one.
 _FIRST_DOMAIN_ID = 20
 
 

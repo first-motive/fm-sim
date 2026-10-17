@@ -37,7 +37,7 @@ flowchart LR
     idx --> sp["spawners<br/>broadcasters + activated roles: active<br/>other roles: inactive"]
     sp --> be
     idx --> ctl["controller launch<br/>use_sim, robot_profile, scenario"]
-    idx --> gen["scenario generator<br/>mujoco: one MJCF world<br/>isaac: stage objects"]
+    idx --> gen["scenario generator<br/>mujoco: one MJCF world<br/>gazebo: world SDF<br/>isaac: stage objects"]
     gen --> desc
     idx --> sn["scenario node<br/>/sim/objects /sim/markers<br/>/sim/reset /sim/outcome"]
 ```
@@ -46,18 +46,20 @@ What `run.launch.py` does, in order:
 
 1. On a backend with a scenario generator, spawns the scenario's objects from
    `seed` into a generated world (see [Scenarios](#scenarios)): on mujoco the
-   robot's MJCF and the objects as one world; on isaac the scenario half of the
-   Isaac stage, which the backend launch completes. A backend without one runs
-   the robot's own model and refuses a scenario that has objects.
+   robot's MJCF and the objects as one world; on gazebo the world SDF and on
+   isaac the scenario half of the Isaac stage, which the backend launch
+   completes. A backend without one runs the robot's own model and refuses a
+   scenario that has objects.
 2. Expands the robot's xacro with the robot's `description_args` and the backend's.
    The backend's args select its hardware plugin; `{mjcf_path}` (the generated
    world, or the robot's model from `fm_sim_models`) and `{controllers_file}` are
    filled in.
 3. Includes the backend launch with that description, the robot's controllers
    file and the backend's optional `launch_args` (gazebo's run server-only). A
-   backend that finishes its own stage (`run.STAGE_BACKENDS`: isaac) also gets
-   the generated `world` and the robot's `cameras_file` (each empty without one),
-   and its `mesh_roots` resolved to share directories, as JSON.
+   backend that finishes its own stage (`run.STAGE_BACKENDS`: gazebo, isaac) also
+   gets the generated `world` and the robot's `cameras_file` (each empty without
+   one), its `mesh_roots` resolved to share directories, as JSON, and the robot
+   entry's name as `robot` (gazebo names the spawned model with it).
 4. Spawns the robot's controllers. The `broadcasters` role and every role the
    controller entry `activate`s start active; the others load inactive, so a
    controller can switch to them.
@@ -73,7 +75,8 @@ A scenario entry is backend-neutral: objects, regions and a success predicate,
 with poses in the robot description's world frame (for OpenArm, the
 `fm_openarm_v2` profile's `base_frame`, `openarm_body_link0`). Each backend has a
 generator that turns robot model + scenario + seed into the world its engine
-loads; MuJoCo's is `fm_sim_scenarios.mujoco_world`, Isaac Sim's
+loads; MuJoCo's is `fm_sim_scenarios.mujoco_world`, Gazebo's
+`fm_sim_scenarios.gazebo_world` (see the [Gazebo backend](../fm_sim_backends/README.md#gazebo-world)), Isaac Sim's
 `fm_sim_scenarios.isaac_stage` (see the [Isaac backend](../fm_sim_backends/README.md#isaac-stage)). The scenario node is the
 same on every backend apart from how it reads and moves objects.
 
@@ -224,8 +227,7 @@ robot profile describes either yet, so their `robot_profile` is `null`.
 Both also have `broadcasters: [joint_state_broadcaster]`. Their vendored URDFs
 name meshes no package resolves (the SO-101's relative `assets/`, the Axol's
 `package://assembly/`); each entry's `mesh_roots` maps that prefix to the
-directory in fm_description's share. Isaac's stage reads it; on Gazebo the arms
-still load with no visual or collision geometry, and the controllers come up.
+directory in fm_description's share. The Gazebo and Isaac backends read it.
 
 | Controller | Activates | Launch |
 |------------|-----------|--------|
@@ -249,9 +251,10 @@ is the contract for that output.
 | Test | Checks |
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation (`robot_profile` a name or `null`), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
-| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose |
 | `test_scenario_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`. Needs the `openarm_mujoco` external and Mesa's EGL |
 | `test_camera_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` — both roles publish 1920x1080 JPEGs with the profile frames, sim-time stamps no more than 10 Hz apart, the real K and distortion on `camera_info`, and the can, projected through TF and the real chest intrinsics, lands on can-green pixels. Needs the `openarm_mujoco` external and Mesa's EGL |
+| `test_gazebo_scenario_launch.py` | Live: `openarm` on `gazebo` with `can_on_table` and `idle` — the same object, reset and outcome checks as on MuJoCo; both cameras publishing JPEG on `/cam_<role>/image_raw/compressed` and a `camera_info` with the cameras file's intrinsics, its frame and zero distortion; after shutdown, no gz-sim server of the run left. Linux only (skipped elsewhere); Gazebo renders on software GL there |
 | `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition. Needs the MJCF and description externals, `topic_based_ros2_control` and Mesa's EGL |
 
 ## Build Type

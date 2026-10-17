@@ -11,15 +11,20 @@ import math
 
 from fm_sim_bringup import catalog
 from fm_sim_cameras import cameras_file, fisheye, mount
-from fm_sim_scenarios import isaac_stage, mujoco_world, scenario as sc
+from fm_sim_scenarios import gazebo_world, isaac_stage, mujoco_world, scenario as sc
 
 # Backend name -> the generator that builds its world from robot model + scenario +
 # seed. A backend absent here runs the robot's own model and takes only scenarios
 # without objects.
-WORLD_GENERATORS = {'mujoco': mujoco_world.write, 'isaac': isaac_stage.write}
+WORLD_GENERATORS = {
+    'mujoco': mujoco_world.write,
+    'gazebo': gazebo_world.write,
+    'isaac': isaac_stage.write,
+}
 # Backends whose own launch finishes the generated world from the description
-# and the robot's cameras: they also get ``world`` and ``cameras_file``.
-STAGE_BACKENDS = ('isaac',)
+# and the robot's cameras: they also get ``world``, ``cameras_file``,
+# ``mesh_roots`` and ``robot``.
+STAGE_BACKENDS = ('gazebo', 'isaac')
 # Backends whose generated world carries the robot's cameras: the generator module
 # (``world_path``, ``body_names``, and ``write`` taking ``cameras``) and the topic
 # its renderer publishes a camera's pinhole image on. The mujoco topic is the
@@ -222,7 +227,8 @@ def backend_launch_arguments(backend, robot, robot_description, controllers_file
 
     Every backend gets its ``launch_args``, the description and the controllers
     file; a ``STAGE_BACKENDS`` one also gets ``world`` (empty for none), the
-    robot's ``cameras_file`` (empty for none) and its ``mesh_roots`` as JSON.
+    robot's ``cameras_file`` (empty for none), its ``mesh_roots`` as JSON and its
+    name as ``robot`` (gazebo names the spawned model with it).
     """
     arguments = {
         **backend.get('launch_args', {}),
@@ -235,6 +241,7 @@ def backend_launch_arguments(backend, robot, robot_description, controllers_file
             catalog.share_file(robot['cameras_file']) if 'cameras_file' in robot else ''
         )
         arguments['mesh_roots'] = json.dumps(mesh_roots(robot))
+        arguments['robot'] = robot['name']
     return arguments
 
 

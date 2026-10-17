@@ -8,7 +8,7 @@ from ament_index_python.packages import get_package_share_directory
 from fm_sim_bringup import catalog, run
 from fm_sim_cameras import cameras_file
 from fm_sim_models.models import mjcf_path
-from fm_sim_scenarios import isaac_stage, scenario as sc
+from fm_sim_scenarios import gazebo_world, isaac_stage, scenario as sc
 import numpy as np
 import pytest
 import yaml
@@ -143,7 +143,8 @@ def _entries(backend, scenario):
     return run.resolve(backend, 'openarm', scenario, 'idle')
 
 
-def test_backend_without_generator_runs_the_robot_model_for_empty():
+def test_backend_without_generator_runs_the_robot_model_for_empty(monkeypatch):
+    monkeypatch.delitem(run.WORLD_GENERATORS, 'gazebo')
     entries = _entries('gazebo', 'empty')
     world = run.world_model(
         entries['backend'], entries['robot'], entries['scenario'], 0, '/robot.xml', '/unused'
@@ -151,12 +152,24 @@ def test_backend_without_generator_runs_the_robot_model_for_empty():
     assert world is None
 
 
-def test_backend_without_generator_refuses_objects():
+def test_backend_without_generator_refuses_objects(monkeypatch):
+    monkeypatch.delitem(run.WORLD_GENERATORS, 'gazebo')
     entries = _entries('gazebo', 'can_on_table')
     with pytest.raises(catalog.CatalogError, match="backend 'gazebo' has no scenario generator"):
         run.world_model(
             entries['backend'], entries['robot'], entries['scenario'], 0, '/robot.xml', '/unused'
         )
+
+
+def test_gazebo_writes_the_scenario_world(tmp_path):
+    entries = _entries('gazebo', 'can_on_table')
+    world = run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 3, '/robot.xml',
+        str(tmp_path),
+    )
+    assert world == str(tmp_path / 'can_on_table_3.sdf')
+    with open(world) as world_file:
+        assert gazebo_world.free_objects(world_file.read()) == ['can']
 
 
 @pytest.mark.skipif(
@@ -191,9 +204,8 @@ def test_isaac_writes_the_scenario_half_of_its_stage(tmp_path):
     assert can['translate'] == list(sc.spawn_poses(entries['scenario'], 3)['can'][0])
 
 
-@pytest.mark.parametrize('backend', ['mujoco', 'gazebo'])
-def test_simulators_get_only_their_own_launch_arguments(backend):
-    entries = _entries(backend, 'can_on_table' if backend == 'mujoco' else 'empty')
+def test_mujoco_gets_only_its_own_launch_arguments():
+    entries = _entries('mujoco', 'can_on_table')
     arguments = run.backend_launch_arguments(
         entries['backend'], entries['robot'], '<robot/>', '/c.yaml', '/w/world.xml'
     )
@@ -204,14 +216,16 @@ def test_simulators_get_only_their_own_launch_arguments(backend):
     }
 
 
-def test_isaac_gets_the_world_and_the_robot_cameras():
-    entries = _entries('isaac', 'can_on_table')
+@pytest.mark.parametrize('backend', ['gazebo', 'isaac'])
+def test_stage_backends_get_the_world_and_the_robot_cameras(backend):
+    entries = _entries(backend, 'can_on_table')
     arguments = run.backend_launch_arguments(
         entries['backend'], entries['robot'], '<robot/>', '/c.yaml', '/w/stage.isaac.json'
     )
     assert arguments['world'] == '/w/stage.isaac.json'
     assert arguments['cameras_file'] == catalog.share_file(entries['robot']['cameras_file'])
     assert arguments['mesh_roots'] == '[]'
+    assert arguments['robot'] == 'openarm'
     assert run.backend_launch_arguments(
         entries['backend'], {'name': 'bare'}, '<robot/>', '/c.yaml', None
     )['world'] == ''
