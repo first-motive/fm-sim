@@ -132,6 +132,7 @@ fm sim down    --host fm-ws-01
 fm sim trial   --host fm-ws-01 --seeds 0..19      # one run per seed, scored, JSON report
 fm sim up      --host local                       # the agent in-process, on this Mac's OrbStack
 fm sim host start aws --stack fm-sim-cloud-host   # the AWS sim host, through its controller
+fm sim host start local                           # this Mac as a sim host the app can drive
 ```
 
 See [the agent's README](agent/README.md#the-fm-sim-cli) for every verb and flag.
@@ -156,6 +157,18 @@ convention and the JSON schema.
 host on an AWS GPU instance. It holds zero or one instance, starts behind a
 monthly budget gate, returns to zero after 15 idle minutes, and terminates at a
 hard deadline.
+
+### This Mac
+
+`fm sim host status|pull|start|stop local` makes this Mac a sim host for the
+desktop app: it checks that OrbStack (or Docker) answers, pulls the image at
+the digest pinned in `agent/src/fm_sim_agent/service.py`, and runs the sim
+agent in the background, with its pidfile and log under
+`$XDG_STATE_HOME/fm-sim/local-agent/`. The agent serves
+`fm/sim/<this machine>/*` (the machine card's name, else the hostname, `-` as
+`_`; `local` is only the CLI's alias) through the fleet router, so the Mac needs `FM_ROUTER_ENDPOINT` (from
+`/etc/fm-comms.env` or the environment). `--json` is what the app reads. See
+[This Mac](agent/README.md#this-mac) in the agent's README.
 
 ## Architecture
 

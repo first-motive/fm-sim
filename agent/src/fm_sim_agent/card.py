@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import socket
 from pathlib import Path
 
 from fm_sim_agent.spec import valid_name
@@ -53,7 +54,7 @@ def read_host(path: Path | None = None) -> str:
     """This host's key segment, or raise :class:`CardError` explaining why not."""
     path = path or card_path()
     if not path.is_file():
-        raise CardError(f"{path} does not exist; run `fm machine init` on this host or pass --host")
+        raise CardError(f"{path} is missing or not a file; run `fm machine init` on this host or pass --host")
     try:
         card = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -67,4 +68,22 @@ def read_host(path: Path | None = None) -> str:
     name = card.get("name")
     if not isinstance(name, str) or not name:
         raise CardError(f"{path} has no name")
+    return host_segment(name)
+
+
+def this_machine_host(path: Path | None = None, hostname=None) -> str:
+    """This machine's key segment: the card's name, else the hostname.
+
+    What ``--host local`` stands for on the fabric. A card that is there but
+    unusable is an error, never a reason to fall back: it would serve under a
+    name the fleet does not know this machine by. With no card, the hostname's
+    first label is used, lower-cased (``Nishs-MacBook-Pro.local`` →
+    ``nishs_macbook_pro``), since a key segment is lower case.
+    """
+    path = path or card_path()
+    if path.exists() or path.is_symlink():
+        return read_host(path)  # a directory or dangling link is an unusable card, not no card
+    name = (hostname or socket.gethostname)().split(".", 1)[0].lower()
+    if not name:
+        raise CardError(f"{path} does not exist and this machine has no hostname")
     return host_segment(name)

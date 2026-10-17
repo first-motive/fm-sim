@@ -180,6 +180,7 @@ uv run fm-sim-agent --host local --no-host-network --image fm-sim:jazzy
 | Flag | Default | Meaning |
 |---|---|---|
 | `--host NAME` | the card's `name` | key segment, `-` becomes `_` |
+| `--label NAME` | the host segment | `fm.sim.agent` label on its containers; `up` is `busy` while another process's run is up under it |
 | `--image REF` | `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy` | image runs use; pin a digest on a host |
 | `--runs-dir DIR` | `$XDG_STATE_HOME/fm-sim/runs` | where summaries and bags go |
 | `--gpus` | off | `--gpus all` for Isaac |
@@ -253,8 +254,9 @@ is brought down. Either way the report is still written, with `complete` false.
 
 ### Local Mode
 
-`--host local` builds the same `SimAgent` and `DockerRunner` the service does,
-in this process, under the host name `local`, against this machine's Docker
+With no managed agent running (see [This Mac](#this-mac)), `--host local`
+builds the same `SimAgent` and `DockerRunner` the service does, in this
+process, under the host name `local`, against this machine's Docker
 (OrbStack on a Mac). No router, Zenoh session or systemd unit is involved.
 Runs do not share the host's network. The image is `--image`, else
 `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy`, and it must already
@@ -322,6 +324,121 @@ could not be asked, `{"ok": false, "error": {"code", "message"}}`. Exit codes:
 the schema (`aws_unavailable`, `aws_timeout`, `stack_not_found`,
 `invalid_reply`, or the `aws` error code).
 
+### This Mac
+
+`host … local` makes this machine a sim host the desktop app can drive: it
+checks the container runtime, pulls the pinned image, and runs this machine's
+agent as a managed background process. The app runs these same commands and
+reads their `--json`; it never runs Docker itself.
+
+`local` is the CLI's word for this machine; it is never a name on the router,
+where two Macs would collide. The agent serves under this machine's name: the
+`name` on its identity card (`$FM_MACHINE_FILE`, else
+`~/.config/fm/machine.json` on macOS), else the hostname's first label in
+lower case, with `-` becoming `_` (`nish-mbp` → `nish_mbp`). A card that is
+there but names no valid segment is a usage error, not a fallback to the
+hostname.
+
+```bash
+fm sim host status local [--json]   # runtime, image and agent; read-only
+fm sim host pull   local [--json]   # pull the pinned image, streaming progress
+fm sim host start  local [--json]   # start the agent detached; a no-op if it runs
+fm sim host stop   local [--json]   # SIGTERM, then SIGKILL after 60 s
+```
+
+- **Runtime.** `docker context show` and `docker info` say whether a runtime
+  answers and which one: `orbstack` when the context or the daemon's
+  operating system names OrbStack, else `docker` (Docker Desktop and the
+  rest), or none when there is no `docker` on `PATH`.
+- **Image.** The ref is `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy`,
+  the one `--host local` and the service use. Its pin is
+  `DEFAULT_IMAGE_DIGEST` in `fm_sim_agent/service.py`, the one place it
+  lives, or `$FM_SIM_IMAGE_DIGEST` to try another. A ref other than the
+  default has no pin unless that variable names one. `local_digest` is the
+  image's registry digest for that repository, or null for an image built on
+  this machine. `update_available` is true only when the image is here and
+  its digest is not the pin; with no pin it is always false, and `status`
+  and `start` print a warning on stderr (never on stdout, which `--json`
+  keeps to the reply). A malformed ref or pin is refused wherever it is read:
+  here, by the in-process `--host local` verbs, and by the service.
+- **Pull.** With a pin, `docker pull <repo>@<pin>`, then `docker tag` back to
+  the ref, so `--pull=never` runs find it; a pull that does not land on the
+  pin is `digest_mismatch`. Without one, `docker pull <ref>`. Each output line
+  becomes a progress event. The CLI has no terminal, so Docker prints a line
+  per layer change rather than byte counts; `current` and `total`, in bytes,
+  appear only on a line that carries `<n><unit>/<n><unit>` (`12.5MB/45MB`,
+  `512B/1.5kB`; decimal units, as Docker prints them).
+- **Start.** A no-op when the managed agent already runs, checked first.
+  Otherwise refused, in this order, with `runtime_unavailable`,
+  `image_missing`, `already_running_elsewhere` (another sim agent for this
+  machine that this command did not start: `<python> -m
+  fm_sim_agent.service` or the `fm-sim-agent` entry point, run with `--host`
+  as this machine's name or `local`, or with no `--host`; or a run container up under
+  the `local` label, such as an `fm sim up --host local` in a terminal) or
+  `router_unavailable` (no `FM_ROUTER_ENDPOINT`). It then runs
+  `python -m fm_sim_agent.service --host <this machine> --label local
+  --no-host-network --image <ref>` in a session and process group of its own,
+  so it outlives a caller that kills the command's process group once it
+  returns, with stdout and stderr appended to the log, and
+  watches it for 3 s: an agent that exits in that time, as one does when it
+  cannot reach the router, is `start_failed` with its last log line.
+- **The agent** is the service a sim host runs, so it serves
+  `fm/sim/<this machine>/*` with the same verbs, off the host network, with DDS discovery at
+  `LOCALHOST`. It is a Zenoh client of the fleet router, as the app is: the
+  app finds it there, and finds nothing if this machine has no router
+  endpoint.
+- **Stop.** SIGTERM, on which the agent brings its active run down through
+  its own `down` and exits. One still up after 60 s is killed with its
+  session, and the run containers that were up under the `local` label when
+  `stop` began (with the agent running, only its own) are removed by name,
+  since its `down` never finished. A run another process starts during the
+  grace is left alone. Each signal is sent only after `ps` confirms the pid is
+  still the agent. With no agent running, `stop` only clears a stale pidfile.
+
+The pidfile and log live in `$XDG_STATE_HOME/fm-sim/local-agent/` (by default
+`~/.local/state/fm-sim/local-agent/`), a `0700` directory: `agent.pid` holds
+the pid, start time, argv and served host name, and `agent.log` is moved to `agent.log.1` at a
+`start` once it passes 10 MiB. `status` counts the agent as running only when
+`ps` shows that pid alive with the argv the pidfile names, so a pid reused by
+another process reads as not running and `stop` never signals it; so does a
+pidfile whose host is not a key segment. A lock in that directory is held only
+to read the pidfile and spawn or signal, never across a Docker probe, the
+start-up watch or the stop grace, so a slow `stop` never stalls a `start`
+(which finds the agent still up and does nothing). Two starts in the same
+moment spawn one agent: the second finds the first's under the lock.
+
+`--json` prints one JSON object per line. The last line is the reply:
+`{"ok": true, "status": LocalStatus}`, or `{"ok": false, "error": {"code",
+"message"}, "status": LocalStatus}`. Before it, `pull` prints one
+`{"event": "progress", "layer"?, "current"?, "total"?, "message"}` per
+update. Every string is cleaned of control and bidi characters. Exit codes:
+0 success, 1 refused (`runtime_unavailable`, `image_missing`,
+`already_running_elsewhere`, `router_unavailable`, `start_failed`,
+`pull_failed`, `digest_mismatch`, `stop_failed`, `state_unavailable`), 2 usage
+(`--stack`, `--region` or `--profile`, a malformed `$FM_SIM_IMAGE` or pin,
+or a machine card that names no key segment), 130 interrupted, which still
+ends with a reply line whose code is `interrupted`.
+
+```
+LocalStatus = {schema_version: 1,
+  runtime: {available, name: "orbstack"|"docker"|null, message},
+  image:   {ref, pinned_digest|null, present, local_digest|null, update_available},
+  agent:   {running, pid|null, since|null, host: <this machine's segment>, log_path}}
+```
+
+While the managed agent runs, every `fm sim … --host local` verb goes to it
+over the router under this machine's name, as to any remote host; `--image`,
+`--runs-dir` and `--duration` are then a usage error. With no managed agent,
+`--host local` runs the agent in-process as before. Both put their run
+containers under the `local` label, and every agent's `up` is refused `busy`
+while a run under its label that it did not start is up, so the managed agent
+and an in-process run each refuse the other. A listing that fails lets `up` go
+ahead, and the check and the start are not atomic. An agent whose `--label`
+differs from its host name (the managed one) also removes nothing at start-up
+while a run is up under that label, since another process may hold it; a run a
+dead agent left there is cleared by `fm sim down --host local` once no managed
+agent runs.
+
 ### As A Service
 
 `systemd/fm-sim-agent.service.in` is a template in fm-robot-agent's form.
@@ -341,5 +458,7 @@ again over a pair of in-process Zenoh peer sessions on 127.0.0.1. The CLI is
 driven the same two ways: against that peer pair, and in local mode against
 the in-process agent with the fake runner. It runs
 `DockerRunner` against a stand-in `docker` executable that records its argv, and
-`fm sim host` against a stand-in `aws` on `PATH`. No router, Docker daemon,
+`fm sim host` against a stand-in `aws` on `PATH`. `fm sim host … local` runs
+against a stand-in `docker` on `PATH` and spawns, signals and identifies a
+stand-in agent process through the real `ps`. No router, Docker daemon,
 image or AWS account is needed.
