@@ -216,3 +216,25 @@ def test_robot_copy_without_compiler_dirs_resolves_from_the_model_directory(tmp_
     compiler = root.find('compiler')
     for key in ('assetdir', 'meshdir', 'texturedir'):
         assert os.path.normpath(compiler.get(key)) == str(tmp_path)
+
+
+def test_world_runs_with_the_robot_options(mujoco, can_on_table, tmp_path):
+    # MuJoCo drops an attached model's <option>, so the generator carries it over.
+    with open(ARM_MJCF) as arm_file:
+        text = arm_file.read()
+    robot = tmp_path / 'robot' / 'arm.xml'
+    robot.parent.mkdir()
+    robot.write_text(text.replace(
+        '<compiler', '<option noslip_iterations="4" cone="elliptic"/>\n  <compiler', 1
+    ).replace('meshdir="assets"', f'meshdir="{os.path.dirname(ARM_MJCF)}/assets"'))
+    path = mujoco_world.write(str(robot), MOUNT, can_on_table, 0, str(tmp_path))
+    model = mujoco.MjModel.from_xml_path(path)
+    assert model.opt.noslip_iterations == 4
+    assert model.opt.cone == mujoco.mjtCone.mjCONE_ELLIPTIC
+    # A robot model with no <option> leaves MuJoCo's defaults.
+    model, _ = _load(mujoco, can_on_table, 0, tmp_path)
+    assert model.opt.noslip_iterations == 0
+    # The robot copy that carries body cameras keeps the option too.
+    camera = mujoco_world.Camera('probe', 'arm_link', (0, 0, 0), (1, 0, 0, 0), 60.0, (64, 48))
+    path = mujoco_world.write(str(robot), MOUNT, can_on_table, 1, str(tmp_path), [camera])
+    assert mujoco.MjModel.from_xml_path(path).opt.noslip_iterations == 4
