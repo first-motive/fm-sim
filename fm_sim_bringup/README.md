@@ -135,6 +135,43 @@ The robot is not reset; a controller under test returns it to its start.
 paper positions on the right arm's side. Its table starts 0.15 m ahead of the base
 so the arms hanging at rest clear it.
 
+## Cameras
+
+A robot entry's optional `cameras_file` lists its cameras by role (`chest`,
+`wrist_right`; any other role is refused): each role's optical frame in the
+robot description, its `rate_hz` and the real camera's intrinsics. OpenArm's is
+[`config/openarm/cameras.yaml`](config/openarm/cameras.yaml): the chest fisheye's
+calibration, copied from fm-skills `openarm_v2_skills_config/config/camera_chest.yaml`
+(the wrist camera has none of its own, and stands in with the same numbers, as
+in fm-robot and fm-skills).
+
+On MuJoCo, `run.launch.py` puts every role into the generated world and starts
+one `fm_sim_cameras` `sim_camera` node per role. Simulators render pinhole
+images and the cameras are fisheyes, so each MJCF camera is a pinhole wide
+enough for its fisheye's edge midpoints (`fisheye.render_camera`), mounted where
+the description puts the optical frame: `fm_sim_cameras.mount` walks the frame's
+fixed joints up to the nearest link the MJCF also has as a body (the right
+wrist camera rides `openarm_right_ee_base_link`), or to the description's root
+(the chest camera is a world camera). The engine's CameraPlugin renders each at
+10 Hz of sim time (mujoco_ros2_control 0.1.2's behaviour; `test_camera_launch.py`
+checks it live); `sim_camera` warps the render into the real fisheye image,
+JPEG-compresses it, and publishes:
+
+| Topic | Type | Contents |
+|-------|------|----------|
+| `/cam_<role>/image_raw/compressed` | `sensor_msgs/CompressedImage` | `jpeg`, the real image size, the render's sim-time stamp, `frame_id` the role's optical frame |
+| `/cam_<role>/camera_info` | `sensor_msgs/CameraInfo` | The real K, `equidistant` distortion (cv2.fisheye's k1..k4), same header |
+
+`sim_camera` publishes at most at the role's `rate_hz`, judged on the stamps; the
+10 Hz render bounds it below that (OpenArm's file says 15). Fisheye pixels whose
+rays fall outside the render, towards the image corners (about 12 % of OpenArm's
+frame, asserted in fm_sim_cameras' `test_fisheye.py`), are black. Isaac renders
+the same cameras file through its own stage and relays (see fm_sim_backends);
+Gazebo has no cameras yet. The cameras file is checked by
+`fm_sim_cameras.cameras_file` for every backend, and each backend refuses what
+it cannot render on top. Camera topics carry no integrity check beyond the sim
+host's own DDS graph.
+
 ## Catalog
 
 An entry is two installed files:
@@ -212,9 +249,10 @@ is the contract for that output.
 | Test | Checks |
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation (`robot_profile` a name or `null`), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
-| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, when the scenario node runs |
-| `test_scenario_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`. Needs the `openarm_mujoco` external and `xvfb-run` |
-| `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition. Needs the MJCF and description externals, `topic_based_ros2_control` and `xvfb-run` |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose |
+| `test_scenario_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`. Needs the `openarm_mujoco` external and Mesa's EGL |
+| `test_camera_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` — both roles publish 1920x1080 JPEGs with the profile frames, sim-time stamps no more than 10 Hz apart, the real K and distortion on `camera_info`, and the can, projected through TF and the real chest intrinsics, lands on can-green pixels. Needs the `openarm_mujoco` external and Mesa's EGL |
+| `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition. Needs the MJCF and description externals, `topic_based_ros2_control` and Mesa's EGL |
 
 ## Build Type
 

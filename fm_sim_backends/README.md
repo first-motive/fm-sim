@@ -41,7 +41,26 @@ which Jazzy ignores and that Humble launch still needs.
   `openarm_mujoco` v2 model, which it attaches in place so its relative
   `meshdir="assets"` resolves. [`config/mujoco_plugins.yaml`](config/mujoco_plugins.yaml)
   always loads mujoco_ros2_control's free-joint state publisher, putting every
-  free body's world pose on `/mujoco/free_joint_states` at 30 Hz of sim time.
+  free body's world pose on `/mujoco/free_joint_states` at 30 Hz of sim time, and
+  its CameraPlugin under the key `mujoco_cameras`, which renders every camera in
+  the world offscreen at 10 Hz of sim time and publishes it raw on
+  `/mujoco_cameras/<camera>/color` (also `depth` and `camera_info`, which nothing
+  reads). `fm_sim_cameras` turns those into the robot's `/cam_<role>` topics. A
+  world with no cameras starts no render thread. These are mujoco_ros2_control
+  0.1.2's CameraPlugin behaviours (`camera_plugin.cpp`), checked live by
+  `fm_sim_bringup`'s `test_camera_launch.py`.
+- **MuJoCo rendering** follows `MUJOCO_GL`. The engine itself always runs headless
+  (the description's `headless` parameter); the variable picks how the
+  CameraPlugin gets its GL context:
+
+  | `MUJOCO_GL` | Context | Where |
+  |-------------|---------|-------|
+  | `egl` (default on Linux) | EGL surfaceless; the process gets no display, so the plugin's GLFW init fails and it falls back to EGL. glvnd picks the GPU's EGL vendor when one is installed, else Mesa | Container, GPU host |
+  | `osmesa` | As `egl`, with EGL pinned to Mesa (`__EGL_VENDOR_LIBRARY_FILENAMES`) and its software rasteriser forced (`LIBGL_ALWAYS_SOFTWARE=1`): llvmpipe, the renderer OSMesa wraps. The plugin has no OSMesa path of its own | Host with no GPU, e.g. the Mac under OrbStack |
+  | `glfw` (default and only choice on macOS) | A hidden GLFW window, under `xvfb-run` on Linux | Debugging |
+
+  Any other value, set but empty included, fails the launch, as do `egl` and
+  `osmesa` on macOS.
 - **Gazebo** starts gz-sim, spawns the robot from `/robot_description`, and bridges
   the sim clock; a `<gazebo>` world plugin in the description hosts the
   `controller_manager`.
@@ -75,7 +94,11 @@ The world must sit in the run's private `fm_sim_world_*` directory, a mesh path
 must stay inside the mesh root or package share it resolved against (a relative
 one no root matches is refused), and a camera renders at most 1920x1080
 (more with `allow_large_image: true`) at a `rate_hz` that divides the 60 Hz
-render rate. The republisher's remap names `out/compressed` itself: on Jazzy a
+render rate. The cameras file is checked by `fm_sim_cameras.cameras_file`, the
+loader every backend shares (roles `chest` and `wrist_right`, the size cap, the
+distortion models); the 60 Hz rule and the distortion models Isaac renders are
+Isaac's own checks in `isaac_stage.check_cameras`, and the `camera_info` node's
+CameraInfo comes from `fm_sim_cameras.camera_info`. The republisher's remap names `out/compressed` itself: on Jazzy a
 remap of the base name `out` leaves the output on `/out/compressed`.
 
 The runner imports the URDF (fixed joints merged, base fixed) at the stage origin
@@ -138,9 +161,10 @@ ros2 launch fm_sim_core sim.launch.py backend:=isaac \
 
 `test/test_launch.py` reads each launch's actions: the `robot_state_publisher`
 gets the `robot_description` argument, the mujoco and isaac
-`controller_manager` still get it as a parameter, and mujoco's also gets the
-plugins file. `test/test_description_topic.py`
-launches mujoco (under `xvfb-run`) and isaac live with the one-joint probe robots
+`controller_manager` still get it as a parameter, mujoco's also gets the
+plugins file, and `MUJOCO_GL` sets its environment and prefix as the table above
+says. `test/test_description_topic.py`
+launches mujoco (default `egl`) and isaac live with the one-joint probe robots
 in `test/fixtures/`, waits for `/robot_description`, and after shutdown checks that
 no controller_manager is left running. `test/test_isaac.py` covers the stage
 wiring without Isaac Sim: the runner's pure helpers (schema check, the

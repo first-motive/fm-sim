@@ -58,7 +58,7 @@ def test_backend_publishes_the_robot_description_argument(backend, monkeypatch):
     module = _load(backend)
     if backend == 'mujoco':
         # The engine-presence guard is for a live launch, not for reading actions.
-        monkeypatch.setattr(module, '_require_backend', lambda: None)
+        monkeypatch.setattr(module, '_require_backend', lambda renderer: None)
     published = []
     monkeypatch.setattr(
         module,
@@ -76,7 +76,7 @@ def test_controller_manager_keeps_the_description_parameter(backend, monkeypatch
     # Jazzy ignores it; fm-app's Humble fm_bringup still relies on it.
     module = _load(backend)
     if backend == 'mujoco':
-        monkeypatch.setattr(module, '_require_backend', lambda: None)
+        monkeypatch.setattr(module, '_require_backend', lambda renderer: None)
     recorder = _NodeRecorder()
     monkeypatch.setattr(module, 'Node', recorder)
     module.generate_launch_description()
@@ -95,3 +95,52 @@ def test_controller_manager_keeps_the_description_parameter(backend, monkeypatch
         assert os.path.isfile(plugins_file)
     else:
         assert extra == []
+
+
+def _engine_node(monkeypatch, system='Linux', mujoco_gl=None):
+    module = _load('mujoco')
+    monkeypatch.setattr(module.platform, 'system', lambda: system)
+    if mujoco_gl is None:
+        monkeypatch.delenv('MUJOCO_GL', raising=False)
+    else:
+        monkeypatch.setenv('MUJOCO_GL', mujoco_gl)
+    monkeypatch.setattr(module, '_require_backend', lambda renderer: None)
+    recorder = _NodeRecorder()
+    monkeypatch.setattr(module, 'Node', recorder)
+    module.generate_launch_description()
+    (call,) = [c for c in recorder.calls if c['package'] == 'mujoco_ros2_control']
+    return module, call
+
+
+def test_mujoco_renders_cameras_through_egl_by_default(monkeypatch):
+    _, call = _engine_node(monkeypatch)
+    # No display: the CameraPlugin's GLFW init fails and it takes EGL.
+    assert call['additional_env'] == {'DISPLAY': '', 'WAYLAND_DISPLAY': ''}
+    assert call['prefix'] == ''
+
+
+def test_mujoco_osmesa_forces_mesa_software_egl(monkeypatch):
+    module, call = _engine_node(monkeypatch, mujoco_gl='osmesa')
+    assert call['additional_env'] == {
+        'DISPLAY': '', 'WAYLAND_DISPLAY': '',
+        '__EGL_VENDOR_LIBRARY_FILENAMES': module.MESA_EGL_VENDOR, 'LIBGL_ALWAYS_SOFTWARE': '1',
+    }
+    assert call['prefix'] == ''
+
+
+def test_mujoco_glfw_runs_under_xvfb_on_linux_only(monkeypatch):
+    _, call = _engine_node(monkeypatch, mujoco_gl='glfw')
+    assert call['additional_env'] == {}
+    assert 'xvfb-run -a' in call['prefix']
+    _, call = _engine_node(monkeypatch, system='Darwin')
+    assert (call['additional_env'], call['prefix']) == ({}, '')
+
+
+@pytest.mark.parametrize('system, mujoco_gl, message', [
+    ('Linux', 'vulkan', "MUJOCO_GL='vulkan' is not a renderer"),
+    ('Linux', '', "MUJOCO_GL='' is not a renderer"),
+    ('Darwin', 'egl', 'macOS does not have'),
+])
+def test_mujoco_refuses_a_renderer_it_cannot_use(monkeypatch, system, mujoco_gl, message):
+    with pytest.raises(RuntimeError, match=message):
+        _engine_node(monkeypatch, system=system, mujoco_gl=mujoco_gl)

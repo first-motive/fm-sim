@@ -10,6 +10,8 @@
       <body name="arm_link" pos="0 0 0.05">
         <joint name="arm_joint" type="hinge" axis="0 0 1" range="-1.5 1.5"/>
         <geom name="arm_link" type="mesh" mesh="link" mass="0.1"/>
+        <!-- The model's own camera, which a world with cameras drops. -->
+        <camera name="own_camera" pos="0 0 0.1"/>
       </body>
     </body>
   </worldbody>

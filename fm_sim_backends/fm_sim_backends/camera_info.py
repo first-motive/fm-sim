@@ -8,29 +8,17 @@ calibrated one gets no camera_info (logged): intrinsics for another size would
 be wrong.
 
 Parameter ``cameras``: JSON ``{role: camera}`` as
-``fm_sim_scenarios.isaac_stage.check_cameras`` returns it.
+``fm_sim_scenarios.isaac_stage.check_cameras`` returns it. The CameraInfo comes
+from ``fm_sim_cameras.camera_info``, the builder every backend shares.
 """
 
 import json
 
+from fm_sim_cameras.camera_info import camera_info
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
-
-
-def camera_info(intrinsics):
-    """Return the CameraInfo (header unset) of a camera's ``intrinsics``."""
-    fx, fy, cx, cy = (float(intrinsics[k]) for k in ('fx', 'fy', 'cx', 'cy'))
-    info = CameraInfo()
-    info.width = intrinsics['width']
-    info.height = intrinsics['height']
-    info.distortion_model = intrinsics['distortion_model']
-    info.d = [float(d) for d in intrinsics['distortion']]
-    info.k = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
-    info.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-    info.p = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
-    return info
 
 
 class CameraInfoNode(Node):

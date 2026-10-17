@@ -18,15 +18,19 @@ What comes up:
 4. the controller entry's launch, if it has one, given ``use_sim``,
    ``robot_profile`` and ``scenario``;
 5. for a scenario with objects, the scenario node (fm_sim_scenarios), serving
-   ``/sim/objects``, ``/sim/markers``, ``/sim/reset`` and ``/sim/outcome``.
+   ``/sim/objects``, ``/sim/markers``, ``/sim/reset`` and ``/sim/outcome``;
+6. on a backend that renders cameras (mujoco), one ``sim_camera`` node
+   (fm_sim_cameras) per role of the robot's ``cameras_file``, publishing
+   ``/cam_<role>/image_raw/compressed`` and ``/cam_<role>/camera_info``.
 
 On a backend with a scenario generator (mujoco, isaac), the scenario's objects are
 first spawned from ``seed`` into a generated world: on mujoco the robot's model is
-built into it and that world is the model the backend loads; on isaac it is the
-scenario half of the stage, which the backend launch (given ``world`` and the
-robot's ``cameras_file``) completes from the robot description. ``timeout_s`` overrides the scenario's episode
-timeout; empty keeps it. The world is written to a temporary directory that is
-removed when the launch shuts down.
+built into it with the robot's cameras, and that world is the model the backend
+loads; on isaac it is the scenario half of the stage, which the backend launch
+(given ``world`` and the robot's ``cameras_file``) completes from the robot
+description. ``timeout_s`` overrides the scenario's episode timeout; empty keeps
+it. The world is written to a temporary directory that is removed when the launch
+shuts down.
 """
 
 import shutil
@@ -86,11 +90,15 @@ def _launch_setup(context):
     world_dir = tempfile.mkdtemp(prefix='fm_sim_world_')
     controllers_file = catalog.share_file(robot['controllers_file'])
     try:
-        world = run.world_model(backend, robot, scenario, seed, robot_mjcf, world_dir)
+        # Where the world carries cameras, the description names it before it
+        # exists: the cameras are placed from the description.
+        world = run.world_file(backend, scenario, seed, world_dir)
         robot_description = xacro.process_file(
             catalog.share_file(robot['description_file']),
             mappings=run.description_args(backend, robot, world or robot_mjcf, controllers_file),
         ).toxml()
+        cameras = run.sim_cameras(backend, robot, robot_description, robot_mjcf)
+        world = run.world_model(backend, robot, scenario, seed, robot_mjcf, world_dir, cameras)
     except Exception:
         # The launch fails before the shutdown handler exists; remove the world here.
         shutil.rmtree(world_dir, ignore_errors=True)
@@ -122,6 +130,14 @@ def _launch_setup(context):
                 }.items(),
             )
         )
+    for camera in cameras:
+        actions.append(Node(
+            package='fm_sim_cameras',
+            executable='sim_camera',
+            name=f'sim_camera_{camera.role}',
+            parameters=[run.camera_node_parameters(camera)],
+            output='screen',
+        ))
     scenario_parameters = run.scenario_node_parameters(backend, scenario, seed, timeout_s)
     if scenario_parameters:
         actions.append(Node(

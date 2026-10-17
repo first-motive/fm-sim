@@ -6,6 +6,7 @@ which also steps the world. The world is written away from the robot model, so
 the robot's relative meshdir must still resolve.
 """
 
+import math
 import os
 import subprocess
 
@@ -104,3 +105,114 @@ def test_objects_settle_on_the_table(mujoco, can_on_table, tmp_path):
     assert data.body('can').xpos[2] == pytest.approx(table_top + 0.135 / 2, abs=1e-3)
     assert data.body('can').xpos[:2] == pytest.approx(spawn['can'][0][:2], abs=2e-3)
     assert data.body('ball').xpos[2] == pytest.approx(table_top + 0.02, abs=1e-3)
+
+
+# A camera on the arm's moving link, looking along the link's +x (optical z), and
+# one fixed in the world looking straight down. Optical frame: z forward, y down.
+LINK_CAMERA = mujoco_world.Camera(
+    'cam_wrist_right', 'arm_link', (0.01, 0.02, 0.03), (0.5, -0.5, 0.5, -0.5), 60.0, (64, 48)
+)
+WORLD_CAMERA = mujoco_world.Camera(
+    'cam_chest', None, (0.1, 0.0, 1.5), (0.0, 1.0, 0.0, 0.0), 45.0, (32, 24)
+)
+
+
+def test_write_with_cameras_attaches_a_robot_copy(can_on_table, tmp_path):
+    path = mujoco_world.write(
+        ARM_MJCF, MOUNT, can_on_table, 2, str(tmp_path), [LINK_CAMERA, WORLD_CAMERA]
+    )
+    copy = tmp_path / 'can_on_table_2_robot.xml'
+    with open(path) as world_file:
+        world = world_file.read()
+    assert f'file="{copy}"' in world
+    assert '<camera name="cam_chest"' in world
+    robot = copy.read_text()
+    assert 'own_camera' not in robot
+    assert '<camera name="cam_wrist_right"' in robot
+    assert 'cam_chest' not in robot
+    arm_dir = os.path.dirname(ARM_MJCF)
+    assert f'meshdir="{os.path.join(arm_dir, "assets")}"' in robot
+
+
+def test_robot_copy_refuses_a_missing_body(can_on_table, tmp_path):
+    lost = mujoco_world.Camera('cam_chest', 'no_such_body', (0, 0, 0), (1, 0, 0, 0), 45.0, (8, 8))
+    with pytest.raises(sc.ScenarioError, match="0 bodies named 'no_such_body'"):
+        mujoco_world.write(ARM_MJCF, MOUNT, can_on_table, 0, str(tmp_path), [lost])
+
+
+def test_robot_copy_refuses_includes(tmp_path):
+    model = tmp_path / 'with_include.xml'
+    model.write_text('<mujoco><include file="other.xml"/><worldbody/></mujoco>')
+    with pytest.raises(sc.ScenarioError, match='<include>'):
+        mujoco_world.robot_with_cameras(str(model), [])
+
+
+def test_generate_refuses_a_body_camera(can_on_table):
+    with pytest.raises(sc.ScenarioError, match='rides on a body'):
+        mujoco_world.generate(ARM_MJCF, MOUNT, can_on_table, 0, world_cameras=[LINK_CAMERA])
+
+
+def test_engine_build_compiles_a_world_with_cameras(can_on_table, tmp_path):
+    path = mujoco_world.write(
+        ARM_MJCF, MOUNT, can_on_table, 1, str(tmp_path), [LINK_CAMERA, WORLD_CAMERA]
+    )
+    result = subprocess.run(
+        [_compile_binary(), path, str(tmp_path / 'world.mjb')],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_cameras_look_along_their_optical_axis(mujoco, can_on_table, tmp_path):
+    path = mujoco_world.write(
+        ARM_MJCF, MOUNT, can_on_table, 3, str(tmp_path), [LINK_CAMERA, WORLD_CAMERA]
+    )
+    model = mujoco.MjModel.from_xml_path(path)
+    data = mujoco.MjData(model)
+    assert model.ncam == 2  # the model's own camera is gone
+    data.qpos[model.joint('arm_joint').qposadr[0]] = 0.7
+    mujoco.mj_forward(model, data)
+
+    def forward(name):
+        # MuJoCo cameras look down their -z; the optical z is the view direction.
+        return -data.cam(name).xmat.reshape(3, 3)[:, 2], data.cam(name).xmat.reshape(3, 3)[:, 1]
+
+    view, up = forward('cam_chest')
+    assert view == pytest.approx([0.0, 0.0, -1.0], abs=1e-9)
+    assert data.cam('cam_chest').xpos == pytest.approx(WORLD_CAMERA.pos)
+    # The link camera's optical z is the link's +x, its optical y (down) the
+    # link's -z, so MuJoCo's up is +z; the link has turned 0.7 rad about z.
+    view, up = forward('cam_wrist_right')
+    assert view == pytest.approx([math.cos(0.7), math.sin(0.7), 0.0], abs=1e-9)
+    assert up == pytest.approx([0.0, 0.0, 1.0], abs=1e-9)
+    assert model.cam('cam_wrist_right').fovy[0] == pytest.approx(60.0)
+    assert list(model.cam_resolution[model.cam('cam_wrist_right').id]) == [64, 48]
+
+
+def test_robot_copy_resolves_every_asset_path_as_mujoco_would(tmp_path):
+    import xml.etree.ElementTree as ET
+    model = tmp_path / 'robot.xml'
+    # meshdir falls back to assetdir; a later compiler overrides texturedir; a
+    # nested model file is relative to the model's directory.
+    model.write_text(
+        '<mujoco><compiler assetdir="assets" texturedir="old"/><compiler texturedir="tex"/>'
+        '<asset><model name="hand" file="parts/hand.xml"/></asset>'
+        '<worldbody><body name="b"/></worldbody></mujoco>'
+    )
+    root = ET.fromstring(mujoco_world.robot_with_cameras(str(model), []))
+    (compiler, *rest) = root.findall('compiler')
+    assert compiler.get('assetdir') == str(tmp_path / 'assets')
+    assert compiler.get('meshdir') == str(tmp_path / 'assets')
+    assert compiler.get('texturedir') == str(tmp_path / 'tex')
+    assert all('texturedir' not in other.attrib for other in rest)
+    assert root.find('asset/model').get('file') == str(tmp_path / 'parts' / 'hand.xml')
+
+
+def test_robot_copy_without_compiler_dirs_resolves_from_the_model_directory(tmp_path):
+    import xml.etree.ElementTree as ET
+    model = tmp_path / 'bare.xml'
+    model.write_text('<mujoco><worldbody><body name="b"/></worldbody></mujoco>')
+    root = ET.fromstring(mujoco_world.robot_with_cameras(str(model), []))
+    compiler = root.find('compiler')
+    for key in ('assetdir', 'meshdir', 'texturedir'):
+        assert os.path.normpath(compiler.get(key)) == str(tmp_path)

@@ -16,7 +16,11 @@ the description exactly. The model is bimanual; pair it with the default_bimanua
 preset for a full joint map (a single-arm preset leaves the other arm passive).
 
 ``config/mujoco_plugins.yaml`` loads mujoco_ros2_control's free-joint state
-publisher, so every loose object's pose is on ``/mujoco/free_joint_states``.
+publisher, so every loose object's pose is on ``/mujoco/free_joint_states``, and
+its CameraPlugin, which renders the world's cameras. ``MUJOCO_GL`` picks how:
+``egl`` (the default; the GPU where the host has one), ``osmesa`` (Mesa's
+software rasteriser through EGL, for a host with no GPU such as the Mac under
+OrbStack) or ``glfw`` (a hidden window under xvfb-run; the only choice on macOS).
 """
 
 import os
@@ -38,13 +42,63 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def _display_prefix():
-    """Return the launch prefix that gives MuJoCo's GLFW viewer a display.
+# MUJOCO_GL values, as MuJoCo's own Python bindings name them.
+RENDERERS = ('egl', 'osmesa', 'glfw')
+# glvnd's vendor file for Mesa: pins EGL to Mesa when a GPU vendor is installed too.
+MESA_EGL_VENDOR = '/usr/share/glvnd/egl_vendor.d/50_mesa.json'
 
-    X11 only. On Linux the viewer needs a display that a headless container/host has
-    no session for, so it runs under a virtual one (``xvfb-run``). macOS has no X11:
-    GLFW talks to Cocoa directly and a real window opens on the logged-in session, so
-    the prefix is empty there — asking for xvfb-run would just fail to find it.
+
+def _renderer():
+    """Return the renderer ``MUJOCO_GL`` asks for: egl by default, glfw on macOS.
+
+    mujoco_ros2_control's CameraPlugin (0.1.2) renders through a hidden GLFW
+    window when the engine process has a display, and through a surfaceless EGL
+    context when it has none; fm_sim_bringup's test_camera_launch.py checks the
+    EGL path live. macOS has no EGL, so there the only choice is glfw.
+    """
+    default = 'glfw' if platform.system() == 'Darwin' else 'egl'
+    # Set but empty is refused like any other unknown value, not taken as unset.
+    renderer = os.environ['MUJOCO_GL'] if 'MUJOCO_GL' in os.environ else default
+    if renderer not in RENDERERS:
+        raise RuntimeError(
+            f'MUJOCO_GL={renderer!r} is not a renderer; choose one of {", ".join(RENDERERS)}'
+        )
+    if platform.system() == 'Darwin' and renderer != 'glfw':
+        raise RuntimeError(
+            f'MUJOCO_GL={renderer!r} needs EGL, which macOS does not have; use glfw'
+        )
+    return renderer
+
+
+def _render_env(renderer):
+    """Return the environment that makes the CameraPlugin render with ``renderer``.
+
+    egl and osmesa take the display away, so the plugin's GLFW init fails and it
+    falls back to EGL: glvnd then picks the GPU's EGL vendor where one is
+    installed. osmesa also pins EGL to Mesa and forces its software rasteriser
+    (llvmpipe, the renderer OSMesa wraps): the CameraPlugin has no OSMesa path of
+    its own, so this is the GPU-less fallback.
+    """
+    if renderer == 'glfw':
+        return {}
+    env = {'DISPLAY': '', 'WAYLAND_DISPLAY': ''}
+    if renderer == 'osmesa':
+        env.update({
+            '__EGL_VENDOR_LIBRARY_FILENAMES': MESA_EGL_VENDOR,
+            'LIBGL_ALWAYS_SOFTWARE': '1',
+        })
+    return env
+
+
+def _display_prefix(renderer):
+    """Return the launch prefix that gives a glfw renderer a display.
+
+    Only glfw on Linux needs one: the engine itself runs headless (the
+    description's ``headless`` parameter), and egl and osmesa render without a
+    display. On Linux the hidden window needs a display that a headless
+    container/host has no session for, so it runs under a virtual one
+    (``xvfb-run``). macOS has no X11: GLFW talks to Cocoa directly, so the prefix
+    is empty there.
 
     xvfb-run runs the node in the foreground of a ``/bin/sh`` that defers launch's
     SIGINT and, killed by the SIGTERM that follows, leaves the node and Xvfb running:
@@ -52,7 +106,7 @@ def _display_prefix():
     it. bash job control puts xvfb-run, Xvfb and the node in a process group of their
     own, and the traps pass each shutdown signal to that whole group.
     """
-    if platform.system() == 'Darwin':
+    if renderer != 'glfw' or platform.system() == 'Darwin':
         return ''
     return (
         "bash -c 'set -m; xvfb-run -a \"$@\" & job=$!; "
@@ -61,7 +115,7 @@ def _display_prefix():
     )
 
 
-def _require_backend():
+def _require_backend(renderer):
     """Fail early with a clear pointer when the MuJoCo backend can't run here.
 
     The backend hosts the controller_manager inside ``mujoco_ros2_control``. The
@@ -78,7 +132,7 @@ def _require_backend():
         missing.append(
             'the mujoco_ros2_control package (apt install ros-jazzy-mujoco-ros2-control)'
         )
-    if _display_prefix() and which('xvfb-run') is None:
+    if _display_prefix(renderer) and which('xvfb-run') is None:
         missing.append('xvfb-run (the virtual display)')
     if missing:
         raise RuntimeError(
@@ -89,7 +143,8 @@ def _require_backend():
 def generate_launch_description():
     # Guard before building the description, so a missing backend stops with an
     # actionable message rather than a cryptic one deep in the launch.
-    _require_backend()
+    renderer = _renderer()
+    _require_backend(renderer)
 
     robot_description = robot_description_parameter()
     controllers_file = LaunchConfiguration('controllers_file')
@@ -114,12 +169,13 @@ def generate_launch_description():
             robot_state_publisher_node(robot_description),
             # controller_manager hosted inside MuJoCo. Steps physics + serves the
             # hardware interfaces; the caller spawns the controllers.
-            # The viewer's display comes from _display_prefix (xvfb-run on Linux, the
-            # Cocoa session on macOS). MJCF path comes from the mujoco_model param.
+            # The cameras' GL context comes from MUJOCO_GL (_render_env, and
+            # _display_prefix for glfw). MJCF path comes from the mujoco_model param.
             Node(
                 package='mujoco_ros2_control',
                 executable='ros2_control_node',
-                prefix=_display_prefix(),
+                prefix=_display_prefix(renderer),
+                additional_env=_render_env(renderer),
                 # Jazzy reads the description from the topic and ignores this
                 # parameter; fm-app's Humble fm_bringup still includes this
                 # backend and needs it until that launch moves to Jazzy.

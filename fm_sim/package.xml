@@ -14,6 +14,7 @@
   <exec_depend>fm_sim_models</exec_depend>
   <exec_depend>fm_sim_ee_follower</exec_depend>
   <exec_depend>fm_sim_bringup</exec_depend>
+  <exec_depend>fm_sim_cameras</exec_depend>
   <exec_depend>fm_sim_msgs</exec_depend>
   <exec_depend>fm_sim_scenarios</exec_depend>
 
