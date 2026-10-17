@@ -103,14 +103,20 @@ def _display_prefix(renderer):
     xvfb-run runs the node in the foreground of a ``/bin/sh`` that defers launch's
     SIGINT and, killed by the SIGTERM that follows, leaves the node and Xvfb running:
     the controller_manager outlived shutdown, and the next launch's spawners found
-    it. bash job control puts xvfb-run, Xvfb and the node in a process group of their
-    own, and the traps pass each shutdown signal to that whole group.
+    it. The bash wrapper runs xvfb-run as a job (``set -m``, so the node does not
+    start with SIGINT ignored) and passes each shutdown signal to xvfb-run's children
+    except Xvfb. The node stops first; xvfb-run then stops Xvfb, as on a normal exit,
+    and returns the node's exit status. Signalling Xvfb in the same instant would cut
+    the node's X connection in the middle of its shutdown.
     """
     if renderer != 'glfw' or platform.system() == 'Darwin':
         return ''
     return (
-        "bash -c 'set -m; xvfb-run -a \"$@\" & job=$!; "
-        'trap "kill -INT -$job" INT; trap "kill -TERM -$job" TERM; '
+        "bash -c '"
+        'set -m; xvfb-run -a "$@" & job=$!; '
+        'forward() { for pid in $(pgrep -P $job); do '
+        '[ "$(cat /proc/$pid/comm)" = Xvfb ] || kill -$1 $pid; done; }; '
+        'trap "forward INT" INT; trap "forward TERM" TERM; '
         "wait $job; wait $job' xvfb-run"
     )
 
