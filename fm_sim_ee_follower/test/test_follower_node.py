@@ -98,10 +98,23 @@ class Rig:
         self._clock.publish(Clock(clock=_stamp(self.t)))
 
     def spin(self, seconds, *feeds):
-        """Spin both nodes, calling every feed each 20 ms."""
+        """Spin both nodes for ``seconds``, calling every feed each 20 ms."""
         deadline = time.monotonic() + seconds
+        self._spin(lambda: time.monotonic() >= deadline, feeds)
+
+    def spin_until(self, done, *feeds, timeout_s=10.0):
+        """Spin like ``spin`` until ``done()`` holds; fail if it does not within the timeout.
+
+        For sim time: how far /clock gets in a wall-clock window depends on how often a
+        loaded host runs the feeds, so a test waits for the clock instead.
+        """
+        deadline = time.monotonic() + timeout_s
+        self._spin(lambda: done() or time.monotonic() >= deadline, feeds)
+        assert done(), f'not reached in {timeout_s} s'
+
+    def _spin(self, stop, feeds):
         next_feed = 0.0
-        while time.monotonic() < deadline:
+        while not stop():
             if time.monotonic() >= next_feed:
                 for feed in feeds:
                     feed()
@@ -298,17 +311,16 @@ def test_clock_jump_back_drops_the_stored_command(profiles):
     rig = Rig(max_age_s=0.5, sim_time=True)
     try:
         rig.describe()
-        rig.spin(0.5, rig.tick_clock, rig.joint_states, lambda: rig.command(stamp=rig.t))
-        assert rig.received, 'no command for fresh, valid input on sim time'
+        rig.spin_until(lambda: rig.received, rig.tick_clock, rig.joint_states,
+                       lambda: rig.command(stamp=rig.t))
         last_command = rig.t
         rig.t -= 0.1
-        # The old command is younger than max_command_age again once the clock passes it,
-        # so only the drop on the jump keeps the arm still.
-        rig.spin(0.6, rig.tick_clock, rig.joint_states)
-        assert rig.t > last_command + 0.02
+        # The old command is younger than max_command_age again once the clock passes it:
+        # 0.1 to 0.3 s old in the window checked below. Only the drop on the jump keeps
+        # the arm still there.
+        rig.spin_until(lambda: rig.t > last_command + 0.1, rig.tick_clock, rig.joint_states)
         rig.received.clear()
-        rig.spin(0.2, rig.tick_clock, rig.joint_states)
-        assert rig.t - last_command < 0.5
+        rig.spin_until(lambda: rig.t > last_command + 0.3, rig.tick_clock, rig.joint_states)
         assert rig.received == []
     finally:
         rig.close()
