@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 import threading
@@ -51,10 +52,29 @@ from fm_sim_agent.runner import (
     DockerRunner,
 )
 from fm_sim_agent.runs import RunStore, default_runs_dir
+from fm_sim_agent.spec import NAME_PATTERN, valid_name
 
 KEY_PREFIX = "fm/sim"
 STATUS_PERIOD_S = 1.0
+
+#: The image every run starts from, and the one place its pin lives: the
+#: service, ``fm sim … --host local`` and ``fm sim host … local`` all read
+#: these through :func:`image_ref` and :func:`image_pin`.
 DEFAULT_IMAGE = "ghcr.io/first-motive/fm-sim:jazzy"
+#: The registry digest ``DEFAULT_IMAGE`` is pinned to (the multi-arch index,
+#: amd64 and arm64), or None to follow the tag. CI pushes the tag on every main
+#: push; this pin moves only when it is bumped here. Read the tag's current one
+#: with ``docker buildx imagetools inspect <DEFAULT_IMAGE>``.
+DEFAULT_IMAGE_DIGEST: str | None = "sha256:1865345a1521ee25fc617202cdfd36bd6404dabfb67e049b216d93d3b4f0fb92"
+IMAGE_ENV = "FM_SIM_IMAGE"
+DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+#: ``[registry[:port]/]path[:tag]``, lower case, no digest (the pin adds that),
+#: and never starting with ``-``.
+IMAGE_PATTERN = re.compile(
+    r"^[a-z0-9][a-z0-9._-]*(?::[0-9]+)?(?:/[a-z0-9][a-z0-9._-]*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$"
+)
+#: The same override fm-setup's sim step reads, to try a digest before pinning it.
+IMAGE_DIGEST_ENV = "FM_SIM_IMAGE_DIGEST"
 
 #: Verbs answered on Zenoh's thread. Everything here returns without a container call.
 INLINE_VERBS = ("status",)
@@ -99,6 +119,37 @@ class Lane:
 
     def shutdown(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
+
+
+class ImageError(ValueError):
+    """The image ref or its pin cannot be used; the message says which and why."""
+
+
+def image_ref(flag: str = "") -> str:
+    """The image runs use: ``flag``, else ``$FM_SIM_IMAGE``, else ``DEFAULT_IMAGE``.
+
+    Checked here, so every caller (the service, ``--host local``, ``fm sim
+    host … local``) refuses a ref that is not one: it becomes docker argv,
+    where a leading ``-`` would read as a flag.
+    """
+    ref = flag or os.environ.get(IMAGE_ENV, "").strip() or DEFAULT_IMAGE
+    if not IMAGE_PATTERN.fullmatch(ref):
+        raise ImageError(f"image {ref!r} is not an image reference (--image or ${IMAGE_ENV})")
+    return ref
+
+
+def image_pin(ref: str) -> str | None:
+    """The digest ``ref`` is pinned to: ``$FM_SIM_IMAGE_DIGEST``, else the default's pin.
+
+    A ref other than ``DEFAULT_IMAGE`` (a local dev build such as
+    ``fm-sim:jazzy``) has no pin unless the environment names one.
+    """
+    pin = os.environ.get(IMAGE_DIGEST_ENV, "").strip() or (
+        DEFAULT_IMAGE_DIGEST if ref == DEFAULT_IMAGE else None
+    )
+    if pin is not None and not DIGEST_PATTERN.fullmatch(pin):
+        raise ImageError(f"the image pin must be sha256:<64 hex> (${IMAGE_DIGEST_ENV})")
+    return pin
 
 
 def key_of(host: str, verb: str) -> str:
@@ -211,6 +262,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--runs-dir", type=Path, default=None, help="Where run summaries and bags are written."
     )
+    parser.add_argument(
+        "--label",
+        default="",
+        help="fm.sim.agent label on this agent's containers (default: the host name). This machine's "
+        "managed agent uses local, the label the in-process `fm sim --host local` verbs use.",
+    )
     parser.add_argument("--gpus", action="store_true", help="Give runs every GPU (Isaac).")
     parser.add_argument(
         "--no-host-network", action="store_true", help="Do not share the host's network (macOS)."
@@ -286,7 +343,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fm-sim-agent: {exc}", file=sys.stderr)
         return 1
 
-    image = args.image or os.environ.get("FM_SIM_IMAGE", "").strip() or DEFAULT_IMAGE
+    label = args.label or host
+    if not valid_name(label):
+        print(f"fm-sim-agent: --label must match {NAME_PATTERN.pattern}", file=sys.stderr)
+        return 1
+    try:
+        image = image_ref(args.image)
+    except ImageError as exc:
+        print(f"fm-sim-agent: {exc}", file=sys.stderr)
+        return 1
     # Absolute, so the bind mount names the same directory whatever the cwd.
     runs_dir = (args.runs_dir or default_runs_dir()).expanduser().resolve()
     runner = DockerRunner(
@@ -301,8 +366,10 @@ def main(argv: list[str] | None = None) -> int:
         bag_split_s=args.bag_split_seconds,
         bag_split_bytes=args.bag_split_mb * 2**20,
         dds_range=args.dds_range,
+        label=label,
     )
     agent = SimAgent(host, runner, RunStore(runs_dir))
+    agent.keep_foreign_runs = label != host  # a label shared with other processes
     agent.max_run_s = args.max_run_minutes * 60
     agent.min_free_bytes = int(args.min_free_gb * 2**30)
     for removed in agent.recover():

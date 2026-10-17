@@ -162,6 +162,9 @@ class Runner(Protocol):
     def logs(self, run_id: str) -> Iterator[str]:
         """The run's log lines as they arrive. The iterator ends when the run exits."""
 
+    def active_runs(self) -> list[str]:
+        """Run ids of this label's run containers that are up, whoever started them."""
+
     def stop_stale(self) -> list[str]:
         """Remove runs a previous agent left behind; return what was removed."""
 
@@ -246,6 +249,7 @@ class DockerRunner:
         bag_split_bytes: int = DEFAULT_BAG_SPLIT_BYTES,
         dds_range: str = DEFAULT_DDS_RANGE,
         docker: str = "docker",
+        label: str | None = None,
     ) -> None:
         if dds_range not in DDS_RANGES:
             raise ValueError(f"dds_range must be one of {DDS_RANGES}")
@@ -257,6 +261,10 @@ class DockerRunner:
         self.bag_split_bytes = bag_split_bytes
         self.runs_dir = runs_dir
         self.host = host
+        #: The ``fm.sim.agent`` label value on every container. The host name by
+        #: default; this machine's managed agent uses ``local``, the label the
+        #: in-process ``--host local`` verbs use, so each sees the other's run.
+        self.label = label or host
         self.host_network = host_network
         self.gpus = gpus
         self.docker_args = tuple(docker_args)
@@ -295,7 +303,7 @@ class DockerRunner:
         # restarted agent's stop_stale finds.
         name = self.catalog_container(self.image_id())
         argv = [
-            "run", "--rm", "--pull=never", "--name", name, "--label", f"{AGENT_LABEL}={self.host}",
+            "run", "--rm", "--pull=never", "--name", name, "--label", f"{AGENT_LABEL}={self.label}",
             *self._confinement(), self.image, ENTRYPOINT, *CATALOG,
         ]  # fmt: skip
         try:
@@ -335,7 +343,7 @@ class DockerRunner:
         argv = [
             "run", "--detach", "--pull=never",
             "--name", self.container(run_id),
-            "--label", f"{AGENT_LABEL}={self.host}",
+            "--label", f"{AGENT_LABEL}={self.label}",
             "--label", f"{RUN_LABEL}={run_id}",
             *self._confinement(),
             "--volume", f"{self.runs_dir / run_id / BAG_NAME}:{BAG_MOUNT}",
@@ -454,15 +462,15 @@ class DockerRunner:
             process.wait()
 
     def active_runs(self) -> list[str]:
-        """The run ids of this host label's run containers that are up, newest first.
+        """The run ids of this label's run containers that are up, newest first.
 
-        Not part of :class:`Runner`: the agent tracks its own run. The CLI's
-        local mode asks, because a run started by another ``fm sim`` process on
-        this machine is visible only to Docker.
+        The agent tracks its own run; it asks this at ``up`` for one another
+        process on this machine started under the same label, which only Docker
+        can see.
         """
         listed = self._run(
             [
-                "ps", "--filter", f"label={AGENT_LABEL}={self.host}", "--filter", f"label={RUN_LABEL}",
+                "ps", "--filter", f"label={AGENT_LABEL}={self.label}", "--filter", f"label={RUN_LABEL}",
                 "--format", f'{{{{.Label "{RUN_LABEL}"}}}}',
             ],
             COMMAND_TIMEOUT_S,
@@ -471,7 +479,7 @@ class DockerRunner:
 
     def stop_stale(self) -> list[str]:
         listed = self._run(
-            ["ps", "--all", "--quiet", "--filter", f"label={AGENT_LABEL}={self.host}"], COMMAND_TIMEOUT_S
+            ["ps", "--all", "--quiet", "--filter", f"label={AGENT_LABEL}={self.label}"], COMMAND_TIMEOUT_S
         ).stdout.split()
         if listed:
             self._run(["rm", "--force", *listed], COMMAND_TIMEOUT_S)

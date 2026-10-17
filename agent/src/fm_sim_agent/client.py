@@ -8,6 +8,7 @@
     fm sim runs    --host fm-ws-01 --limit 5
     fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills_gt --seeds 0..19
     fm sim host start aws --stack fm-sim-cloud-host --region eu-west-1
+    fm sim host start local
 
 A remote host is reached the way fm-robot-agent's client reaches a robot: one
 client-mode Zenoh query per verb under ``fm/sim/<host>/``, through the fleet
@@ -44,6 +45,12 @@ through the ``aws`` CLI (see :mod:`fm_sim_agent.cloud`). ``running`` there means
 the instance is in service, not that its agent answers: ``fm sim status --host
 <HostName>`` says that.
 
+``host status|pull|start|stop local`` reads this machine's container runtime
+and image, pulls the pinned image, and runs this machine's agent as a managed
+background process that serves ``fm/sim/<this machine>/*`` through the router
+(see :mod:`fm_sim_agent.this_machine`). While it runs, every ``--host local``
+verb goes to it over the fabric instead of running the agent in-process.
+
 Exit codes: 0 success, 1 the host refused, 2 usage, 3 precondition (no router
 endpoint, or the host did not answer; for ``host``, AWS could not be asked or
 answered outside the stack's contract), 130 interrupted.
@@ -60,13 +67,13 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fm_sim_agent import cloud, logline
+from fm_sim_agent import cloud, logline, this_machine
 from fm_sim_agent.agent import SimAgent, error_body
-from fm_sim_agent.card import CardError, host_segment
+from fm_sim_agent.card import CardError, host_segment, this_machine_host
 from fm_sim_agent.env import EndpointError, router_endpoint
 from fm_sim_agent.runner import DockerRunner, RunnerError
 from fm_sim_agent.runs import RunStore, default_runs_dir
-from fm_sim_agent.service import DEFAULT_IMAGE, key_of
+from fm_sim_agent.service import DEFAULT_IMAGE, ImageError, image_pin, image_ref, key_of
 from fm_sim_agent.spec import DIMENSIONS, NAME_PATTERN, SpecError, valid_name, valid_run_id
 from fm_sim_agent.trial import (
     DEFAULT_RUN_TIMEOUT_S,
@@ -253,10 +260,27 @@ def remote_host(host: str) -> Remote:
     return Remote(zenoh.open(config), host)
 
 
+class UsageError(Exception):
+    """The flags cannot be honoured as given, found only once the host is known."""
+
+
 def connect(args: argparse.Namespace) -> Local | Remote:
+    """The host the flags name. ``--host local`` is this machine's managed agent while it runs.
+
+    Started by ``fm sim host start local``, that agent serves under this
+    machine's name, so every verb goes to it through the router. With no
+    managed agent, ``--host local`` runs the agent in this process.
+    """
     if args.host == LOCAL:
-        image = args.image or os.environ.get("FM_SIM_IMAGE", "").strip() or DEFAULT_IMAGE
-        return local_host(image, args.runs_dir)
+        managed = this_machine.managed_host()
+        if managed is None:
+            return local_host(image_ref(args.image), args.runs_dir)
+        if args.image or args.runs_dir or getattr(args, "duration", None) is not None:
+            raise UsageError(
+                f"this machine's sim agent is serving as {managed}; --image, --runs-dir and --duration"
+                " apply only in-process (`fm sim host stop local` stops it)"
+            )
+        return remote_host(managed)
     return remote_host(args.host)
 
 
@@ -315,9 +339,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds a run gets, start-up included, before it is downed unscored (default %(default)s)",
     )
     trial.add_argument("--report", type=Path, default=None, help="where the JSON report goes")
-    host = verbs.add_parser("host", help="start, stop or read a cloud sim host")
-    host.add_argument("action", choices=cloud.ACTIONS)
-    host.add_argument("provider", choices=cloud.PROVIDERS)
+    host = verbs.add_parser("host", help="start, stop or read a cloud sim host, or this machine's")
+    host.add_argument("action", choices=this_machine.ACTIONS, help="pull is local only")
+    host.add_argument("provider", choices=(*cloud.PROVIDERS, this_machine.PROVIDER))
     host.add_argument("--stack", default=None, help=f"CloudFormation stack (env {cloud.STACK_ENV})")
     host.add_argument(
         "--region", default=None, help=f"AWS region (env {cloud.REGION_ENV}, else the aws default)"
@@ -338,7 +362,22 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     """Parse and check every flag, so nothing below reaches a host on a bad one."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.verb == "host" and args.provider == this_machine.PROVIDER:
+        if args.stack or args.region or args.profile:
+            parser.error("--stack, --region and --profile apply only to aws")
+        try:
+            args.machine = this_machine_host()
+        except CardError as exc:
+            parser.error(str(exc))
+        try:
+            args.image = image_ref()
+            args.pin = image_pin(args.image)
+        except ImageError as exc:
+            parser.error(str(exc))
+        return args
     if args.verb == "host":
+        if args.action not in cloud.ACTIONS:
+            parser.error(f"{args.action} applies only to local")
         args.target = cloud_target(args)
         if not args.target.stack:
             parser.error(f"host needs --stack or ${cloud.STACK_ENV}")
@@ -353,6 +392,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             parser.error(str(exc))
         if args.image or args.runs_dir or getattr(args, "duration", None) is not None:
             parser.error("--image, --runs-dir and --duration apply only to --host local")
+    if args.host == LOCAL:
+        try:
+            image_ref(args.image)
+        except ImageError as exc:
+            parser.error(str(exc))
     if getattr(args, "run_id", None) is not None and not valid_run_id(args.run_id):
         parser.error(f"{args.run_id!r} is not a run id")
     if args.verb in ("up", "trial"):
@@ -511,7 +555,84 @@ def host_lines(reply: dict, outputs: cloud.Outputs | None, target: cloud.Target)
     return "\n".join(lines)
 
 
+def clean(value):
+    """Every string in a JSON value made safe, keys included: all of it came from Docker or ps."""
+    if isinstance(value, str):
+        return safe(value)
+    if isinstance(value, dict):
+        return {safe(k): clean(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [clean(v) for v in value]
+    return value
+
+
+def local_lines(status: dict) -> str:
+    """A LocalStatus as three lines; every field is already clean."""
+    runtime, image, agent = status["runtime"], status["image"], status["agent"]
+    available = "available" if runtime["available"] else "unavailable"
+    digest = image["local_digest"] or "no registry digest"
+    pin = image["pinned_digest"] or "none"
+    update = ", update available" if image["update_available"] else ""
+    if agent["running"]:
+        agent_line = f"agent: running as pid {agent['pid']} since {agent['since']}, log {agent['log_path']}"
+    else:
+        agent_line = f"agent: not running, log {agent['log_path']}"
+    return "\n".join(
+        [
+            f"runtime: {runtime['name'] or 'none'}, {available} ({runtime['message']})",
+            f"image: {image['ref']} {'present' if image['present'] else 'missing'}, {digest}, pin {pin}{update}",
+            agent_line,
+        ]
+    )
+
+
+def cmd_this_machine(args: argparse.Namespace) -> int:
+    """``fm sim host <action> local``. With ``--json`` every line printed is one JSON object."""
+    host = this_machine.this_machine(args.image, args.pin, args.machine)
+
+    def progress(event: dict) -> None:
+        event = clean(event)
+        if args.as_json:
+            print(json.dumps(event, sort_keys=True), flush=True)
+        else:
+            layer = f"{event['layer']}: " if "layer" in event else ""
+            print(f"{layer}{event['message']}", flush=True)
+
+    if args.action in ("status", "start") and args.pin is None:
+        # stderr, so the --json lines on stdout stay what the app parses.
+        print(f"fm sim: warning: {safe(args.image)} is not pinned to a digest; pull follows the tag",
+              file=sys.stderr)  # fmt: skip
+    code = 0
+    try:
+        if args.action == "pull":
+            status = host.pull(progress)
+        elif args.action == "start":
+            status = host.start()
+        elif args.action == "stop":
+            status = host.stop()
+        else:
+            status = host.status()
+        reply = {"ok": True, "status": status}
+    except this_machine.LocalError as exc:
+        reply = {"ok": False, "error": {"code": exc.code, "message": exc.message}, "status": host.status()}
+        code = EX_REFUSED
+    except KeyboardInterrupt:
+        message = f"{args.action} was interrupted"
+        reply = {"ok": False, "error": {"code": "interrupted", "message": message}, "status": host.status()}
+        code = EX_INTERRUPTED
+    reply = clean(reply)
+    if args.as_json:
+        print(json.dumps(reply, sort_keys=True), flush=True)
+    else:
+        print(local_lines(reply["status"]))
+        if not reply["ok"]:
+            emit(reply, False, str)  # a refusal prints its code to stderr
+    return code
+
+
 def cmd_host(args: argparse.Namespace) -> int:
+    if args.provider == this_machine.PROVIDER:
+        return cmd_this_machine(args)
     target = args.target
     stack = {"name": target.stack, "region": target.region, "host_name": None}
     try:
@@ -631,6 +752,9 @@ def main(argv: list[str] | None = None, connect=connect) -> int:
         return cmd_host(args)
     try:
         host = connect(args)
+    except UsageError as exc:
+        print(f"fm sim: {exc}", file=sys.stderr)
+        return EX_USAGE
     except EndpointError as exc:
         print(f"fm sim: {exc}", file=sys.stderr)
         return EX_PRECONDITION

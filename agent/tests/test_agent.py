@@ -190,6 +190,17 @@ def test_a_refused_startup_reset_fails_the_run(agent, runner):
     assert ("stop", run_id) in runner.calls
 
 
+def test_up_is_busy_while_another_process_holds_a_run_under_the_label(agent, runner):
+    """The managed agent and an in-process ``fm sim up --host local`` share one label."""
+    runner.live = ["20261016T120000-mujoco-openarm-empty-idle-3"]
+    reply = ask(agent, "up", SPEC)
+    assert code(reply) == "busy"
+    assert "20261016T120000-mujoco-openarm-empty-idle-3" in reply["error"]["message"]
+    assert "start" not in runner.names()
+    runner.live = []
+    assert ask(agent, "up", SPEC)["ok"] is True
+
+
 def test_a_second_up_is_busy(agent, runner):
     run_id = up_running(agent)
     reply = ask(agent, "up", {**SPEC, "seed": 8})
@@ -553,6 +564,52 @@ def test_recover_clears_stale_runs_and_closes_open_summaries(agent, runner, stor
     store.write({**summary_of(open_id, "2026-10-01T00:00:00Z"), "ended_at": None})
     assert agent.recover() == ["fm-sim-run-old"]
     assert store.read(open_id)["ended_at"] is not None
+
+
+def test_recover_under_a_shared_label_leaves_a_run_another_process_holds(agent, runner, store):
+    """A second agent beside the managed one, or one beside an in-process run, removes nothing."""
+    held = "20261001T000000-mujoco-openarm-empty-idle-1"
+    stale = "20261001T000000-mujoco-openarm-empty-idle-2"
+    for run_id in (held, stale):
+        store.write({**summary_of(run_id, "2026-10-01T00:00:00Z"), "ended_at": None})
+    agent.keep_foreign_runs = True
+    runner.live = [held]
+    assert agent.recover() == []
+    assert "stop_stale" not in runner.names()
+    assert store.read(held)["ended_at"] is None  # its holder closes it
+    assert store.read(stale)["ended_at"] is not None
+
+
+def test_recover_under_a_shared_label_removes_nothing_when_it_cannot_list(agent, runner):
+    agent.keep_foreign_runs = True
+    runner.fail["active_runs"] = "docker ps failed"
+    assert agent.recover() == []
+    assert "stop_stale" not in runner.names()
+
+
+def test_recover_under_a_shared_label_with_no_live_run_clears_as_before(agent, runner):
+    agent.keep_foreign_runs = True
+    assert agent.recover() == ["fm-sim-run-old"]
+
+
+def test_up_goes_ahead_when_the_label_cannot_be_listed(agent, runner):
+    runner.fail["active_runs"] = "docker ps failed"
+    assert ask(agent, "up", SPEC)["ok"] is True
+
+
+def test_the_fakes_log_streams_are_per_run(runner):
+    """A stopped run's end of stream must never end the next run's: it did, under load."""
+    first, second = (
+        "20261001T000000-mujoco-openarm-empty-idle-1",
+        "20261001T000000-mujoco-openarm-empty-idle-2",
+    )
+    runner.start(first, SPEC)
+    runner.start(second, SPEC)
+    runner.stop(first)
+    assert list(runner.logs(first)) == []  # ended
+    assert runner._stream(second).empty()  # untouched
+    runner.exit()  # by default the last run started
+    assert list(runner.logs(second)) == []
 
 
 @pytest.mark.parametrize("payload", [b"{not json", b"[1, 2]", b"\xff\xfe", b"x" * (1 << 17)])

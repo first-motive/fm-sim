@@ -21,6 +21,12 @@ ROBOT = {
         'arm_trajectory': ['arm_controller'],
         'arm_forward_position': ['forward_position_controller'],
     },
+    'launch_roles': {
+        'servo': {
+            'requires': ['arm_trajectory'],
+            'launch': {'package': 'servo_pkg', 'path': 'launch/servo.launch.py'},
+        },
+    },
 }
 
 
@@ -57,6 +63,61 @@ def test_controller_activates_its_roles():
 def test_unknown_role_names_the_robot_roles():
     with pytest.raises(catalog.CatalogError, match='gripper.*arm_forward_position'):
         run.controller_sets(ROBOT, _controller('gripper'))
+
+
+def test_unknown_role_names_the_launch_roles_too():
+    with pytest.raises(catalog.CatalogError, match='its roles: .*servo'):
+        run.controller_sets(ROBOT, _controller('teleop'))
+    with pytest.raises(catalog.CatalogError, match='activates teleop'):
+        run.role_launches(ROBOT, _controller('teleop'))
+
+
+def test_launch_role_activates_what_it_requires():
+    active, inactive = run.controller_sets(ROBOT, _controller('servo'))
+    assert active == ['joint_state_broadcaster', 'arm_controller']
+    assert inactive == ['forward_position_controller']
+    assert run.role_launches(ROBOT, _controller('servo')) == [ROBOT['launch_roles']['servo']]
+
+
+def test_launch_role_and_its_requires_activate_once():
+    active, _ = run.controller_sets(ROBOT, _controller('arm_trajectory', 'servo'))
+    assert active == ['joint_state_broadcaster', 'arm_controller']
+
+
+def test_launch_role_listed_twice_starts_once():
+    assert len(run.role_launches(ROBOT, _controller('servo', 'servo'))) == 1
+
+
+def test_controller_roles_start_no_launch():
+    assert run.role_launches(ROBOT, _controller('arm_trajectory')) == []
+
+
+def test_launch_role_requiring_a_missing_role_fails():
+    robot = dict(ROBOT, launch_roles={'servo': dict(
+        ROBOT['launch_roles']['servo'], requires=['gripper'],
+    )})
+    with pytest.raises(catalog.CatalogError, match="'servo' requires gripper"):
+        run.controller_sets(robot, _controller('servo'))
+
+
+def test_role_named_twice_fails():
+    robot = dict(ROBOT, launch_roles={'arm_trajectory': ROBOT['launch_roles']['servo']})
+    with pytest.raises(catalog.CatalogError, match='both a controller role and a launch'):
+        run.controller_sets(robot, _controller())
+
+
+def test_openarm_servo_role_starts_fm_control_servo():
+    robot = run.resolve('mujoco', 'openarm', 'empty', 'idle')['robot']
+    active, _ = run.controller_sets(robot, _controller('servo'))
+    assert active == [
+        'joint_state_broadcaster', 'openarm_left_arm_controller', 'openarm_right_arm_controller',
+    ]
+    (servo,) = run.role_launches(robot, _controller('servo'))
+    assert servo['launch'] == {
+        'package': 'fm_control', 'path': 'launch/openarm_sim_servo.launch.py',
+    }
+    assert servo['launch_args']['sim_only'] == 'true'
+    assert os.path.isfile(catalog.share_file(servo['launch']))
 
 
 def test_resolve_refuses_an_unknown_backend():

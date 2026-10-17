@@ -349,3 +349,18 @@ def test_the_runner_never_reaches_a_shell(monkeypatch, docker):
     docker.start(RUN_ID, SPEC)
     docker.reset(RUN_ID, 7, 5.0)
     assert seen and all(isinstance(a[0], list) and not k.get("shell") for a, k in seen)
+
+
+def test_a_label_other_than_the_host_marks_runs_and_scopes_listing(docker, monkeypatch):
+    docker.label = "local"
+    argv = docker.run_argv(RUN_ID, SPEC)
+    assert argv[argv.index("--label") + 1] == "fm.sim.agent=local"
+    monkeypatch.setenv("FAKE_PS_RUNS", RUN_ID)
+    docker.active_runs()
+    docker.stop_stale()
+    live, every, _rm = docker.calls()
+    assert "label=fm.sim.agent=local" in live and "label=fm.sim.agent=local" in every
+
+
+def test_the_label_defaults_to_the_host(tmp_path):
+    assert DockerRunner("fm-sim:jazzy", tmp_path, "fm_ws_01").label == "fm_ws_01"

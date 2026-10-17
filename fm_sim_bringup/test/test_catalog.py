@@ -121,6 +121,32 @@ def test_schema_rejects_escaping_paths(path):
         )
 
 
+def _openarm_with_servo(servo):
+    robot = catalog.load('robots', 'openarm')
+    robot['launch_roles'] = {'servo': servo}
+    return robot
+
+
+def _validate_robot(robot):
+    schema = catalog.load_schema()
+    jsonschema.validate(robot, {**schema, '$ref': '#/definitions/robot'})
+
+
+def test_schema_accepts_the_openarm_servo_role():
+    _validate_robot(catalog.load('robots', 'openarm'))
+
+
+@pytest.mark.parametrize('servo', [
+    {'requires': ['arm_trajectory']},
+    {'requires': [], 'launch': {'package': 'p', 'path': 'x.launch.py'}},
+    {'requires': ['arm_trajectory'], 'launch': {'package': 'p', 'path': 'x.launch.py'},
+     'command_type': 'twist'},
+], ids=['no_launch', 'empty_requires', 'unknown_key'])
+def test_schema_rejects_a_malformed_launch_role(servo):
+    with pytest.raises(jsonschema.ValidationError):
+        _validate_robot(_openarm_with_servo(servo))
+
+
 def _can_on_table():
     return catalog.load('scenarios', 'can_on_table')
 

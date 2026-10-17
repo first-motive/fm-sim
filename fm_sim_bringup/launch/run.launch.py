@@ -15,11 +15,15 @@ What comes up:
    description and hosts the controller_manager;
 3. the controller spawners: broadcasters and the roles the controller activates
    start active, the robot's other controllers load inactive;
-4. the controller entry's launch, if it has one, given ``use_sim``,
+4. each launch role the controller activates (the robot's ``launch_roles``, such
+   as OpenArm's ``servo``), once the active spawner has exited cleanly, given the
+   role's ``launch_args`` and the run's ``robot_description``; a failed spawner
+   shuts the run down instead;
+5. the controller entry's launch, if it has one, given ``use_sim``,
    ``robot_profile`` and ``scenario``;
-5. for a scenario with objects, the scenario node (fm_sim_scenarios), serving
+6. for a scenario with objects, the scenario node (fm_sim_scenarios), serving
    ``/sim/objects``, ``/sim/markers``, ``/sim/reset`` and ``/sim/outcome``;
-6. on a backend that renders cameras (mujoco), one ``sim_camera`` node
+7. on a backend that renders cameras (mujoco), one ``sim_camera`` node
    (fm_sim_cameras) per role of the robot's ``cameras_file``, publishing
    ``/cam_<role>/image_raw/compressed`` and ``/cam_<role>/camera_info``.
 
@@ -41,9 +45,11 @@ from fm_sim_models.models import mjcf_path
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler,
+    Shutdown,
 )
-from launch.event_handlers import OnShutdown
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+import launch.logging
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import xacro
@@ -52,6 +58,8 @@ import xacro
 # Spawners wait this long for the controller_manager; a software-GL engine on a
 # small host can take most of it to come up.
 _CONTROLLER_MANAGER_TIMEOUT_S = '120'
+
+_logger = launch.logging.get_logger('run')
 
 
 def _spawner(controllers, controllers_file, inactive=False):
@@ -70,6 +78,31 @@ def _spawner(controllers, controllers_file, inactive=False):
     )
 
 
+def _after_active(launches, robot_description):
+    """Return the active spawner's exit handler: start ``launches`` or shut down.
+
+    ``launches`` holds ``(launch file path, launch_args)`` pairs, resolved at setup.
+    A launch role (Servo, say) streams to controllers the spawner activates, so it
+    starts only once they are active; a spawner that failed leaves them down.
+    """
+    def handler(event, context):
+        if event.returncode != 0:
+            reason = (
+                f'controller spawner exited {event.returncode}; not starting the '
+                'launch roles that need its controllers'
+            )
+            _logger.error(reason)
+            return [Shutdown(reason=reason)]
+        return [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(path),
+                launch_arguments={**args, 'robot_description': robot_description}.items(),
+            )
+            for path, args in launches
+        ]
+    return handler
+
+
 def _launch_setup(context):
     choice = {
         dimension: LaunchConfiguration(dimension).perform(context)
@@ -83,6 +116,13 @@ def _launch_setup(context):
     entries = run.resolve(**choice)
     backend, robot, controller = entries['backend'], entries['robot'], entries['controller']
     scenario = entries['scenario']
+
+    active, inactive = run.controller_sets(robot, controller)
+    # Resolved now, so a missing launch file fails the run before anything starts.
+    launches = [
+        (catalog.share_file(role['launch']), role.get('launch_args', {}))
+        for role in run.role_launches(robot, controller)
+    ]
 
     robot_mjcf = mjcf_path(robot['mjcf'])
     # The generated world lives for this launch only: the engine has read it by the
@@ -103,8 +143,7 @@ def _launch_setup(context):
         # The launch fails before the shutdown handler exists; remove the world here.
         shutil.rmtree(world_dir, ignore_errors=True)
         raise
-    active, inactive = run.controller_sets(robot, controller)
-
+    active_spawner = _spawner(active, controllers_file)
     actions = [
         RegisterEventHandler(OnShutdown(
             on_shutdown=lambda event, context: shutil.rmtree(world_dir, ignore_errors=True)
@@ -115,8 +154,13 @@ def _launch_setup(context):
                 backend, robot, robot_description, controllers_file, world
             ).items(),
         ),
-        _spawner(active, controllers_file),
+        active_spawner,
     ]
+    if launches:
+        actions.append(RegisterEventHandler(OnProcessExit(
+            target_action=active_spawner,
+            on_exit=_after_active(launches, robot_description),
+        )))
     if inactive:
         actions.append(_spawner(inactive, controllers_file, inactive=True))
     if controller['launch']:

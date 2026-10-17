@@ -63,10 +63,15 @@ What `run.launch.py` does, in order:
 4. Spawns the robot's controllers. The `broadcasters` role and every role the
    controller entry `activate`s start active; the others load inactive, so a
    controller can switch to them.
-5. Includes the controller entry's `launch`, if any, with `use_sim`,
+5. Includes each launch role the controller entry `activate`s (the robot's
+   `launch_roles`, below) once the active spawner has exited cleanly, with the
+   role's `launch_args` and the run's `robot_description`. A launch role's
+   `requires` roles start active with it, and a role listed twice starts once. If
+   the spawner fails, the run shuts down.
+6. Includes the controller entry's `launch`, if any, with `use_sim`,
    `robot_profile` and `scenario`. A robot whose `robot_profile` is `null` refuses
    a controller with a `launch`, since that launch reads its names from the profile.
-6. For a scenario with objects, starts the scenario node (`fm_sim_scenarios`) with
+7. For a scenario with objects, starts the scenario node (`fm_sim_scenarios`) with
    `use_sim_time`. `empty` has none, so it has no `/sim/reset` or `/sim/outcome`.
 
 ## Scenarios
@@ -198,7 +203,7 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`) |
+| `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
 | `controllers` | `idle`, `teleop` | `activate`, `launch` |
 
@@ -213,6 +218,15 @@ since fm-robot ships none. Its roles follow the `fm_openarm_v2` robot profile:
 | `arm_trajectory` | `openarm_{left,right}_arm_controller` (JTC) |
 | `arm_forward_position` | `openarm_{left,right}_forward_position_controller` |
 | `gripper` | `openarm_{left,right}_gripper_controller` (JTC) |
+
+A controller entry's `activate` names controller roles or launch roles; any other
+name fails the run. The schema checks each launch role's shape on load; whether its
+`requires` are controller roles, and whether a name is in both maps, is checked
+when a run resolves the robot. OpenArm has one launch role:
+
+| Launch role | Requires | Starts |
+|-------------|----------|--------|
+| `servo` | `arm_trajectory` | fm-robot's `fm_control/launch/openarm_sim_servo.launch.py` with `sim_only:=true`, `command_type:=joint_jog`: sim-only MoveIt Servo on `/servo_node`, streaming to `openarm_right_arm_controller`. That launch refuses to start unless ROS discovery is host-local (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, as the fm-sim agent sets) |
 
 The SO-101 and Axol entries expand fm-robot's `so101.sim.urdf.xacro` and
 `axol.sim.urdf.xacro` with no extra args, and own their controllers files under
@@ -250,8 +264,9 @@ is the contract for that output.
 
 | Test | Checks |
 |------|--------|
-| `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation (`robot_profile` a name or `null`), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
-| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose |
+| `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation (`robot_profile` a name or `null`, launch role shape), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose |
+| `test_run_launch_roles.py` | `run.launch.py`'s setup with a controller that activates `servo`: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down; a missing launch file fails at setup |
 | `test_scenario_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`. Needs the `openarm_mujoco` external and Mesa's EGL |
 | `test_camera_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` — both roles publish 1920x1080 JPEGs with the profile frames, sim-time stamps no more than 10 Hz apart, the real K and distortion on `camera_info`, and the can, projected through TF and the real chest intrinsics, lands on can-green pixels. Needs the `openarm_mujoco` external and Mesa's EGL |
 | `test_gazebo_scenario_launch.py` | Live: `openarm` on `gazebo` with `can_on_table` and `idle` — the same object, reset and outcome checks as on MuJoCo; both cameras publishing JPEG on `/cam_<role>/image_raw/compressed` and a `camera_info` with the cameras file's intrinsics, its frame and zero distortion; after shutdown, no gz-sim server of the run left. Linux only (skipped elsewhere); Gazebo renders on software GL there |
@@ -260,6 +275,6 @@ is the contract for that output.
 ## Build Type
 
 `ament_python`. One console script, `catalog`. fm-robot's `fm_control` is an exec
-dependency (the robot xacros); `fm-sim.repos` builds it from source.
-`fm_sim_scenarios` is one too: the catalog checks scenarios with it and
+dependency (the robot xacros and OpenArm's sim Servo launch); `fm-sim.repos` builds it
+from source. `fm_sim_scenarios` is one too: the catalog checks scenarios with it and
 `run.launch.py` generates worlds and starts its node.
