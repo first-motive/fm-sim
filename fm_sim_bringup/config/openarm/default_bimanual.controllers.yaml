@@ -1,6 +1,6 @@
 # OpenArm controllers for the default_bimanual preset in sim (left + right arm, each
-# with a pinch gripper). fm-robot ships no controllers file, so the sim catalog owns
-# this one. Names and joints match fm_ros2's fm_bringup openarm config and the
+# with a gripper whose finger_joint1 is the command; finger_joint2 mimics it).
+# fm-robot ships no controllers file, so the sim catalog owns this one. Names and joints match fm_ros2's fm_bringup openarm config and the
 # fm_openarm_v2 robot profile: <side>_arm_controller is its trajectory_controller,
 # <side>_forward_position_controller its arm_controller. A controller and its
 # forward-position twin claim the same joints, so only one of the pair is active.
@@ -82,6 +82,8 @@ openarm_right_forward_position_controller:
       - openarm_right_joint6
       - openarm_right_joint7
 
+# The loader hand's finger_joint1 is prismatic: positions in metres, 0 closed to
+# 0.05 open (the pinch hand's is revolute, in radians).
 openarm_left_gripper_controller:
   ros__parameters:
     joints:

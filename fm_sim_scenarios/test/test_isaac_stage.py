@@ -403,7 +403,9 @@ def test_openarm_stage_matches_its_description_and_cameras():
     # The importer puts the robot at /<robot name>; links sit flat under it.
     robot_prim = spec['robot']['prim_path']
     assert robot_prim == '/openarm_v20'
-    assert by_role['wrist_right']['parent_prim'] == f'{robot_prim}/openarm_right_ee_base_link'
+    # The wrist camera rides the link joint7 moves; the loader hand's fixed
+    # ee_base_link and hand merge into it.
+    assert by_role['wrist_right']['parent_prim'] == f'{robot_prim}/openarm_right_link7'
     assert by_role['chest']['intrinsics']['fx'] == 740.244
     assert by_role['chest']['frame_id'] == 'openarm_cam_chest_optical'
     # The chest camera is about 56 cm up and 9 cm forward, looking forward and down.
