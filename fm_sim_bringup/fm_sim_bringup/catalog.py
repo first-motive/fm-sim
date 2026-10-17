@@ -19,6 +19,7 @@ import sys
 
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import get_resource, get_resources
+from fm_sim_scenarios import scenario
 import jsonschema
 import yaml
 
@@ -99,6 +100,12 @@ def load(kind, name, schema=None, registered=None):
         )
     except jsonschema.ValidationError as error:
         raise CatalogError(f'{kind[:-1]} {name!r}: {error.message}') from error
+    if kind == 'scenarios':
+        # What the schema cannot say: unique names, ranges, success references.
+        try:
+            scenario.check(entry)
+        except scenario.ScenarioError as error:
+            raise CatalogError(f'scenario {name!r}: {error}') from error
     if entry['name'] != name:
         raise CatalogError(
             f'{kind[:-1]} {name!r}: its yaml names itself {entry["name"]!r}'

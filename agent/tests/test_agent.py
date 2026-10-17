@@ -347,6 +347,35 @@ def test_a_run_with_no_outcome_reports_null(agent, runner):
     assert ask(agent, "down")["summary"]["outcome"] is None
 
 
+def test_an_outcome_from_before_a_reset_is_not_reported(agent, runner):
+    up_running(agent)
+    assert ask(agent, "reset", {"seed": 42}) == {"ok": True}
+    # Stopped before seed 42's episode ended: the latch still holds seed 7's verdict.
+    assert ask(agent, "down")["summary"]["outcome"] is None
+
+
+def test_an_outcome_under_the_reset_seed_is_reported(agent, runner):
+    up_running(agent)
+    assert ask(agent, "reset", {"seed": 42}) == {"ok": True}
+    runner.outcome_value = {**runner.outcome_value, "seed": 42}
+    assert ask(agent, "down")["summary"]["outcome"] == {
+        "success": True, "reason": "placed", "elapsed_s": 4.5,
+    }  # fmt: skip
+
+
+def test_a_refused_reset_keeps_the_spec_seed_for_the_outcome(agent, runner):
+    up_running(agent)
+    runner.fail["reset"] = "engine said no"
+    assert code(ask(agent, "reset", {"seed": 42})) == "reset_failed"
+    assert ask(agent, "down")["summary"]["outcome"]["success"] is True
+
+
+def test_an_outcome_for_another_scenario_is_not_reported(agent, runner):
+    runner.outcome_value = {**runner.outcome_value, "scenario": "pick_cube"}
+    up_running(agent)
+    assert ask(agent, "down")["summary"]["outcome"] is None
+
+
 def test_down_with_no_run_is_not_running(agent):
     assert code(ask(agent, "down")) == "not_running"
 

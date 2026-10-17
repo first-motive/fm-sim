@@ -20,10 +20,19 @@ What comes up:
    role's ``launch_args`` and the run's ``robot_description``; a failed spawner
    shuts the run down instead;
 5. the controller entry's launch, if it has one, given ``use_sim``,
-   ``robot_profile`` and ``scenario``.
+   ``robot_profile`` and ``scenario``;
+6. for a scenario with objects, the scenario node (fm_sim_scenarios), serving
+   ``/sim/objects``, ``/sim/markers``, ``/sim/reset`` and ``/sim/outcome``.
 
-The scenario is resolved and validated; ``empty`` adds nothing to the scene.
+On a backend with a scenario generator (mujoco), the robot's model is first built
+into one world with the scenario's objects spawned from ``seed``, and that world
+is the model the backend loads. ``timeout_s`` overrides the scenario's episode
+timeout; empty keeps it. The world is written to a temporary directory that is
+removed when the launch shuts down.
 """
+
+import shutil
+import tempfile
 
 from fm_sim_bringup import catalog, run
 from fm_sim_models.models import mjcf_path
@@ -32,7 +41,7 @@ from launch.actions import (
     DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler,
     Shutdown,
 )
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 import launch.logging
 from launch.substitutions import LaunchConfiguration
@@ -96,16 +105,12 @@ def _launch_setup(context):
     use_sim = LaunchConfiguration('use_sim').perform(context)
     if use_sim not in ('true', 'false'):
         raise catalog.CatalogError(f"use_sim must be 'true' or 'false', got {use_sim!r}")
+    seed = run.parse_seed(LaunchConfiguration('seed').perform(context))
+    timeout_s = run.parse_timeout(LaunchConfiguration('timeout_s').perform(context))
     entries = run.resolve(**choice)
     backend, robot, controller = entries['backend'], entries['robot'], entries['controller']
+    scenario = entries['scenario']
 
-    controllers_file = catalog.share_file(robot['controllers_file'])
-    robot_description = xacro.process_file(
-        catalog.share_file(robot['description_file']),
-        mappings=run.description_args(
-            backend, robot, mjcf_path(robot['mjcf']), controllers_file
-        ),
-    ).toxml()
     active, inactive = run.controller_sets(robot, controller)
     # Resolved now, so a missing launch file fails the run before anything starts.
     launches = [
@@ -113,8 +118,26 @@ def _launch_setup(context):
         for role in run.role_launches(robot, controller)
     ]
 
+    robot_mjcf = mjcf_path(robot['mjcf'])
+    # The generated world lives for this launch only: the engine has read it by the
+    # time the launch shuts down, and the handler removes it then.
+    world_dir = tempfile.mkdtemp(prefix='fm_sim_world_')
+    controllers_file = catalog.share_file(robot['controllers_file'])
+    try:
+        world = run.world_model(backend, robot, scenario, seed, robot_mjcf, world_dir)
+        robot_description = xacro.process_file(
+            catalog.share_file(robot['description_file']),
+            mappings=run.description_args(backend, robot, world or robot_mjcf, controllers_file),
+        ).toxml()
+    except Exception:
+        # The launch fails before the shutdown handler exists; remove the world here.
+        shutil.rmtree(world_dir, ignore_errors=True)
+        raise
     active_spawner = _spawner(active, controllers_file)
     actions = [
+        RegisterEventHandler(OnShutdown(
+            on_shutdown=lambda event, context: shutil.rmtree(world_dir, ignore_errors=True)
+        )),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(catalog.share_file(backend['launch'])),
             launch_arguments={
@@ -143,6 +166,14 @@ def _launch_setup(context):
                 }.items(),
             )
         )
+    scenario_parameters = run.scenario_node_parameters(backend, scenario, seed, timeout_s)
+    if scenario_parameters:
+        actions.append(Node(
+            package='fm_sim_scenarios',
+            executable='scenario_node',
+            parameters=[scenario_parameters],
+            output='screen',
+        ))
     return actions
 
 
@@ -168,6 +199,14 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 'use_sim', default_value='true',
                 description="'true' or 'false'; passed to the controller's launch.",
+            ),
+            DeclareLaunchArgument(
+                'seed', default_value='0',
+                description='Spawn seed, an integer in [0, 2^32 - 1].',
+            ),
+            DeclareLaunchArgument(
+                'timeout_s', default_value='',
+                description="Episode timeout in seconds; empty keeps the scenario's.",
             ),
             OpaqueFunction(function=_launch_setup),
         ]

@@ -1,0 +1,53 @@
+# Catalog entry (fm_sim.scenarios): pick the can and place it upright on the paper.
+# Geometry follows fm-skills (openarm_v2_skills_config specs.yaml, fake_detections.yaml),
+# in the robot profile's base_frame, which is the sim world: the table top at
+# z 0.207, a 66 mm x 135 mm can, an A4 sheet on the right arm's side.
+name: can_on_table
+description: Pick the can and place it upright on the paper (right arm)
+available: true
+objects:
+  # Its front edge is 0.15 m ahead of the base, clear of the arms hanging at rest;
+  # the top is at 0.207.
+  - name: table
+    shape: box
+    size: [0.7, 1.2, 0.04]
+    static: true
+    friction: 1.0
+    color: [0.55, 0.45, 0.35, 1.0]
+    pose: {xyz: [0.5, 0.0, 0.187]}
+  # A4, 1 mm thick, its top at 0.208. A body in the world, so cameras see it.
+  - name: paper
+    shape: box
+    size: [0.297, 0.210, 0.001]
+    static: true
+    friction: 0.8
+    color: [0.95, 0.95, 0.95, 1.0]
+    pose: {xyz: [0.40, -0.30, 0.2075]}
+  # Spawned with its base level with the paper top (1 mm above the table), so a
+  # spawn overlapping the sheet's edge does not start in contact. The y range keeps
+  # its centre 15 mm or more outside the target, so no spawn starts as a success.
+  - name: can
+    shape: cylinder
+    size: [0.033, 0.135]
+    mass: 0.35
+    friction: 1.0
+    color: [0.1, 0.6, 0.2, 1.0]
+    pose: {xyz: [0.38, -0.15, 0.2755]}
+    spawn:
+      x: [-0.03, 0.03]
+      y: [-0.02, 0.03]
+      yaw: [-3.14159, 3.14159]
+regions:
+  # Where the can's centre sits when it stands on the paper: the sheet's footprint,
+  # 30 mm tall about the resting height.
+  - name: target
+    size: [0.297, 0.210, 0.03]
+    pose: {xyz: [0.40, -0.30, 0.2755]}
+    color: [0.2, 0.4, 1.0, 0.3]
+success:
+  type: object_in_region
+  object: can
+  region: target
+  tolerance: 0.01
+  hold_s: 2.0
+  timeout_s: 120.0

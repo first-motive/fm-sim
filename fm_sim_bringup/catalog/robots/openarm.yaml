@@ -11,6 +11,9 @@ description_args:
   # The profile's TCP is the pinch gripper's grasp frame.
   emit_grasp_frame: 'true'
 mjcf: openarm
+# The vendored MJCF has the arm bases at its origin; the description mounts them
+# 0.698 m up on openarm_body_link0 (as openarm_mujoco's pedestal.xml does).
+mjcf_mount_xyz: [0.0, 0.0, 0.698]
 controllers_file:
   package: fm_sim_bringup
   path: config/openarm/default_bimanual.controllers.yaml

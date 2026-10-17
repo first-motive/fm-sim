@@ -21,6 +21,8 @@
   <!-- Catalog entries: backends, MJCF paths, and the OpenArm description. -->
   <exec_depend>fm_sim_backends</exec_depend>
   <exec_depend>fm_sim_models</exec_depend>
+  <!-- Scenario checks, the MuJoCo world generator and the scenario node. -->
+  <exec_depend>fm_sim_scenarios</exec_depend>
   <exec_depend>fm_control</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
@@ -30,6 +32,7 @@
   <test_depend>launch_testing</test_depend>
   <test_depend>rclpy</test_depend>
   <test_depend>controller_manager_msgs</test_depend>
+  <test_depend>fm_sim_msgs</test_depend>
   <test_depend>xvfb</test_depend>
 
   <export>

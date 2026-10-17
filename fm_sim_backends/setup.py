@@ -15,6 +15,7 @@ setup(
             'share/' + package_name + '/launch',
             glob('launch/*.launch.py'),
         ),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
         # Catalog entries (see fm_sim_bringup.catalog): index markers + their yaml.
         (
             'share/ament_index/resource_index/fm_sim.backends',

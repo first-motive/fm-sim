@@ -1,0 +1,15 @@
+# Keeps the sim agent's account, and every run it starts, off the instance
+# metadata service. Runs use host networking as that account, so without this a
+# run could read the host role's credentials. Root keeps IMDS: the idle check and
+# the bootstrap need it. The account is fm-setup's FM_SIM_USER.
+[Unit]
+Description=fm-sim cloud host: block IMDS for the sim agent's account
+Before=docker.service fm-sim-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -C OUTPUT -d 169.254.169.254/32 -m owner --uid-owner fm-sim -j DROP 2>/dev/null || iptables -I OUTPUT 1 -d 169.254.169.254/32 -m owner --uid-owner fm-sim -j DROP'
+
+[Install]
+WantedBy=multi-user.target

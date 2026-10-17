@@ -1,0 +1,59 @@
+# fm_sim_scenarios
+
+Backend-neutral scenarios for the sim run: where a scenario's objects spawn for a
+seed, when an episode succeeds, the per-backend generators that build a world
+from a robot model and a scenario, and the scenario node that serves the
+scenario on the sim host. The scenario entries themselves, and their schema, live
+in the catalog ([`fm_sim_bringup`](../fm_sim_bringup/README.md#scenarios)).
+
+## Modules
+
+| Module | Role |
+|--------|------|
+| `scenario` | ROS-free: `check` (finite numbers, unique names, spawn ranges, success references), `spawn_poses(scenario, seed)` (offsets drawn objects in yaml order, in x, y, z, yaw order per object), `static_poses`, `in_region`, and `EpisodeMonitor`, which judges the `object_in_region` predicate one episode at a time |
+| `mujoco_world` | `generate` / `write`: robot MJCF + scenario + seed → one MJCF world, the robot attached at its mount, static objects as world geoms, the others as free bodies |
+| `scenario_node` | The `scenario_node` executable: `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
+
+`run.launch.py` calls the generator and starts the node; nothing here reads the
+catalog, so the dependency runs one way (`fm_sim_bringup` → `fm_sim_scenarios`).
+
+## Scenario Node
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `scenario` | — | The catalog entry as JSON |
+| `seed` | `0` | The seed the world was generated with; `/sim/outcome` carries it until a reset |
+| `backend` | — | How objects are read and moved; `mujoco` only. Any other value fails at start |
+| `timeout_s` | `0.0` | Episode timeout; 0 keeps the scenario's `success.timeout_s` |
+| `frame_id` | `world` | Frame of `/sim/objects` and `/sim/markers` |
+
+Run it with `use_sim_time`. On MuJoCo, poses come from mujoco_ros2_control's
+`FreeJointStatePublisherPlugin` on `/mujoco/free_joint_states` (loaded by
+`fm_sim_backends`' mujoco launch) and a reset calls
+`/mujoco_ros2_control_node/set_free_joint_state`. The node spins on a
+multi-threaded executor: the reset service and that client have their own
+callback groups, so pose updates keep publishing while a reset waits on the
+engine, and a lock guards the episode state only. A pose that is missing or not
+finite for a free object leaves it out of `/sim/objects` and never counts toward
+success. Poses must be in the MuJoCo world frame: the plugin's default stamps
+`frame_id` `''` (mujoco_ros2_control 0.1.2), and `''` or `world` is accepted;
+any other frame is skipped and logged. A reset the engine refuses, or that
+raises, answers `ok: false` and keeps the old seed and episode.
+
+A backend joins by adding a class to `scenario_node.BACKENDS` (subscribe to its
+poses, move objects) and a generator to `fm_sim_bringup.run.WORLD_GENERATORS`.
+
+## Tests
+
+The fixture is the `can_on_table` entry `fm_sim_bringup` ships, read from the source tree, plus a test-only free sphere with no spawn ranges.
+
+| Test | Checks |
+|------|--------|
+| `test_scenario.py` | Seeded spawns (deterministic, in range, uint32 seeds), `check` failures, quaternions, `in_region` with tolerance and yaw, the monitor's hold, timeout and one verdict per episode |
+| `test_mujoco_world.py` | Same bytes per seed; the world compiles with mujoco_vendor's `compile` (the engine mujoco_ros2_control runs); with the mujoco Python binding, the robot mounted unchanged, objects at their spawn, contact parameters, and objects settling on the table. The binding tests skip when the wheel (`requirements-sim.txt`) is absent |
+| `test_scenario_node.py` | The node on a fake backend: topic contents, a slow reset that does not stall `/sim/objects`, the latched outcome per episode and seed, success, a failed or raising reset keeping the old seed, non-finite poses left out, the MuJoCo adapter's world-frame guard |
+
+## Build Type
+
+`ament_python`. Exec-depends on `fm_sim_msgs`, `mujoco_ros2_control_msgs`,
+`geometry_msgs`, `visualization_msgs` and `rclpy`; tests use `mujoco_vendor`.

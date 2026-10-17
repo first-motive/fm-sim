@@ -53,7 +53,9 @@ class FakeRunner:
         self.image = "sha256:one"
         self.catalog_doc: object = CATALOG
         self.catalog_fetches = 0
-        self.outcome_value: dict | None = {"success": True, "reason": "placed", "elapsed_s": 4.5}
+        self.outcome_value: dict | None = {
+            "scenario": "empty", "seed": 7, "success": True, "reason": "placed", "elapsed_s": 4.5,
+        }  # fmt: skip
         self.fail: dict[str, str] = {}
         self.start_gate: threading.Event | None = None
         self.reset_gate: threading.Event | None = None
@@ -63,6 +65,8 @@ class FakeRunner:
         self.log_lines: list[str] = []
         self.controllers = {"joint_state_broadcaster": "active", "openarm_right_arm_controller": "inactive"}
         self.serves_reset = True
+        #: Run ids Docker would list as live under this host's label.
+        self.live: list[str] = []
         self._logs: queue.Queue = queue.Queue()
 
     def _maybe_fail(self, name: str) -> None:
@@ -137,6 +141,9 @@ class FakeRunner:
             if line is _EXIT:
                 return
             yield line
+
+    def active_runs(self) -> list[str]:
+        return list(self.live)
 
     def stop_stale(self) -> list[str]:
         self.calls.append(("stop_stale",))

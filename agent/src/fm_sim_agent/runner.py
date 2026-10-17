@@ -150,7 +150,11 @@ class Runner(Protocol):
         """Stop the recorder and let it finish the file."""
 
     def outcome(self, run_id: str) -> dict | None:
-        """The latched ``/sim/outcome``, or ``None`` if none has been published."""
+        """The latched ``/sim/outcome``, or ``None`` if none has been published.
+
+        It is the latest episode's verdict, whichever seed that episode ran
+        under: ``scenario`` and ``seed`` say which, for the caller to match.
+        """
 
     def stop(self, run_id: str) -> None:
         """Stop the run and remove what it left. Stopping a stopped run is not an error."""
@@ -163,7 +167,7 @@ class Runner(Protocol):
 
 
 def parse_outcome(text: str) -> dict | None:
-    """The fields RunSummary keeps from one ``ros2 topic echo`` of Outcome."""
+    """``scenario``, ``seed`` and the verdict from one ``ros2 topic echo`` of Outcome."""
     try:
         documents = [doc for doc in yaml.safe_load_all(text) if isinstance(doc, dict)]
     except yaml.YAMLError:
@@ -176,7 +180,16 @@ def parse_outcome(text: str) -> dict | None:
         return None
     if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)):
         return None
-    return {"success": success, "reason": reason, "elapsed_s": float(elapsed)}
+    scenario, seed = message.get("scenario"), message.get("seed")
+    if not isinstance(scenario, str) or isinstance(seed, bool) or not isinstance(seed, int):
+        return None
+    return {
+        "scenario": scenario,
+        "seed": seed,
+        "success": success,
+        "reason": reason,
+        "elapsed_s": float(elapsed),
+    }
 
 
 def parse_reset(text: str) -> tuple[bool, str]:
@@ -439,6 +452,22 @@ class DockerRunner:
         finally:
             process.kill()
             process.wait()
+
+    def active_runs(self) -> list[str]:
+        """The run ids of this host label's run containers that are up, newest first.
+
+        Not part of :class:`Runner`: the agent tracks its own run. The CLI's
+        local mode asks, because a run started by another ``fm sim`` process on
+        this machine is visible only to Docker.
+        """
+        listed = self._run(
+            [
+                "ps", "--filter", f"label={AGENT_LABEL}={self.host}", "--filter", f"label={RUN_LABEL}",
+                "--format", f'{{{{.Label "{RUN_LABEL}"}}}}',
+            ],
+            COMMAND_TIMEOUT_S,
+        ).stdout.split()  # fmt: skip
+        return [run_id for run_id in listed if valid_run_id(run_id)]
 
     def stop_stale(self) -> list[str]:
         listed = self._run(

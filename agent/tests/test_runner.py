@@ -58,6 +58,8 @@ FAKE_DOCKER = textwrap.dedent(
     elif args[0] == "logs":
         print("[INFO] [launch]: All log files can be found below /tmp/.ros/log")
         print("[sim_loop-1] [INFO] [1.5] [sim_loop]: up")
+    elif args[0] == "ps" and "--format" in args:
+        print(os.environ.get("FAKE_PS_RUNS", ""))
     elif args[0] == "ps":
         print("c1\\nc2")
     """
@@ -226,7 +228,9 @@ def test_a_refused_reset_raises(docker, monkeypatch):
 
 
 def test_outcome_reads_the_latched_message(docker):
-    assert docker.outcome(RUN_ID) == {"success": False, "reason": "dropped: cube", "elapsed_s": 3.0}
+    assert docker.outcome(RUN_ID) == {
+        "scenario": "empty", "seed": 7, "success": False, "reason": "dropped: cube", "elapsed_s": 3.0,
+    }  # fmt: skip
 
 
 def test_recording_writes_mcap_into_the_runs_mount(docker):
@@ -263,6 +267,16 @@ def test_stop_stale_removes_only_this_hosts_containers(docker):
     ps, rm = docker.calls()
     assert "label=fm.sim.agent=fm_ws_01" in ps
     assert rm == ["rm", "--force", "c1", "c2"]
+
+
+def test_active_runs_reads_run_ids_off_this_hosts_live_run_containers(docker, monkeypatch):
+    monkeypatch.setenv("FAKE_PS_RUNS", f"{RUN_ID}\nnot-a-run-id")
+    assert docker.active_runs() == [RUN_ID]
+    (ps,) = docker.calls()
+    # Live only (no --all), this host's label, run containers only (not a catalog fetch).
+    assert "--all" not in ps
+    assert "label=fm.sim.agent=fm_ws_01" in ps and "label=fm.sim.run_id" in ps
+    assert ps[-1] == '{{.Label "fm.sim.run_id"}}'
 
 
 def test_launch_args_are_the_four_dimensions_and_use_sim():
@@ -307,6 +321,9 @@ def test_an_over_long_log_line_is_cut_and_the_rest_dropped():
         "not: [yaml",
         "success: maybe\nreason: x\nelapsed_s: 1",
         "success: true\nreason: x\nelapsed_s: true",
+        "scenario: empty\nsuccess: true\nreason: x\nelapsed_s: 1",
+        "scenario: empty\nseed: true\nsuccess: true\nreason: x\nelapsed_s: 1",
+        "seed: 7\nsuccess: true\nreason: x\nelapsed_s: 1",
     ],
 )
 def test_an_unusable_outcome_is_none(text):
