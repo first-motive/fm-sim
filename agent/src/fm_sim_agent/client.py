@@ -199,7 +199,20 @@ class Local:
         return {"ok": True, "summary": self.agent.store.read(other), "removed": removed}
 
     def outcome(self, run_id: str) -> dict | None:
-        return self.runner.outcome(run_id)
+        """The latched ``/sim/outcome``, only when it is this run's episode.
+
+        The agent scores a run only against an outcome whose scenario and seed
+        are the run's (``SimAgent._own_outcome``). Ending a run on any other
+        would bring it down early and leave it unscored. The local CLI sends no
+        ``reset``, so the run's episode is always the spec's seed.
+        """
+        outcome = self.runner.outcome(run_id)
+        spec = self.agent.status()["spec"]
+        if outcome is None or spec is None:
+            return None
+        if (outcome.get("scenario"), outcome.get("seed")) != (spec["scenario"], spec["seed"]):
+            return None
+        return outcome
 
     def follow_logs(self, run_id: str, on_record, _stop: threading.Event) -> None:
         """Print the run's log lines straight from its container, until it exits."""

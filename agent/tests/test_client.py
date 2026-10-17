@@ -172,6 +172,7 @@ def test_remote_logs_follow_what_the_agent_publishes(remote):
 
 def test_remote_trial_gives_each_run_its_time_then_downs_it(remote, capsys, tmp_path):
     host, _, runner = remote
+    runner.latch_each_episode()
     report_path = tmp_path / "report.json"
     argv = [
         "trial",
@@ -188,7 +189,7 @@ def test_remote_trial_gives_each_run_its_time_then_downs_it(remote, capsys, tmp_
     assert code == 0
     report = json.loads(report_path.read_text())
     assert [row["seed"] for row in report["runs"]] == [0, 1]
-    assert report["success_rate"] == 1.0  # the fake latches a success; down reads it
+    assert report["success_rate"] == 1.0  # each run latches its own success; down reads it
     assert runner.names().count("stop") == 2
     assert "success 2/2 (100.0%), 0 unscored" in out
 
@@ -278,15 +279,7 @@ def test_closing_local_downs_a_run_it_still_holds(local, runner):
 
 
 def test_local_trial_runs_seeds_one_at_a_time_and_scores_them(local, runner, capsys, tmp_path):
-    def outcome(run_id):
-        seed = int(run_id.rsplit("-", 1)[1])
-        return {
-            "success": seed % 2 == 0,
-            "reason": "placed" if seed % 2 == 0 else "dropped",
-            "elapsed_s": 1.0,
-        }
-
-    runner.outcome = outcome
+    runner.latch_each_episode(lambda seed: seed % 2 == 0)
     report_path = tmp_path / "trial.json"
     argv = ["trial", "--host", "local", "--count", "4", "--report", str(report_path)]
     code, out, _ = run(argv, local, capsys)
@@ -361,3 +354,12 @@ class NamesABadRun:
 def test_logs_refuse_a_run_id_the_host_made_up(capsys):
     code, _, err = run(["logs", "--host", "fm-ws-01"], NamesABadRun(), capsys)
     assert code == 1 and "invalid_reply" in err
+
+
+def test_local_up_does_not_end_on_another_episodes_outcome(local, runner, capsys):
+    # The fake's default latched outcome is seed 7's; a seed 3 run must not stop on it.
+    argv = ["up", "--host", "local", "--seed", "3", "--duration", "0.3", "--json"]
+    code, out, _ = run(argv, local, capsys)
+    summary = json.loads(out[out.index("{") :])["summary"]
+    assert code == 0 and summary["outcome"] is None
+    assert summary["metrics"]["wall_s"] >= 0.3  # ran out its duration
