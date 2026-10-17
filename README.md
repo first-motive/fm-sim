@@ -122,6 +122,18 @@ sim host's run control verbs (`status`, `catalog`, `up`, `down`, `reset`, `runs`
 `logs`) under `fm/sim/<host>/` over Zenoh, and runs each run as a container of
 this repo's image.
 
+`fm sim` is its client, mounted from this repo's `fm.json`:
+
+```bash
+fm sim catalog --host fm-ws-01
+fm sim up      --host fm-ws-01 --scenario empty --controller idle --seed 3
+fm sim down    --host fm-ws-01
+fm sim trial   --host fm-ws-01 --seeds 0..19      # one run per seed, scored, JSON report
+fm sim up      --host local                       # the agent in-process, on this Mac's OrbStack
+```
+
+See [the agent's README](agent/README.md#the-fm-sim-cli) for every verb and flag.
+
 ### Run Contract
 
 One launch runs a backend × robot × scenario × controller combination the catalog

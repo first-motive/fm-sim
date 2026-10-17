@@ -453,6 +453,22 @@ class DockerRunner:
             process.kill()
             process.wait()
 
+    def active_runs(self) -> list[str]:
+        """The run ids of this host label's run containers that are up, newest first.
+
+        Not part of :class:`Runner`: the agent tracks its own run. The CLI's
+        local mode asks, because a run started by another ``fm sim`` process on
+        this machine is visible only to Docker.
+        """
+        listed = self._run(
+            [
+                "ps", "--filter", f"label={AGENT_LABEL}={self.host}", "--filter", f"label={RUN_LABEL}",
+                "--format", f'{{{{.Label "{RUN_LABEL}"}}}}',
+            ],
+            COMMAND_TIMEOUT_S,
+        ).stdout.split()  # fmt: skip
+        return [run_id for run_id in listed if valid_run_id(run_id)]
+
     def stop_stale(self) -> list[str]:
         listed = self._run(
             ["ps", "--all", "--quiet", "--filter", f"label={AGENT_LABEL}={self.host}"], COMMAND_TIMEOUT_S

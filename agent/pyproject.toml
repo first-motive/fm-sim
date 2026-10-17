@@ -24,6 +24,8 @@ dependencies = [
 
 [project.scripts]
 fm-sim-agent = "fm_sim_agent.service:main"
+# The CLI half. `fm sim` reaches it through scripts/run/sim.sh at the repo root.
+fm-sim = "fm_sim_agent.client:main"
 
 [project.optional-dependencies]
 dev = ["pytest==8.4.2", "ruff==0.14.0"]

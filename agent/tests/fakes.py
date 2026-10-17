@@ -65,6 +65,8 @@ class FakeRunner:
         self.log_lines: list[str] = []
         self.controllers = {"joint_state_broadcaster": "active", "openarm_right_arm_controller": "inactive"}
         self.serves_reset = True
+        #: Run ids Docker would list as live under this host's label.
+        self.live: list[str] = []
         self._logs: queue.Queue = queue.Queue()
 
     def _maybe_fail(self, name: str) -> None:
@@ -139,6 +141,9 @@ class FakeRunner:
             if line is _EXIT:
                 return
             yield line
+
+    def active_runs(self) -> list[str]:
+        return list(self.live)
 
     def stop_stale(self) -> list[str]:
         self.calls.append(("stop_stale",))

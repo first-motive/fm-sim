@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "commands": {
+    "sim": {
+      "script": "scripts/run/sim.sh",
+      "help": "drive a sim host (--host <name> | local): catalog | up | down | status | runs | logs | trial"
+    }
+  }
+}
