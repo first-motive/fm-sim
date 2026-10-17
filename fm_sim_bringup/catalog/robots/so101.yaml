@@ -9,6 +9,10 @@ description_file:
   path: urdf/so101.sim.urdf.xacro
 description_args: {}
 mjcf: so101
+# The vendored URDF names its meshes relative to its own file; the generators
+# write the expanded description elsewhere, so they resolve them here.
+mesh_roots:
+  - {prefix: assets/, package: fm_description, path: so101_description/assets}
 controllers_file:
   package: fm_sim_bringup
   path: config/so101/so101.controllers.yaml

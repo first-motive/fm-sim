@@ -19,7 +19,7 @@ with the other six package repos by
 | `fm_sim_models` | ament_python | MJCF model registry |
 | `fm_sim_ee_follower` | ament_python | DLS IK node that follows `/commanded_ee_right` in place of the loader's IK |
 | `fm_sim_bringup` | ament_python | `run.launch.py` (backend × robot × scenario × controller) and the ament-index catalog |
-| `fm_sim_scenarios` | ament_python | Seeded spawns, the success predicate, the MuJoCo world generator and the scenario node (`/sim/*`) |
+| `fm_sim_scenarios` | ament_python | Seeded spawns, the success predicate, the MuJoCo and Isaac Sim generators and the scenario node (`/sim/*`) |
 | `fm_sim_msgs` | ament_cmake | `ObjectStates`, `Outcome` and the `Reset` service the scenario node serves |
 | `fm_sim` | ament_cmake | Metapackage tying the seven together for a single install |
 
@@ -130,6 +130,7 @@ fm sim up      --host fm-ws-01 --scenario empty --controller idle --seed 3
 fm sim down    --host fm-ws-01
 fm sim trial   --host fm-ws-01 --seeds 0..19      # one run per seed, scored, JSON report
 fm sim up      --host local                       # the agent in-process, on this Mac's OrbStack
+fm sim host start aws --stack fm-sim-cloud-host   # the AWS sim host, through its controller
 ```
 
 See [the agent's README](agent/README.md#the-fm-sim-cli) for every verb and flag.

@@ -17,6 +17,10 @@ mjcf_mount_xyz: [0.0, 0.0, 0.698]
 controllers_file:
   package: fm_sim_bringup
   path: config/openarm/default_bimanual.controllers.yaml
+# Camera frames and real intrinsics, for the backends that render cameras.
+cameras_file:
+  package: fm_sim_bringup
+  path: config/openarm/cameras.yaml
 controller_roles:
   broadcasters: [joint_state_broadcaster]
   arm_trajectory: [openarm_left_arm_controller, openarm_right_arm_controller]

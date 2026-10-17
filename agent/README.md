@@ -280,6 +280,48 @@ The agent lives only as long as the command, which changes three verbs:
 `status` and `logs` find another process's run through the same label. `logs`
 then reads the container's own output with `docker logs --follow`.
 
+### Cloud Host
+
+`host` starts, stops or reads the AWS sim host stack
+([`infra/aws/sim`](../infra/aws/sim/README.md)) through the operator's `aws`
+CLI, run as argv with no shell. It needs no router.
+
+```bash
+fm sim host status aws [--stack NAME] [--region R] [--profile P] [--json]
+fm sim host start  aws [--stack NAME] [--region R] [--profile P] [--json]
+fm sim host stop   aws [--stack NAME] [--region R] [--profile P] [--json]
+```
+
+The stack is `--stack`, else `$FM_SIM_CLOUD_STACK`; one is required. The
+region is `--region`, else `$FM_SIM_CLOUD_REGION`, else the `aws` default, and
+the profile is `--profile`, else the `aws` default. Each verb first reads the
+stack's outputs with `cloudformation describe-stacks`, which the stack's
+operator and viewer policies grant. A role without that grant (one written
+before it, or scoped tighter) is denied the call, and the CLI then uses the
+names the stack contract fixes: `<stack>-controller` and `/<stack>/status`.
+
+- `status` reads the `/<stack>/status` parameter. It never invokes the
+  controller, so the viewer policy is enough.
+- `start` and `stop` invoke the controller with exactly `{"action": "start"}`
+  or `{"action": "stop"}`. A `TooManyRequestsException` is retried up to three
+  times, after 1, 2 and 4 s. Nothing calls the Auto Scaling group.
+
+Every reply is checked against the stack's schema before it is printed. An
+unknown state, budget reason or refusal code, or a budget amount that is not a
+finite number, is `invalid_reply`. Each field prints with control characters
+removed. The lines show the state, desired capacity, each instance's launch
+time and `terminate_after`, and the budget's actual spend, limit and gate.
+`running` means the instance is in service, not that its agent answers; `fm sim
+status --host <HostName>` says that.
+
+`--json` prints the checked reply with a `stack` object (`name`, `region`,
+`host_name`): `{"ok": true, "status"}`, the controller's refusal, or, when AWS
+could not be asked, `{"ok": false, "error": {"code", "message"}}`. Exit codes:
+0 success, 1 the controller refused (`budget_blocked`, `budget_unavailable`,
+`controller_error`, ...), 2 usage, 3 AWS could not be asked or answered outside
+the schema (`aws_unavailable`, `aws_timeout`, `stack_not_found`,
+`invalid_reply`, or the `aws` error code).
+
 ### As A Service
 
 `systemd/fm-sim-agent.service.in` is a template in fm-robot-agent's form.
@@ -298,5 +340,6 @@ The suite drives every verb through `SimAgent.answer` with a fake runner, and
 again over a pair of in-process Zenoh peer sessions on 127.0.0.1. The CLI is
 driven the same two ways: against that peer pair, and in local mode against
 the in-process agent with the fake runner. It runs
-`DockerRunner` against a stand-in `docker` executable that records its argv. No
-router, Docker daemon or image is needed.
+`DockerRunner` against a stand-in `docker` executable that records its argv, and
+`fm sim host` against a stand-in `aws` on `PATH`. No router, Docker daemon,
+image or AWS account is needed.

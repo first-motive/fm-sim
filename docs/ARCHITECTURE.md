@@ -21,7 +21,7 @@ system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 | `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `axol`'s committed MJCF resolves from this package's share |
 | `fm_sim_ee_follower` | ament_python | `ee_follower` node: damped-least-squares IK from `/commanded_ee_right` to the right arm's forward position controller, standing in for the loader's IK; ROS-free DLS core |
 | `fm_sim_bringup` | ament_python | `run.launch.py` and the catalog of backends, robots, scenarios and controllers, resolved from the ament index |
-| `fm_sim_scenarios` | ament_python | Backend-neutral scenario logic (seeded spawns, success predicate), the per-backend world generators (MuJoCo today) and the scenario node serving `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
+| `fm_sim_scenarios` | ament_python | Backend-neutral scenario logic (seeded spawns, success predicate), the per-backend world generators (MuJoCo, and the Isaac Sim stage spec) and the scenario node serving `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
 | `fm_sim_msgs` | ament_cmake | The scenario interfaces: `ObjectState(s)`, `Outcome`, `Reset` |
 | `fm_sim` | ament_cmake (meta) | Metapackage tying the seven together for a single install |
 
@@ -66,7 +66,7 @@ Source: [`diagrams/backends.d2`](diagrams/backends.d2).
 |---------|-------------|-------|-------|
 | `mujoco` | `mujoco.launch.py` | `mujoco_ros2_control/ros2_control_node` under `xvfb-run` | **Daily driver**, native arm64 on M5 (CPU, no GPU) |
 | `gazebo` | `gazebo.launch.py` | Gazebo Harmonic via `ros_gz_sim` + `create` + `ros_gz_bridge` (clock); `gz_ros2_control` in-engine | Wired; Linux/GPU, headless server-only anywhere |
-| `isaac` | `isaac.launch.py` | standalone `controller_manager` with `topic_based_ros2_control`, bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Wired; Linux + NVIDIA, Isaac runs externally |
+| `isaac` | `isaac.launch.py` | standalone `controller_manager` with `topic_based_ros2_control`, bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Wired; Linux + NVIDIA. Builds the Isaac Sim 4.5 stage (URDF, objects, cameras, ROS 2 bridge graph) and starts Isaac when `FM_ISAAC_PYTHON` is set and a world is given |
 
 `topic_based_ros2_control` has no Jazzy apt release, so `fm-sim.repos` pins it as
 a source external that CI and the image build.
