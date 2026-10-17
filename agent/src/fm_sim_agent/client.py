@@ -7,6 +7,7 @@
     fm sim down    --host fm-ws-01
     fm sim runs    --host fm-ws-01 --limit 5
     fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills_gt --seeds 0..19
+    fm sim host start aws --stack fm-sim-cloud-host --region eu-west-1
 
 A remote host is reached the way fm-robot-agent's client reaches a robot: one
 client-mode Zenoh query per verb under ``fm/sim/<host>/``, through the fleet
@@ -38,8 +39,14 @@ long as this process:
   container's ``/sim/outcome`` for up to its 5 s timeout, so a run can
   outlast its duration by that much.
 
+``host start|stop|status aws`` starts, stops or reads the AWS sim host stack
+through the ``aws`` CLI (see :mod:`fm_sim_agent.cloud`). ``running`` there means
+the instance is in service, not that its agent answers: ``fm sim status --host
+<HostName>`` says that.
+
 Exit codes: 0 success, 1 the host refused, 2 usage, 3 precondition (no router
-endpoint, or the host did not answer), 130 interrupted.
+endpoint, or the host did not answer; for ``host``, AWS could not be asked or
+answered outside the stack's contract), 130 interrupted.
 """
 
 from __future__ import annotations
@@ -53,7 +60,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fm_sim_agent import logline
+from fm_sim_agent import cloud, logline
 from fm_sim_agent.agent import SimAgent, error_body
 from fm_sim_agent.card import CardError, host_segment
 from fm_sim_agent.env import EndpointError, router_endpoint
@@ -295,13 +302,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds a run gets, start-up included, before it is downed unscored (default %(default)s)",
     )
     trial.add_argument("--report", type=Path, default=None, help="where the JSON report goes")
+    host = verbs.add_parser("host", help="start, stop or read a cloud sim host")
+    host.add_argument("action", choices=cloud.ACTIONS)
+    host.add_argument("provider", choices=cloud.PROVIDERS)
+    host.add_argument("--stack", default=None, help=f"CloudFormation stack (env {cloud.STACK_ENV})")
+    host.add_argument(
+        "--region", default=None, help=f"AWS region (env {cloud.REGION_ENV}, else the aws default)"
+    )
+    host.add_argument("--profile", default=None, help="AWS CLI profile (default: the aws default)")
+    host.add_argument("--json", action="store_true", dest="as_json", help="print the checked reply")
     return parser
+
+
+def cloud_target(args: argparse.Namespace) -> cloud.Target:
+    """The stack ``host`` drives, from its flags, else the environment."""
+    region = args.region or os.environ.get(cloud.REGION_ENV, "").strip() or None
+    stack = args.stack or os.environ.get(cloud.STACK_ENV, "").strip()
+    return cloud.Target(stack=stack, region=region, profile=args.profile or None)
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     """Parse and check every flag, so nothing below reaches a host on a bad one."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.verb == "host":
+        args.target = cloud_target(args)
+        if not args.target.stack:
+            parser.error(f"host needs --stack or ${cloud.STACK_ENV}")
+        problem = cloud.target_problem(args.target)
+        if problem:
+            parser.error(problem)
+        return args
     if args.host != LOCAL:
         try:
             args.host = host_segment(args.host)
@@ -436,6 +467,57 @@ def trial_table(report: dict) -> str:
     return "\n".join(lines)
 
 
+def money(amount: object) -> str:
+    return f"${amount:.2f}" if isinstance(amount, (int, float)) else "?"
+
+
+def host_lines(reply: dict, outputs: cloud.Outputs | None, target: cloud.Target) -> str:
+    """A checked Status as lines; ``reply_problem`` has already held it to the schema."""
+    status = reply["status"]
+    region = f" ({target.region})" if target.region else ""
+    head = f"stack {target.stack}{region}: {status['state']}"
+    if status["state"] == "unknown":
+        return head + " (the controller has not reconciled yet)"
+    lines = [f"{head}, desired {status['desired_capacity']}, updated {safe(status.get('updated_at'))}"]
+    for instance in status["instances"]:
+        lines.append(
+            f"  {safe(instance['instance_id'])} {safe(instance.get('lifecycle_state'))},"
+            f" launched {safe(instance.get('launched_at'))}, terminate after {safe(instance.get('terminate_after'))}"
+        )
+    budget = status["budget"]
+    gate = f"blocked ({budget['reason']})" if budget["blocked"] else budget["reason"]
+    lines.append(
+        f"  budget {safe(budget.get('name'))}: {money(budget.get('actual_usd'))} of"
+        f" {money(budget.get('limit_usd'))}, blocks at {safe(budget.get('block_percent'))}%, {gate}"
+    )
+    if status["state"] == "running":
+        host = safe(outputs.host_name) if outputs and outputs.host_name else "<HostName>"
+        lines.append(
+            f"  running means in service; `fm sim status --host {host}` says when the agent is ready"
+        )
+    return "\n".join(lines)
+
+
+def cmd_host(args: argparse.Namespace) -> int:
+    target = args.target
+    stack = {"name": target.stack, "region": target.region, "host_name": None}
+    try:
+        reply, outputs = cloud.run_action(cloud.Aws(target), args.action)
+    except cloud.AwsError as exc:
+        if args.as_json:
+            error = {"code": safe(exc.code), "message": safe(exc.message)}
+            print(json.dumps({"ok": False, "error": error, "stack": stack}, indent=2, sort_keys=True))
+        print(f"fm sim: {safe(exc.code)}: {safe(exc.message)}", file=sys.stderr)
+        return EX_PRECONDITION
+    stack["host_name"] = safe(outputs.host_name) if outputs.host_name else None
+    if args.as_json:
+        print(json.dumps({**reply, "stack": stack}, indent=2, sort_keys=True))
+        return 0 if reply["ok"] else EX_REFUSED
+    if "status" in reply:
+        print(host_lines(reply, outputs, target))
+    return 0 if reply["ok"] else emit(reply, False, str)  # a refusal prints its code to stderr
+
+
 # -- verbs -------------------------------------------------------------------
 
 
@@ -532,6 +614,8 @@ def run_verb(host, args) -> int:
 def main(argv: list[str] | None = None, connect=connect) -> int:
     """``connect`` builds the host from the parsed flags; the suite passes its own."""
     args = parse_args(argv)
+    if args.verb == "host":
+        return cmd_host(args)
     try:
         host = connect(args)
     except EndpointError as exc:
