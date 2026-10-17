@@ -279,7 +279,7 @@ def _world(tmp_path):
 
 
 def test_no_world_builds_no_stage():
-    (action,) = isaac.stage_actions('', URDF, '', '', False)
+    (action,) = isaac.stage_actions('', URDF, '', '[]', '', False)
     assert isinstance(action, LogInfo)
 
 
@@ -287,7 +287,7 @@ def test_stage_with_cameras_starts_the_relays_and_logs_the_runner(tmp_path, monk
     recorder = _NodeRecorder()
     monkeypatch.setattr(isaac, 'Node', recorder)
     world = _world(tmp_path)
-    actions = isaac.stage_actions(world, URDF, _cameras_file(tmp_path), '', False)
+    actions = isaac.stage_actions(world, URDF, _cameras_file(tmp_path), '[]', '', False)
     run_dir = os.path.dirname(world)
     assert os.path.isfile(os.path.join(run_dir, 'stage.json'))
     assert os.path.isfile(os.path.join(run_dir, 'robot.urdf'))
@@ -330,7 +330,7 @@ def test_isaac_python_starts_the_runner_on_the_stage(tmp_path, monkeypatch):
     monkeypatch.setattr(isaac, 'Node', _NodeRecorder())
     world = _world(tmp_path)
     stage_path = os.path.join(os.path.dirname(world), 'stage.json')
-    notice, process = isaac.stage_actions(world, URDF, '', '/isaac/python.sh', True)
+    notice, process = isaac.stage_actions(world, URDF, '', '[]', '/isaac/python.sh', True)
     assert isinstance(notice, LogInfo) and isinstance(process, ExecuteProcess)
     command = isaac.runner_command(stage_path, '/isaac/python.sh', True)
     # The literal isaac_python, not a placeholder, in what is logged and run.
@@ -348,11 +348,30 @@ def test_isaac_python_starts_the_runner_on_the_stage(tmp_path, monkeypatch):
     assert env == {'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST'}
 
 
+def test_mesh_roots_resolve_the_robot_meshes_in_the_written_urdf(tmp_path, monkeypatch):
+    monkeypatch.setattr(isaac, 'Node', _NodeRecorder())
+    world = _world(tmp_path)
+    urdf = URDF.replace(
+        '<link name="cam"/>',
+        '<link name="cam"><visual><geometry><mesh filename="package://assembly/m/a.stl"/>'
+        '</geometry></visual></link>',
+    )
+    isaac.stage_actions(world, urdf, '', '[["package://assembly/", "/s/axol"]]', '', False)
+    with open(os.path.join(os.path.dirname(world), 'robot.urdf')) as written:
+        assert 'filename="/s/axol/m/a.stl"' in written.read()
+
+
+@pytest.mark.parametrize('text', ['not json', '{"a": "/b"}', '[["a", "relative"]]'])
+def test_bad_mesh_roots_fail_the_launch(tmp_path, text):
+    with pytest.raises(isaac_stage.StageError, match='mesh_roots'):
+        isaac.stage_actions(_world(tmp_path), URDF, '', text, '', False)
+
+
 def test_bad_cameras_file_fails_the_launch(tmp_path):
     path = tmp_path / 'cameras.yaml'
     path.write_text(yaml.safe_dump({'cameras': {'chest': {'frame': 'cam'}}}))
     with pytest.raises(isaac_stage.StageError, match='rate_hz'):
-        isaac.stage_actions(_world(tmp_path), URDF, str(path), '', False)
+        isaac.stage_actions(_world(tmp_path), URDF, str(path), '[]', '', False)
 
 
 def test_launch_hands_its_arguments_to_the_stage(tmp_path, monkeypatch):
@@ -362,10 +381,10 @@ def test_launch_hands_its_arguments_to_the_stage(tmp_path, monkeypatch):
     context = LaunchContext()
     context.launch_configurations.update({
         'world': '/w.json', 'robot_description': URDF, 'cameras_file': '/c.yaml',
-        'isaac_python': '/p.sh', 'isaac_gui': 'false',
+        'mesh_roots': '[["assets/", "/s/a"]]', 'isaac_python': '/p.sh', 'isaac_gui': 'false',
     })
     assert module._stage_setup(context) == []
-    assert calls == [('/w.json', URDF, '/c.yaml', '/p.sh', False)]
+    assert calls == [('/w.json', URDF, '/c.yaml', '[["assets/", "/s/a"]]', '/p.sh', False)]
     context.launch_configurations['isaac_gui'] = 'yes'
     with pytest.raises(ValueError, match='isaac_gui'):
         module._stage_setup(context)

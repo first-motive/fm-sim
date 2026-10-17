@@ -57,8 +57,9 @@ Isaac Sim 4.5 code, not run in CI: the stage spec is generated and unit-tested
 here; building it needs Isaac Sim on the GPU host.
 
 Given `world` (the scenario half `fm_sim_scenarios.isaac_stage.write` wrote) the
-isaac launch writes `robot.urdf` (mesh `package://` URIs resolved to absolute
-paths) and `stage.json` beside it, then:
+isaac launch writes `robot.urdf` (every mesh filename an absolute path: the
+robot entry's `mesh_roots` first, then `package://` through the package's share)
+and `stage.json` beside it, then:
 
 - starts, per camera in `cameras_file`, image_transport's republisher
   (`/cam_<role>/image_raw` → `/cam_<role>/image_raw/compressed`), and one
@@ -70,8 +71,9 @@ paths) and `stage.json` beside it, then:
   the command with `$ISAAC_SIM/python.sh` in its place. Isaac Sim must see the
   same filesystem as the launch.
 
-The world must sit in the run's private `fm_sim_world_*` directory, mesh paths
-must stay inside their package's share, and a camera renders at most 1920x1080
+The world must sit in the run's private `fm_sim_world_*` directory, a mesh path
+must stay inside the mesh root or package share it resolved against (a relative
+one no root matches is refused), and a camera renders at most 1920x1080
 (more with `allow_large_image: true`) at a `rate_hz` that divides the 60 Hz
 render rate. The republisher's remap names `out/compressed` itself: on Jazzy a
 remap of the base name `out` leaves the output on `/out/compressed`.
@@ -101,6 +103,7 @@ logged and skipped. A standard type, because Isaac Sim's Python cannot load `fm_
 |----------|---------|-------------|
 | `world` | `''` | Scenario half of the stage; empty builds no stage |
 | `cameras_file` | `''` | The robot's cameras file; empty renders no cameras |
+| `mesh_roots` | `[]` | JSON `[[prefix, directory]]` for mesh URIs no package resolves (the robot entry's `mesh_roots`) |
 | `isaac_python` | `$FM_ISAAC_PYTHON` | Isaac Sim's `python.sh`; empty logs the runner command |
 | `isaac_gui` | `false` | `true` opens the Isaac Sim window |
 
@@ -127,7 +130,7 @@ ros2 launch fm_sim_core sim.launch.py backend:=isaac \
 |----------|----------|-------------|
 | `robot_description` | all | Description XML expanded with the matching `sim_backend` |
 | `controllers_file` | all (gazebo: reserved) | `controllers.yaml` for the preset |
-| `world`, `cameras_file`, `isaac_python`, `isaac_gui` | isaac | See [Isaac Stage](#isaac-stage) |
+| `world`, `cameras_file`, `mesh_roots`, `isaac_python`, `isaac_gui` | isaac | See [Isaac Stage](#isaac-stage) |
 | `gz_args` | gazebo | Passed to gz-sim; default `-r -v 3 empty.sdf` |
 | `entity_name` | gazebo | Spawned entity name; default `openarm` |
 

@@ -108,7 +108,7 @@ NODE_TYPES = {
     'transforms': 'isaacsim.ros2.bridge.ROS2PublishTransformTree',
 }
 
-_PACKAGE_URI = re.compile(r'package://([^/"\s]+)/([^"\s<>]*)')
+_MESH_FILENAME = re.compile(r'(<mesh\b[^>]*?\bfilename=")([^"]*)(")')
 _PACKAGE_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
 # Where run.launch.py writes a run's generated world: write_stage writes beside
 # it only inside such a directory.
@@ -287,24 +287,63 @@ def write(robot_mjcf, mount_xyz, scenario, seed, out_dir):
 # --- The robot half (URDF, cameras, bridge) -----------------------------------
 
 
-def resolve_package_uris(urdf_text, share_directory):
-    """Replace every ``package://<pkg>/<path>`` with its absolute file path.
+def _confined(directory, relative, uri):
+    base = os.path.normpath(directory)
+    path = os.path.normpath(os.path.join(base, relative))
+    if os.path.commonpath([base, path]) != base or path == base:
+        raise StageError(f'mesh {uri!r} leaves its root {base}')
+    return path
 
-    Isaac's importer reads mesh files from disk; ``share_directory(pkg)`` is
-    ``ament_index_python``'s ``get_package_share_directory`` in the launch. A
-    path that normalises outside its package's share is refused.
+
+def mesh_path(uri, mesh_roots, share_directory):
+    """Return the absolute file path a description mesh URI names.
+
+    ``mesh_roots`` (``[(prefix, directory)]``, the robot entry's ``mesh_roots``)
+    are tried first: they map what a robot's vendored URDF uses (a relative
+    ``assets/`` path, a ``package://`` name no package has) to the directory it
+    means. Then ``package://<pkg>/`` resolves in that package's share
+    (``share_directory``, ``get_package_share_directory`` in the launch), and
+    ``file://`` or an absolute path is kept. The result must stay under the root
+    or share it resolved against; a relative path no root matches is refused.
     """
-    def _file(match):
-        package, relative = match.group(1), match.group(2)
+    for prefix, directory in mesh_roots:
+        if uri.startswith(prefix):
+            return _confined(directory, uri[len(prefix):], uri)
+    if uri.startswith('package://'):
+        package, _, relative = uri[len('package://'):].partition('/')
         if not _PACKAGE_NAME.fullmatch(package):
             raise StageError(f'mesh package {package!r} is not a package name')
-        share = os.path.normpath(share_directory(package))
-        path = os.path.normpath(os.path.join(share, relative))
-        if os.path.commonpath([share, path]) != share or path == share:
-            raise StageError(f'mesh path package://{package}/{relative} leaves its package')
-        return path
+        return _confined(share_directory(package), relative, uri)
+    if uri.startswith('file://'):
+        uri = uri[len('file://'):]
+    if os.path.isabs(uri):
+        return os.path.normpath(uri)
+    raise StageError(f'mesh {uri!r} is relative and no mesh root of the robot matches it')
 
-    return _PACKAGE_URI.sub(_file, urdf_text)
+
+def resolve_meshes(urdf_text, mesh_roots, share_directory):
+    """Return ``urdf_text`` with every ``<mesh filename>`` an absolute file path.
+
+    Isaac's importer reads mesh files from disk, from a copy of the URDF written
+    away from the robot's own files (``mesh_path`` resolves each one).
+    """
+    return _MESH_FILENAME.sub(
+        lambda m: m.group(1) + mesh_path(m.group(2), mesh_roots, share_directory) + m.group(3),
+        urdf_text,
+    )
+
+
+def parse_mesh_roots(roots):
+    """Check ``[[prefix, directory]]`` (the launch's ``mesh_roots``); return tuples."""
+    if not isinstance(roots, list) or not all(
+        isinstance(root, list) and len(root) == 2 and all(isinstance(v, str) and v for v in root)
+        and os.path.isabs(root[1])
+        for root in roots
+    ):
+        raise StageError(
+            f'mesh_roots must be a list of [prefix, absolute directory], got {roots!r}'
+        )
+    return [tuple(root) for root in roots]
 
 
 def bridge_topics(robot):
@@ -610,12 +649,13 @@ def stage_spec(world, robot_description, urdf_path, cameras):
     }
 
 
-def write_stage(world_path, robot_description, cameras, share_directory):
+def write_stage(world_path, robot_description, cameras, mesh_roots, share_directory):
     """Write ``robot.urdf`` and ``stage.json`` beside ``world_path``; return the stage path.
 
     ``world_path`` must sit in a ``WORLD_DIR_PREFIX`` directory (the run's
     private ``tempfile.mkdtemp`` from ``run.launch.py``). ``cameras`` is
-    checked by ``check_cameras`` (``{}`` for none);
+    checked by ``check_cameras`` (``{}`` for none); ``mesh_roots`` is
+    ``parse_mesh_roots``' result (``[]`` for none);
     ``share_directory`` resolves the description's ``package://`` mesh URIs.
     """
     out_dir = os.path.dirname(os.path.abspath(world_path))
@@ -629,7 +669,7 @@ def write_stage(world_path, robot_description, cameras, share_directory):
     urdf_path = os.path.join(out_dir, 'robot.urdf')
     spec = stage_spec(world, robot_description, urdf_path, cameras)
     with open(urdf_path, 'w') as urdf_file:
-        urdf_file.write(resolve_package_uris(robot_description, share_directory))
+        urdf_file.write(resolve_meshes(robot_description, mesh_roots, share_directory))
     stage_path = os.path.join(out_dir, 'stage.json')
     _dump(spec, stage_path)
     return stage_path

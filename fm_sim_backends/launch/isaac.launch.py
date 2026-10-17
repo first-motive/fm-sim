@@ -44,8 +44,8 @@ def _stage_setup(context):
     if gui not in ('true', 'false'):
         raise ValueError(f"isaac_gui must be 'true' or 'false', got {gui!r}")
     return isaac.stage_actions(
-        arg('world'), arg('robot_description'), arg('cameras_file'), arg('isaac_python'),
-        gui == 'true',
+        arg('world'), arg('robot_description'), arg('cameras_file'), arg('mesh_roots'),
+        arg('isaac_python'), gui == 'true',
     )
 
 
@@ -72,6 +72,11 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 'cameras_file', default_value='',
                 description="The robot's cameras file; empty renders no cameras.",
+            ),
+            DeclareLaunchArgument(
+                'mesh_roots', default_value='[]',
+                description='JSON [[prefix, directory]] for mesh URIs no package '
+                'resolves (the robot entry\'s mesh_roots).',
             ),
             DeclareLaunchArgument(
                 'isaac_python',

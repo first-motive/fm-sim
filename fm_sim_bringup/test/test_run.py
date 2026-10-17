@@ -206,9 +206,26 @@ def test_isaac_gets_the_world_and_the_robot_cameras():
     )
     assert arguments['world'] == '/w/stage.isaac.json'
     assert arguments['cameras_file'] == catalog.share_file(entries['robot']['cameras_file'])
+    assert arguments['mesh_roots'] == '[]'
     assert run.backend_launch_arguments(
         entries['backend'], {'name': 'bare'}, '<robot/>', '/c.yaml', None
     )['world'] == ''
+
+
+def test_mesh_roots_resolve_to_shares():
+    assert run.mesh_roots(catalog.load('robots', 'openarm')) == []
+    ((prefix, directory),) = run.mesh_roots(catalog.load('robots', 'axol'))
+    assert prefix == 'package://assembly/'
+    assert directory.endswith('/fm_description/axol_description')
+    ((prefix, directory),) = run.mesh_roots(catalog.load('robots', 'so101'))
+    assert prefix == 'assets/'
+    assert directory.endswith('/fm_description/so101_description/assets')
+    entries = _entries('isaac', 'empty')
+    entries['robot'] = catalog.load('robots', 'axol')
+    arguments = run.backend_launch_arguments(
+        entries['backend'], entries['robot'], '<robot/>', '/c.yaml', None
+    )
+    assert json.loads(arguments['mesh_roots']) == run.mesh_roots(entries['robot'])
 
 
 def test_openarm_cameras_file_is_shipped():

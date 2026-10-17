@@ -124,8 +124,43 @@ def test_write_refuses_a_name_that_is_not_a_frame_name(tmp_path, name):
     'package://probe_meshes/',
 ])
 def test_package_paths_must_stay_in_their_share(uri):
-    with pytest.raises(stage.StageError, match='leaves its package'):
-        stage.resolve_package_uris(f'<mesh filename="{uri}"/>', lambda p: f'/opt/share/{p}')
+    with pytest.raises(stage.StageError, match='leaves its root /opt/share/probe_meshes'):
+        stage.mesh_path(uri, [], lambda p: f'/opt/share/{p}')
+
+
+# Axol's package://assembly/ (no such package) and SO-101's relative assets/.
+ROOTS = [('package://assembly/', '/opt/share/fm_description/axol_description'),
+         ('assets/', '/opt/share/fm_description/so101_description/assets')]
+
+
+@pytest.mark.parametrize('uri, path', [
+    ('package://assembly/meshes/base.stl',
+     '/opt/share/fm_description/axol_description/meshes/base.stl'),
+    ('assets/base.stl', '/opt/share/fm_description/so101_description/assets/base.stl'),
+    ('package://probe_meshes/m.stl', '/opt/share/probe_meshes/m.stl'),
+    ('file:///abs/m.stl', '/abs/m.stl'),
+    ('/abs/m.stl', '/abs/m.stl'),
+])
+def test_mesh_roots_come_before_packages(uri, path):
+    assert stage.mesh_path(uri, ROOTS, lambda p: f'/opt/share/{p}') == path
+
+
+@pytest.mark.parametrize('uri, match', [
+    ('package://assembly/../../../etc/passwd', 'leaves its root /opt/share/fm_description/axol'),
+    ('assets/../../x.stl', 'leaves its root /opt/share/fm_description/so101'),
+    ('meshes/arm.stl', 'no mesh root'),
+])
+def test_mesh_roots_confine_and_relative_paths_need_one(uri, match):
+    with pytest.raises(stage.StageError, match=match):
+        stage.mesh_path(uri, ROOTS, lambda p: f'/opt/share/{p}')
+
+
+@pytest.mark.parametrize('roots', [
+    {'a': '/b'}, [['a']], [['a', 'relative/dir']], [['', '/b']], [['a', 3]],
+])
+def test_mesh_roots_must_be_prefix_absolute_directory_pairs(roots):
+    with pytest.raises(stage.StageError, match='mesh_roots'):
+        stage.parse_mesh_roots(roots)
 
 
 def test_object_workspace_covers_the_spawn_ranges_with_a_margin():
@@ -140,11 +175,11 @@ def test_object_workspace_covers_the_spawn_ranges_with_a_margin():
 
 
 def test_package_uris_resolve_to_share_directories():
-    text = stage.resolve_package_uris(PROBE_URDF, lambda package: f'/opt/share/{package}/')
+    text = stage.resolve_meshes(PROBE_URDF, [], lambda package: f'/opt/share/{package}/')
     assert 'filename="/opt/share/probe_meshes/meshes/arm.stl"' in text
     assert 'package://' not in text
     with pytest.raises(stage.StageError, match='not a package name'):
-        stage.resolve_package_uris('package://../x/m.stl', lambda p: '/s')
+        stage.mesh_path('package://../x/m.stl', [], lambda p: '/s')
 
 
 def test_bridge_topics_come_from_the_description():
@@ -307,7 +342,7 @@ def _run_dir(tmp_path):
 def test_write_stage_refuses_a_world_outside_a_run_directory(tmp_path):
     world = stage.write('/unused.xml', [0, 0, 0], CAN_ON_TABLE, 3, str(tmp_path))
     with pytest.raises(stage.StageError, match='run directory'):
-        stage.write_stage(world, PROBE_URDF, {}, lambda p: f'/share/{p}')
+        stage.write_stage(world, PROBE_URDF, {}, [], lambda p: f'/share/{p}')
     assert not (tmp_path / 'stage.json').exists()
 
 
@@ -315,7 +350,7 @@ def test_write_stage_writes_urdf_and_spec(tmp_path):
     tmp_path = pathlib.Path(_run_dir(tmp_path))
     world = stage.write('/unused.xml', [0, 0, 0], CAN_ON_TABLE, 3, str(tmp_path))
     path = stage.write_stage(
-        world, PROBE_URDF, stage.check_cameras(CAMERAS), lambda p: f'/share/{p}'
+        world, PROBE_URDF, stage.check_cameras(CAMERAS), [], lambda p: f'/share/{p}'
     )
     assert path == str(tmp_path / 'stage.json')
     with open(path) as spec_file:

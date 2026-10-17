@@ -76,13 +76,22 @@ def camera_relays(cameras):
     return relays
 
 
-def stage_actions(world, robot_description, cameras_file, isaac_python, gui):
+def load_mesh_roots(text):
+    """Return the launch's JSON ``mesh_roots`` as ``[(prefix, directory)]``."""
+    try:
+        roots = json.loads(text or '[]')
+    except json.JSONDecodeError as error:
+        raise isaac_stage.StageError(f'mesh_roots is not JSON: {text!r}') from error
+    return isaac_stage.parse_mesh_roots(roots)
+
+
+def stage_actions(world, robot_description, cameras_file, mesh_roots, isaac_python, gui):
     """Return the actions for a run's stage, or only a notice when there is none.
 
     ``world`` is the scenario half ``isaac_stage.write`` produced (empty when the
     launch is used without ``run.launch.py``). With ``isaac_python`` (Isaac Sim's
     ``python.sh``) the stage runner starts here; without it the command to run
-    is logged.
+    is logged. ``mesh_roots`` is the launch's JSON ``[[prefix, directory]]``.
     """
     if not world:
         return [LogInfo(
@@ -91,7 +100,8 @@ def stage_actions(world, robot_description, cameras_file, isaac_python, gui):
         )]
     cameras = load_cameras(cameras_file)
     stage_path = isaac_stage.write_stage(
-        world, robot_description, cameras, get_package_share_directory
+        world, robot_description, cameras, load_mesh_roots(mesh_roots),
+        get_package_share_directory,
     )
     actions = camera_relays(cameras)
     if isaac_python:

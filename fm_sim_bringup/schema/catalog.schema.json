@@ -111,6 +111,20 @@
               "$ref": "#/definitions/vector3",
               "description": "Where the MJCF model's origin sits in the description's root frame. The MuJoCo generator mounts the model there, so the MuJoCo world and the description's world coincide. Default [0, 0, 0]."
             },
+            "mesh_roots": {
+              "description": "Mesh URI prefixes the robot's URDF uses that no package resolves (a path relative to the URDF file, a package:// name no package has), each mapped to the share directory it means. A resolved mesh must stay under its directory.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["prefix", "package", "path"],
+                "additionalProperties": false,
+                "properties": {
+                  "prefix": {"type": "string", "minLength": 1},
+                  "package": {"type": "string", "minLength": 1},
+                  "path": {"$ref": "#/definitions/relative_path"}
+                }
+              }
+            },
             "controllers_file": {"$ref": "#/definitions/share_file"},
             "cameras_file": {
               "$ref": "#/definitions/share_file",
