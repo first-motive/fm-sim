@@ -5,7 +5,7 @@ Guidance for Claude Code and Codex working in the `fm-sim` repo. See the
 
 ## Purpose
 
-First Motive simulation layer: the headless dev loop, backend hosts, and the MJCF model registry. Part of First Motive's ROS2 stack — one of the public package repos assembled by [`fm-ros2`](https://github.com/first-motive/fm-ros2).
+First Motive simulation layer: the run contract (backend × robot × scenario × controller), the sim agent and `fm sim` CLI, the AWS sim host stack, the backend hosts, the headless dev loop, and the MJCF model registry. Part of First Motive's ROS2 stack — one of the public package repos assembled by [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 
 ## Conventions
 

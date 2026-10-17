@@ -1,0 +1,74 @@
+# Sim hosts. The fm sim CLI and the desktop app are both clients of one sim
+# agent per host, reached over the fleet's Zenoh router. The agent starts each
+# run as a container of the fm-sim image; the host's zenoh bridge carries the
+# run's topics off the host under its namespace.
+# Each block: role, package, artifact.
+...@styles
+direction: right
+
+cli: "" {
+  grid-rows: 3
+  class: block
+  r: Terminal { class: role }
+  p: fm sim { class: pkg }
+  a: "catalog · up · down · trial · host" { class: art }
+}
+
+app: "" {
+  grid-rows: 3
+  class: block
+  r: Desktop App { class: role }
+  p: Simulation screen { class: pkg }
+  a: "run builder · live view · runs" { class: art }
+}
+
+router: "" {
+  grid-rows: 2
+  class: block
+  r: Fleet Router { class: role }
+  a: "zenoh :7447 · tailnet ACL" { class: art }
+}
+
+host: "Sim Host (This Mac · fm-ws-01 · AWS)" {
+  style.fill: transparent
+
+  agent: "" {
+    grid-rows: 3
+    class: block
+    r: Sim Agent { class: role }
+    p: fm-sim-agent { class: pkg }
+    a: "fm/sim/<host>/<verb>" { class: art }
+  }
+
+  run: "" {
+    grid-rows: 3
+    class: zoom
+    r: Run Container { class: role }
+    p: fm-sim image { class: pkg }
+    a: "run.launch.py · DDS localhost" { class: art }
+  }
+
+  bridge: "" {
+    grid-rows: 3
+    class: block
+    r: Topic Bridge { class: role }
+    p: fm-zenoh-bridge { class: pkg }
+    a: "bridge-sim.json5 · <host>/<topic>" { class: art }
+  }
+
+  runs: "" {
+    grid-rows: 2
+    class: block
+    r: Runs Dir { class: role }
+    a: "summary.json · bag/*.mcap" { class: art }
+  }
+
+  agent -> run: docker run
+  agent -> runs
+  run -> bridge: topics
+}
+
+cli -> router: verbs
+app -> router: verbs + topics
+router <-> host.agent
+router <- host.bridge: "<host>/<topic>"

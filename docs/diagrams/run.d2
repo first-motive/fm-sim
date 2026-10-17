@@ -1,7 +1,9 @@
 # fm_sim_bringup run contract. run.launch.py takes four names, resolves each from
 # the ament index (fm_sim.* resource types), expands the robot's fm-robot xacro
-# with the backend's args, includes the backend host, spawns the robot's
-# controllers by role, and includes the controller entry's launch.
+# with the backend's args (on MuJoCo and Isaac, around a world generated from the
+# scenario and seed), includes the backend host, spawns the robot's controllers by
+# role, starts the launch roles the controller activates, includes the controller
+# entry's launch, and starts the scenario node for a scenario with objects.
 # Each block: role, package, artifact.
 ...@styles
 direction: down
@@ -52,9 +54,36 @@ ctl: "" {
   a: "entry launch · use_sim · robot_profile" { class: art }
 }
 
+world: "" {
+  grid-rows: 3
+  class: block
+  r: World Generator { class: role }
+  p: fm_sim_scenarios { class: pkg }
+  a: "scenario + seed → mujoco world · isaac stage" { class: art }
+}
+
+roles: "" {
+  grid-rows: 2
+  class: block
+  r: Launch Roles { class: role }
+  a: "servo · after the active spawner" { class: art }
+}
+
+scenario: "" {
+  grid-rows: 3
+  class: block
+  r: Scenario Node { class: role }
+  p: fm_sim_scenarios { class: pkg }
+  a: "/sim/objects · markers · reset · outcome" { class: art }
+}
+
 run -> index: resolve + validate
+index -> world
+world -> robot: mjcf_path
 index -> robot
 robot -> backend: robot_description
 index -> spawn
 spawn -> backend
+spawn -> roles
 index -> ctl
+index -> scenario
