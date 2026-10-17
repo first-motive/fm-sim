@@ -29,8 +29,8 @@ first spawned from ``seed`` into a generated world: on mujoco the robot's model 
 built into it and that world is the model the backend loads; on isaac it is the
 scenario half of the stage, which the backend launch (given ``world`` and the
 robot's ``cameras_file``) completes from the robot description. ``timeout_s``
-overrides the scenario's episode timeout; empty keeps it. The world is written to a temporary directory that is
-removed when the launch shuts down.
+overrides the scenario's episode timeout; empty keeps it. The world is written to
+a temporary directory that is removed when the launch shuts down.
 """
 
 import shutil
