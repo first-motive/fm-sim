@@ -338,7 +338,7 @@ Resources:
             EOF
             chmod 0444 /etc/fm-sim-cloud/host.env
 
-            for tool in curl git aws python3 iptables timeout; do
+            for tool in curl git aws python3 iptables timeout ip; do
               command -v "$tool" >/dev/null || { echo "missing $tool on the AMI"; false; }
             done
 
@@ -346,7 +346,8 @@ Resources:
             fetch_commit() {
               install -d -m 0755 "$1"
               git -C "$1" init -q
-              git -C "$1" fetch -q --depth 1 "$2" "$3"
+              # A hung fetch fails like any other error, so the trap ends the host.
+              timeout 5m git -C "$1" fetch -q --depth 1 "$2" "$3"
               git -C "$1" checkout -q --detach FETCH_HEAD
               [ "$(git -C "$1" rev-parse HEAD)" = "$3" ]
             }
@@ -380,6 +381,12 @@ Resources:
             systemctl daemon-reload
             systemctl enable --now fm-sim-imds-block.service
             iptables -C OUTPUT -d 169.254.169.254/32 -m owner --uid-owner fm-sim -j DROP
+            # The block is IPv4 only. The VPC has no IPv6 range and the template
+            # disables the IPv6 metadata endpoint; refuse a host that has IPv6 anyway.
+            if ip -6 addr show scope global | grep inet6 >/dev/null; then
+              echo "host has a global IPv6 address; the IMDS block does not cover it"
+              false
+            fi
 
             fetch_commit /opt/fm/fm-setup '${FmSetupRepoUrl}' '${FmSetupCommit}'
             set -a

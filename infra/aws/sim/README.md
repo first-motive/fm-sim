@@ -65,12 +65,12 @@ the cap with that headroom.
 ### Bootstrap
 
 The launch template's user data runs as root, in this order. Any failure,
-including the role running past 60 minutes, makes the host terminate itself
+including a repo fetch running past 5 minutes or the role past 60, makes the host terminate itself
 with a decrement, using `curl` against the instance metadata service and the
 AWS CLI. If that call fails too, the deadline ends the host.
 
 1. Write `/etc/fm-sim-cloud/host.env` and check the image has `curl`, `git`,
-   `aws`, `python3`, `iptables` and `timeout`.
+   `aws`, `python3`, `iptables`, `timeout` and `ip`.
 2. Fetch fm-sim at `FmSimCommit` and check `HEAD` is that commit.
 3. Copy `idle_to_zero.py` to `/usr/local/lib/fm-sim-cloud/` and the three
    units to `/etc/systemd/system/`, all `root:root`, directory 755 and files
@@ -81,7 +81,10 @@ AWS CLI. If that call fails too, the deadline ends the host.
    `iptables -I OUTPUT -d 169.254.169.254/32 -m owner --uid-owner fm-sim -j DROP`.
    Runs use host networking as that account, so without the rule a run could
    read the host role's credentials. The unit re-applies the rule on every
-   boot, before Docker and the agent. Root keeps the metadata service.
+   boot, before Docker and the agent, and the idle check re-checks it every
+   minute. Root keeps the metadata service. The rule is IPv4 only: the VPC has
+   no IPv6 range and the IPv6 metadata endpoint is disabled, and the bootstrap
+   refuses a host that has a global IPv6 address anyway.
 5. Fetch fm-setup at `FmSetupCommit`, check `HEAD`, and run
    `NONINTERACTIVE=1 timeout 60m install.sh --<FmSetupRole>` with the env file
    exported.
@@ -107,6 +110,10 @@ on itself with `--should-decrement-desired-capacity`, so the group stays at
 zero. The clock starts at the first check after provisioning. A Docker that
 does not answer counts as idle: a host that cannot run containers cannot serve
 a run.
+
+Each check first confirms the metadata block for `fm-sim` is still in
+`iptables`. A missing rule is re-inserted and logged. If that fails, the host
+terminates itself rather than leave the host role exposed to runs.
 
 The same check terminates the host once it has been up
 `MaxLifetimeMinutes`, busy or not, as a second line behind the controller's

@@ -383,3 +383,19 @@ def test_status_warns_when_spend_reads_zero_with_a_host_up(tmp_path, status, war
     assert result.returncode == 0
     assert json.loads(result.stdout) == status
     assert ("cost tag active" in result.stderr) is warned
+
+
+def test_bootstrap_bounds_every_repo_fetch():
+    script = user_data()
+    fetch = script[script.index("fetch_commit() {") : script.index("fetch_commit /opt/fm-sim-cloud")]
+    assert 'timeout 5m git -C "$1" fetch -q --depth 1 "$2" "$3"' in fetch
+    assert fetch.count('git -C "$1" fetch') == 1
+
+
+def test_bootstrap_refuses_a_host_with_global_ipv6():
+    script = user_data()
+    assert "if ip -6 addr show scope global | grep inet6 >/dev/null; then" in script
+    assert script.index("ip -6 addr show") < script.index("/opt/fm/fm-setup/install.sh")
+    data = RESOURCES["HostLaunchTemplate"]["Properties"]["LaunchTemplateData"]
+    assert data["MetadataOptions"]["HttpProtocolIpv6"] == "disabled"
+    assert not any(r["Type"] == "AWS::EC2::VPCCidrBlock" for r in RESOURCES.values())

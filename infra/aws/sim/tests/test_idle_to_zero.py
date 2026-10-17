@@ -21,7 +21,13 @@ class FakeRun:
     """Stands in for subprocess.run: answers docker ps, records every argv."""
 
     def __init__(
-        self, docker_stdout: str = "", docker_rc: int = 0, aws_rc: int = 0, raises: bool = False
+        self,
+        docker_stdout: str = "",
+        docker_rc: int = 0,
+        aws_rc: int = 0,
+        raises: bool = False,
+        rule_present: bool = True,
+        insert_rc: int = 0,
     ) -> None:
         self.docker_stdout, self.docker_rc, self.aws_rc, self.raises = (
             docker_stdout,
@@ -29,10 +35,14 @@ class FakeRun:
             aws_rc,
             raises,
         )
+        self.rule_present, self.insert_rc = rule_present, insert_rc
         self.calls: list[list[str]] = []
 
     def __call__(self, argv: list[str]) -> subprocess.CompletedProcess:
         self.calls.append(argv)
+        if argv[0] == "iptables":
+            rc = (0 if self.rule_present else 1) if argv[1] == "-C" else self.insert_rc
+            return subprocess.CompletedProcess(argv, rc, "", "")
         if argv[0] == "docker":
             if self.raises:
                 raise FileNotFoundError("docker")
@@ -126,7 +136,7 @@ def test_check_stays_while_a_run_is_active(tmp_path):
         )
         == 0
     )
-    assert [c[0] for c in run.calls] == ["docker"]
+    assert [c[0] for c in run.calls] == ["iptables", "docker"]
     assert read_last_active(state) == NOW
 
 
@@ -205,8 +215,8 @@ def test_check_leaves_at_the_lifetime_even_while_busy(tmp_path):
         get_instance_id=lambda: "i-0abc",
     )
     assert code == 0
-    assert [c[0] for c in run.calls] == ["aws"]
-    assert "--should-decrement-desired-capacity" in run.calls[0]
+    assert [c[0] for c in run.calls] == ["iptables", "aws"]
+    assert "--should-decrement-desired-capacity" in run.calls[-1]
 
 
 def test_main_check_reads_its_config_from_the_environment(monkeypatch, tmp_path):
@@ -227,3 +237,50 @@ def test_read_uptime(tmp_path):
     uptime = tmp_path / "uptime"
     uptime.write_text("1234.56 9876.54\n")
     assert idle_to_zero.read_uptime_s(uptime) == 1234.56
+
+
+def checked(run, tmp_path):
+    return check(
+        region="r",
+        idle_minutes=15,
+        max_lifetime_minutes=480,
+        uptime_s=600.0,
+        state_file=tmp_path / "idle.json",
+        now=NOW,
+        run=run,
+        get_instance_id=lambda: "i-0abc",
+    )
+
+
+def test_check_matches_the_rule_the_block_unit_applies():
+    unit = (REPO / "infra/aws/sim/fm-sim-imds-block.service").read_text()
+    rule = " ".join(idle_to_zero.IMDS_BLOCK_RULE)
+    assert f"iptables -C {rule}" in unit
+    assert f"iptables -I {rule.replace('OUTPUT', 'OUTPUT 1', 1)}" in unit
+
+
+def test_check_leaves_a_present_imds_block_alone(tmp_path):
+    run = FakeRun(docker_stdout="3f2a")
+    assert checked(run, tmp_path) == 0
+    assert run.calls[0] == ["iptables", "-C", *idle_to_zero.IMDS_BLOCK_RULE]
+    assert not any(c[:2] == ["iptables", "-I"] for c in run.calls)
+
+
+def test_check_reinserts_a_missing_imds_block_and_carries_on(tmp_path):
+    run = FakeRun(docker_stdout="3f2a", rule_present=False)
+    assert checked(run, tmp_path) == 0
+    assert run.calls[1] == ["iptables", "-I", "OUTPUT", "1", *idle_to_zero.IMDS_BLOCK_RULE[1:]]
+    assert [c[0] for c in run.calls] == ["iptables", "iptables", "docker"]
+
+
+def test_check_terminates_when_the_imds_block_cannot_be_restored(tmp_path):
+    run = FakeRun(docker_stdout="3f2a", rule_present=False, insert_rc=4)
+    assert checked(run, tmp_path) == 0
+    assert run.calls[-1][:5] == [
+        "aws",
+        "--region",
+        "r",
+        "autoscaling",
+        "terminate-instance-in-auto-scaling-group",
+    ]
+    assert "docker" not in [c[0] for c in run.calls]

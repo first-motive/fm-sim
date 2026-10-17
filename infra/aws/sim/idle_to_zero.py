@@ -7,6 +7,10 @@ run label, so it does not count. When no run has been seen for
 ``FM_SIM_IDLE_MINUTES``, the host terminates itself through its Auto Scaling
 group and decrements desired capacity, so the group stays at zero.
 
+Each check also makes sure the iptables rule that keeps the agent's account off
+the instance metadata service is still in place, re-inserts it when it is not,
+and terminates the host if it cannot.
+
 The same check leaves once the host has been up ``FM_SIM_MAX_LIFETIME_MINUTES``,
 busy or not. The controller enforces that deadline from outside; this is the
 second line, for when its schedule does not run.
@@ -32,6 +36,8 @@ from typing import Callable
 RUN_LABEL = "fm.sim.run_id"  # fm_sim_agent.runner.RUN_LABEL
 DEFAULT_STATE_FILE = Path("/var/lib/fm-sim-cloud/idle.json")
 IMDS = "http://169.254.169.254/latest"
+# The rule fm-sim-imds-block.service applies; re-checked here every minute.
+IMDS_BLOCK_RULE = ["OUTPUT", "-d", "169.254.169.254/32", "-m", "owner", "--uid-owner", "fm-sim", "-j", "DROP"]
 COMMAND_TIMEOUT_S = 30
 
 Run = Callable[[list[str]], subprocess.CompletedProcess]
@@ -117,6 +123,17 @@ def terminate_self(region: str, own_id: str, run: Run = _run) -> bool:
     return result.returncode == 0
 
 
+def imds_block_held(run: Run = _run) -> bool:
+    """Re-insert the agent account's IMDS block when it has gone; False when that fails."""
+    try:
+        if run(["iptables", "-C", *IMDS_BLOCK_RULE]).returncode == 0:
+            return True
+        print("IMDS block for fm-sim is missing; re-inserting it", file=sys.stderr)
+        return run(["iptables", "-I", IMDS_BLOCK_RULE[0], "1", *IMDS_BLOCK_RULE[1:]]).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def read_uptime_s(path: Path = Path("/proc/uptime")) -> float:
     return float(path.read_text(encoding="utf-8").split()[0])
 
@@ -132,6 +149,9 @@ def check(
     run: Run = _run,
     get_instance_id: Callable[[], str] = instance_id,
 ) -> int:
+    if not imds_block_held(run):
+        print("could not restore the IMDS block; terminating rather than expose the host role")
+        return 0 if terminate_self(region, get_instance_id(), run) else 1
     if uptime_s >= max_lifetime_minutes * 60:
         print(f"up {uptime_s / 60:.0f} minutes, past the {max_lifetime_minutes}-minute lifetime; terminating")
         return 0 if terminate_self(region, get_instance_id(), run) else 1
