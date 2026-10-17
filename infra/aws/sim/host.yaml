@@ -547,6 +547,9 @@ Resources:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
+            Action: cloudformation:DescribeStacks
+            Resource: !Ref AWS::StackId
+          - Effect: Allow
             Action: lambda:InvokeFunction
             Resource: !GetAtt ControllerFunction.Arn
           - Effect: Allow
@@ -560,6 +563,9 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          - Effect: Allow
+            Action: cloudformation:DescribeStacks
+            Resource: !Ref AWS::StackId
           - Effect: Allow
             Action: ssm:GetParameter
             Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/status"

@@ -399,3 +399,17 @@ def test_bootstrap_refuses_a_host_with_global_ipv6():
     data = RESOURCES["HostLaunchTemplate"]["Properties"]["LaunchTemplateData"]
     assert data["MetadataOptions"]["HttpProtocolIpv6"] == "disabled"
     assert not any(r["Type"] == "AWS::EC2::VPCCidrBlock" for r in RESOURCES.values())
+
+
+@pytest.mark.parametrize("policy", ["OperatorPolicy", "ViewerPolicy"])
+def test_operator_and_viewer_can_read_only_this_stack_outputs(policy):
+    document = RESOURCES[policy]["Properties"]["PolicyDocument"]["Statement"]
+    describe = [s for s in document if "cloudformation:DescribeStacks" in actions(s)]
+    assert describe == [
+        {"Effect": "Allow", "Action": "cloudformation:DescribeStacks", "Resource": {"Ref": "AWS::StackId"}}
+    ]
+    assert not any(
+        a.startswith("cloudformation:") and a != "cloudformation:DescribeStacks"
+        for s in document
+        for a in actions(s)
+    )
