@@ -65,7 +65,11 @@ def test_backend_publishes_the_robot_description_argument(backend, monkeypatch):
         'robot_state_publisher_node',
         lambda robot_description: published.append(robot_description) or {},
     )
-    monkeypatch.setattr(module, 'Node', _NodeRecorder())
+    if backend != 'gazebo':
+        # gazebo's nodes start from an OpaqueFunction (fm_sim_backends.gazebo).
+        monkeypatch.setattr(module, 'Node', _NodeRecorder())
+    else:
+        assert not hasattr(module, 'Node')
     module.generate_launch_description()
     (robot_description,) = published
     assert robot_description.evaluate(_context()) == DESCRIPTION

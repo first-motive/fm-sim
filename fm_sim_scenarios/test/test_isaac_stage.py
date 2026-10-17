@@ -138,11 +138,24 @@ ROOTS = [('package://assembly/', '/opt/share/fm_description/axol_description'),
      '/opt/share/fm_description/axol_description/meshes/base.stl'),
     ('assets/base.stl', '/opt/share/fm_description/so101_description/assets/base.stl'),
     ('package://probe_meshes/m.stl', '/opt/share/probe_meshes/m.stl'),
-    ('file:///abs/m.stl', '/abs/m.stl'),
-    ('/abs/m.stl', '/abs/m.stl'),
+    ('file:///opt/share/fm_description/axol_description/m.stl',
+     '/opt/share/fm_description/axol_description/m.stl'),
+    ('/opt/share/fm_description/so101_description/assets/m.stl',
+     '/opt/share/fm_description/so101_description/assets/m.stl'),
 ])
 def test_mesh_roots_come_before_packages(uri, path):
     assert stage.mesh_path(uri, ROOTS, lambda p: f'/opt/share/{p}') == path
+
+
+def test_absolute_meshes_stay_in_a_root_or_an_installed_share(monkeypatch):
+    # A relative entry allows nothing (and does not break the comparison).
+    monkeypatch.setenv('AMENT_PREFIX_PATH', 'relative/prefix:/ws/install/probe:/opt/ros/jazzy')
+    assert stage.mesh_path('file:///opt/ros/jazzy/share/p/m.stl', [], str) == (
+        '/opt/ros/jazzy/share/p/m.stl'
+    )
+    for uri in ('/etc/passwd', 'file:///opt/ros/jazzy/lib/x.so', '/opt/ros/jazzy/share'):
+        with pytest.raises(stage.StageError, match='outside every mesh root'):
+            stage.mesh_path(uri, ROOTS, str)
 
 
 @pytest.mark.parametrize('uri, match', [
@@ -414,3 +427,19 @@ def test_openarm_stage_matches_its_description_and_cameras():
     values = dict(spec['graph']['values'])
     assert values['joint_state.inputs:topicName'] == '/isaac_joint_states'
     assert values['camera_chest.inputs:topicName'] == '/cam_chest/image_raw'
+
+
+def test_a_symlinked_directory_cannot_lead_a_mesh_out_of_its_root(tmp_path):
+    root = tmp_path / 'share' / 'probe'
+    root.mkdir(parents=True)
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (root / 'escape').symlink_to(outside)
+    with pytest.raises(stage.StageError, match='leaves its root'):
+        stage.mesh_path('package://probe/escape/m.stl', [], lambda p: str(tmp_path / 'share' / p))
+    # A symlinked file (a symlink-install share) still counts as in its share.
+    (outside / 'real.stl').write_text('mesh')
+    (root / 'linked.stl').symlink_to(outside / 'real.stl')
+    assert stage.mesh_path(
+        'package://probe/linked.stl', [], lambda p: str(tmp_path / 'share' / p)
+    ) == str(root / 'linked.stl')

@@ -7,9 +7,11 @@ launch:
   package: fm_sim_backends
   path: launch/gazebo.launch.py
 # Server only: the run is viewed through the app, and a sim host has no display
-# for the gz GUI (it aborts on Qt without one).
+# for the gz GUI (it aborts on Qt without one). Headless rendering (EGL) lets the
+# camera sensors render without a display. The world comes from the scenario
+# generator (fm_sim_scenarios.gazebo_world).
 launch_args:
-  gz_args: -s -r -v 3 empty.sdf
+  gz_args: -s -r -v 3 --headless-rendering
 description_args:
   sim_backend: gz
   gazebo_controllers_file: '{controllers_file}'

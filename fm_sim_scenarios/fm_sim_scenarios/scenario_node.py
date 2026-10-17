@@ -11,9 +11,9 @@ Serves the scenario contract on the sim host:
   the scenario's ``success`` predicate. A scenario without one publishes none.
 
 Parameters: ``scenario`` (the catalog entry as JSON), ``seed`` (the spawn the
-world was generated with), ``backend`` (``mujoco`` or ``isaac``: how objects
-are read and moved), ``timeout_s`` (0 keeps the scenario's), ``frame_id``. Run it with
-``use_sim_time``: episode times are sim seconds.
+world was generated with), ``backend`` (``mujoco``, ``gazebo`` or ``isaac``:
+how objects are read and moved), ``timeout_s`` (0 keeps the scenario's),
+``frame_id``. Run it with ``use_sim_time``: episode times are sim seconds.
 
 A reset waits on the engine in its own callback group, so pose updates keep
 flowing on a multi-threaded executor; a lock guards the episode state only.
@@ -27,6 +27,7 @@ import time
 from fm_sim_msgs.msg import ObjectState, ObjectStates, Outcome
 from fm_sim_msgs.srv import Reset
 from fm_sim_scenarios import scenario as sc
+from fm_sim_scenarios.gazebo_objects import GazeboObjects
 from fm_sim_scenarios.isaac_objects import IsaacObjects
 from geometry_msgs.msg import Pose
 from mujoco_ros2_control_msgs.msg import FreeJointState, FreeJointStateArray
@@ -152,8 +153,8 @@ class MujocoObjects:
 
 
 # Backend name -> how this node reads and moves objects there. A backend joins by
-# adding its class here (Gazebo with its generator).
-BACKENDS = {'mujoco': MujocoObjects, 'isaac': IsaacObjects}
+# adding its class here.
+BACKENDS = {'mujoco': MujocoObjects, 'gazebo': GazeboObjects, 'isaac': IsaacObjects}
 
 
 class ScenarioNode(Node):
