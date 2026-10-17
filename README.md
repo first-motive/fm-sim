@@ -19,7 +19,7 @@ with the other six package repos by
 | `fm_sim_models` | ament_python | MJCF model registry |
 | `fm_sim_ee_follower` | ament_python | DLS IK node that follows `/commanded_ee_right` in place of the loader's IK |
 | `fm_sim_bringup` | ament_python | `run.launch.py` (backend × robot × scenario × controller) and the ament-index catalog |
-| `fm_sim_scenarios` | ament_python | Seeded spawns, the success predicate, the MuJoCo world generator and the scenario node (`/sim/*`) |
+| `fm_sim_scenarios` | ament_python | Seeded spawns, the success predicate, the MuJoCo and Isaac Sim generators and the scenario node (`/sim/*`) |
 | `fm_sim_msgs` | ament_cmake | `ObjectStates`, `Outcome` and the `Reset` service the scenario node serves |
 | `fm_sim` | ament_cmake | Metapackage tying the seven together for a single install |
 

@@ -11,8 +11,8 @@ Serves the scenario contract on the sim host:
   the scenario's ``success`` predicate. A scenario without one publishes none.
 
 Parameters: ``scenario`` (the catalog entry as JSON), ``seed`` (the spawn the
-world was generated with), ``backend`` (only ``mujoco`` reads and moves objects
-today), ``timeout_s`` (0 keeps the scenario's), ``frame_id``. Run it with
+world was generated with), ``backend`` (``mujoco`` or ``isaac``: how objects
+are read and moved), ``timeout_s`` (0 keeps the scenario's), ``frame_id``. Run it with
 ``use_sim_time``: episode times are sim seconds.
 
 A reset waits on the engine in its own callback group, so pose updates keep
@@ -27,6 +27,7 @@ import time
 from fm_sim_msgs.msg import ObjectState, ObjectStates, Outcome
 from fm_sim_msgs.srv import Reset
 from fm_sim_scenarios import scenario as sc
+from fm_sim_scenarios.isaac_objects import IsaacObjects
 from geometry_msgs.msg import Pose
 from mujoco_ros2_control_msgs.msg import FreeJointState, FreeJointStateArray
 from mujoco_ros2_control_msgs.srv import SetFreeJointState
@@ -151,8 +152,8 @@ class MujocoObjects:
 
 
 # Backend name -> how this node reads and moves objects there. A backend joins by
-# adding its class here (Gazebo and Isaac with their generators).
-BACKENDS = {'mujoco': MujocoObjects}
+# adding its class here (Gazebo with its generator).
+BACKENDS = {'mujoco': MujocoObjects, 'isaac': IsaacObjects}
 
 
 class ScenarioNode(Node):
@@ -169,7 +170,7 @@ class ScenarioNode(Node):
         if not (math.isfinite(timeout_s) and timeout_s >= 0.0):
             raise sc.ScenarioError(f'timeout_s must be finite and >= 0, got {timeout_s!r}')
         self._frame_id = self.declare_parameter('frame_id', 'world').value
-        if not sc.FRAME_NAME.match(self._frame_id):
+        if not sc.FRAME_NAME.fullmatch(self._frame_id):
             raise sc.ScenarioError(f'frame_id {self._frame_id!r} is not a frame name')
         if backend not in BACKENDS:
             raise sc.ScenarioError(

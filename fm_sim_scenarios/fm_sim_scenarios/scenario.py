@@ -15,7 +15,8 @@ import re
 SPAWN_KEYS = ('x', 'y', 'z', 'yaw')
 SEED_MAX = 2 ** 32 - 1
 # Names that become MJCF bodies, files, markers or frames (the schema's frame_name).
-FRAME_NAME = re.compile(r'^[A-Za-z][A-Za-z0-9_]*$')
+# Use fullmatch: with match, '$' also accepts a trailing newline.
+FRAME_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
 
 
 class ScenarioError(ValueError):
@@ -43,7 +44,7 @@ def check(scenario):
 
     Raises ScenarioError naming the problem.
     """
-    if not FRAME_NAME.match(str(scenario.get('name', ''))):
+    if not FRAME_NAME.fullmatch(str(scenario.get('name', ''))):
         raise ScenarioError(f'scenario name {scenario.get("name")!r} is not a valid name')
     bad = list(_non_finite(scenario, scenario['name']))
     if bad:

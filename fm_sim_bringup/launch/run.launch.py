@@ -20,9 +20,11 @@ What comes up:
 5. for a scenario with objects, the scenario node (fm_sim_scenarios), serving
    ``/sim/objects``, ``/sim/markers``, ``/sim/reset`` and ``/sim/outcome``.
 
-On a backend with a scenario generator (mujoco), the robot's model is first built
-into one world with the scenario's objects spawned from ``seed``, and that world
-is the model the backend loads. ``timeout_s`` overrides the scenario's episode
+On a backend with a scenario generator (mujoco, isaac), the scenario's objects are
+first spawned from ``seed`` into a generated world: on mujoco the robot's model is
+built into it and that world is the model the backend loads; on isaac it is the
+scenario half of the stage, which the backend launch (given ``world`` and the
+robot's ``cameras_file``) completes from the robot description. ``timeout_s`` overrides the scenario's episode
 timeout; empty keeps it. The world is written to a temporary directory that is
 removed when the launch shuts down.
 """
@@ -101,11 +103,9 @@ def _launch_setup(context):
         )),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(catalog.share_file(backend['launch'])),
-            launch_arguments={
-                **backend.get('launch_args', {}),
-                'robot_description': robot_description,
-                'controllers_file': controllers_file,
-            }.items(),
+            launch_arguments=run.backend_launch_arguments(
+                backend, robot, robot_description, controllers_file, world
+            ).items(),
         ),
         _spawner(active, controllers_file),
     ]
