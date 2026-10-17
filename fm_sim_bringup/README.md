@@ -37,23 +37,27 @@ flowchart LR
     idx --> sp["spawners<br/>broadcasters + activated roles: active<br/>other roles: inactive"]
     sp --> be
     idx --> ctl["controller launch<br/>use_sim, robot_profile, scenario"]
-    idx --> gen["scenario generator<br/>(mujoco): one MJCF world"]
+    idx --> gen["scenario generator<br/>mujoco: one MJCF world<br/>isaac: stage objects"]
     gen --> desc
     idx --> sn["scenario node<br/>/sim/objects /sim/markers<br/>/sim/reset /sim/outcome"]
 ```
 
 What `run.launch.py` does, in order:
 
-1. On a backend with a scenario generator (mujoco), builds the robot's MJCF and
-   the scenario into one world, its objects spawned from `seed` (see
-   [Scenarios](#scenarios)). A backend without one runs the robot's own model and
-   refuses a scenario that has objects.
+1. On a backend with a scenario generator, spawns the scenario's objects from
+   `seed` into a generated world (see [Scenarios](#scenarios)): on mujoco the
+   robot's MJCF and the objects as one world; on isaac the scenario half of the
+   Isaac stage, which the backend launch completes. A backend without one runs
+   the robot's own model and refuses a scenario that has objects.
 2. Expands the robot's xacro with the robot's `description_args` and the backend's.
    The backend's args select its hardware plugin; `{mjcf_path}` (the generated
    world, or the robot's model from `fm_sim_models`) and `{controllers_file}` are
    filled in.
 3. Includes the backend launch with that description, the robot's controllers
-   file and the backend's optional `launch_args` (gazebo's run server-only).
+   file and the backend's optional `launch_args` (gazebo's run server-only). A
+   backend that finishes its own stage (`run.STAGE_BACKENDS`: isaac) also gets
+   the generated `world` and the robot's `cameras_file` (each empty without one),
+   and its `mesh_roots` resolved to share directories, as JSON.
 4. Spawns the robot's controllers. The `broadcasters` role and every role the
    controller entry `activate`s start active; the others load inactive, so a
    controller can switch to them.
@@ -69,7 +73,8 @@ A scenario entry is backend-neutral: objects, regions and a success predicate,
 with poses in the robot description's world frame (for OpenArm, the
 `fm_openarm_v2` profile's `base_frame`, `openarm_body_link0`). Each backend has a
 generator that turns robot model + scenario + seed into the world its engine
-loads; MuJoCo's is `fm_sim_scenarios.mujoco_world`. The scenario node is the
+loads; MuJoCo's is `fm_sim_scenarios.mujoco_world`, Isaac Sim's
+`fm_sim_scenarios.isaac_stage` (see the [Isaac backend](../fm_sim_backends/README.md#isaac-stage)). The scenario node is the
 same on every backend apart from how it reads and moves objects.
 
 ```mermaid
@@ -153,7 +158,7 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz` |
+| `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`) |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
 | `controllers` | `idle`, `teleop` | `activate`, `launch` |
 
@@ -179,10 +184,11 @@ robot profile describes either yet, so their `robot_profile` is `null`.
 | `so101` | `so101_arm_controller` | `so101_gripper_controller` |
 | `axol` | `axol_{left,right}_arm_controller` | none (the grippers are fixed) |
 
-Both also have `broadcasters: [joint_state_broadcaster]`. On Gazebo their meshes
-do not resolve yet (the SO-101 URDF's are relative, the Axol's
-`package://assembly/...`), so the arms load with no visual or collision geometry;
-the controllers still come up.
+Both also have `broadcasters: [joint_state_broadcaster]`. Their vendored URDFs
+name meshes no package resolves (the SO-101's relative `assets/`, the Axol's
+`package://assembly/`); each entry's `mesh_roots` maps that prefix to the
+directory in fm_description's share. Isaac's stage reads it; on Gazebo the arms
+still load with no visual or collision geometry, and the controllers come up.
 
 | Controller | Activates | Launch |
 |------------|-----------|--------|

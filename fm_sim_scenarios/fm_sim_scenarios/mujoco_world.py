@@ -97,7 +97,7 @@ def generate(robot_mjcf, mount_xyz, scenario, seed, model_name='fm_sim_world'):
 
 def write(robot_mjcf, mount_xyz, scenario, seed, out_dir):
     """Write ``generate(...)`` to ``out_dir/<scenario>_<seed>.xml`` and return the path."""
-    if not sc.FRAME_NAME.match(str(scenario['name'])):
+    if not sc.FRAME_NAME.fullmatch(str(scenario['name'])):
         raise sc.ScenarioError(f'scenario name {scenario["name"]!r} is not a valid name')
     path = os.path.join(out_dir, f'{scenario["name"]}_{sc.check_seed(seed)}.xml')
     text = generate(robot_mjcf, mount_xyz, scenario, seed, f'fm_sim_{scenario["name"]}')

@@ -9,12 +9,15 @@ import json
 import math
 
 from fm_sim_bringup import catalog
-from fm_sim_scenarios import mujoco_world, scenario as sc
+from fm_sim_scenarios import isaac_stage, mujoco_world, scenario as sc
 
 # Backend name -> the generator that builds its world from robot model + scenario +
 # seed. A backend absent here runs the robot's own model and takes only scenarios
 # without objects.
-WORLD_GENERATORS = {'mujoco': mujoco_world.write}
+WORLD_GENERATORS = {'mujoco': mujoco_world.write, 'isaac': isaac_stage.write}
+# Backends whose own launch finishes the generated world from the description
+# and the robot's cameras: they also get ``world`` and ``cameras_file``.
+STAGE_BACKENDS = ('isaac',)
 
 
 def description_args(backend, robot, mjcf_path, controllers_file):
@@ -118,6 +121,32 @@ def world_model(backend, robot, scenario, seed, robot_mjcf, out_dir):
         return None
     mount = robot.get('mjcf_mount_xyz', [0.0, 0.0, 0.0])
     return generator(robot_mjcf, mount, scenario, seed, out_dir)
+
+
+def mesh_roots(robot):
+    """Return the robot's ``mesh_roots`` as ``[[prefix, share directory]]``."""
+    return [[root['prefix'], catalog.share_file(root)] for root in robot.get('mesh_roots', [])]
+
+
+def backend_launch_arguments(backend, robot, robot_description, controllers_file, world):
+    """Return the backend launch's arguments.
+
+    Every backend gets its ``launch_args``, the description and the controllers
+    file; a ``STAGE_BACKENDS`` one also gets ``world`` (empty for none), the
+    robot's ``cameras_file`` (empty for none) and its ``mesh_roots`` as JSON.
+    """
+    arguments = {
+        **backend.get('launch_args', {}),
+        'robot_description': robot_description,
+        'controllers_file': controllers_file,
+    }
+    if backend['name'] in STAGE_BACKENDS:
+        arguments['world'] = world or ''
+        arguments['cameras_file'] = (
+            catalog.share_file(robot['cameras_file']) if 'cameras_file' in robot else ''
+        )
+        arguments['mesh_roots'] = json.dumps(mesh_roots(robot))
+    return arguments
 
 
 def scenario_node_parameters(backend, scenario, seed, timeout_s):

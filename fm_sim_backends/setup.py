@@ -16,6 +16,8 @@ setup(
             glob('launch/*.launch.py'),
         ),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
+        # Isaac Sim only: the stage runner, run with Isaac Sim's own Python.
+        ('share/' + package_name + '/isaac', glob('isaac/*.py')),
         # Catalog entries (see fm_sim_bringup.catalog): index markers + their yaml.
         (
             'share/ament_index/resource_index/fm_sim.backends',
@@ -31,6 +33,8 @@ setup(
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'camera_info = fm_sim_backends.camera_info:main',
+        ],
     },
 )

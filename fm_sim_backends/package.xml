@@ -24,6 +24,13 @@
   <exec_depend>gz_ros2_control</exec_depend>
   <!-- No Jazzy apt release; built from source via fm-sim.repos. -->
   <exec_depend>topic_based_ros2_control</exec_depend>
+  <!-- Isaac: the stage spec generator, and the camera relays. -->
+  <exec_depend>fm_sim_scenarios</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>compressed_image_transport</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

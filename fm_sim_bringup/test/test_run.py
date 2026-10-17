@@ -172,6 +172,67 @@ def test_mujoco_builds_the_openarm_world(tmp_path):
     assert f'<body name="can" pos="{x:.9g} {y:.9g} {z:.9g}"' in text
 
 
+def test_isaac_writes_the_scenario_half_of_its_stage(tmp_path):
+    entries = _entries('isaac', 'can_on_table')
+    world = run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 3, '/robot.xml',
+        str(tmp_path),
+    )
+    assert world == str(tmp_path / 'can_on_table_3.isaac.json')
+    with open(world) as world_file:
+        spec = json.load(world_file)
+    assert spec['seed'] == 3
+    (can,) = [o for o in spec['objects'] if o['name'] == 'can']
+    assert can['translate'] == list(sc.spawn_poses(entries['scenario'], 3)['can'][0])
+
+
+@pytest.mark.parametrize('backend', ['mujoco', 'gazebo'])
+def test_simulators_get_only_their_own_launch_arguments(backend):
+    entries = _entries(backend, 'can_on_table' if backend == 'mujoco' else 'empty')
+    arguments = run.backend_launch_arguments(
+        entries['backend'], entries['robot'], '<robot/>', '/c.yaml', '/w/world.xml'
+    )
+    assert arguments == {
+        **entries['backend'].get('launch_args', {}),
+        'robot_description': '<robot/>',
+        'controllers_file': '/c.yaml',
+    }
+
+
+def test_isaac_gets_the_world_and_the_robot_cameras():
+    entries = _entries('isaac', 'can_on_table')
+    arguments = run.backend_launch_arguments(
+        entries['backend'], entries['robot'], '<robot/>', '/c.yaml', '/w/stage.isaac.json'
+    )
+    assert arguments['world'] == '/w/stage.isaac.json'
+    assert arguments['cameras_file'] == catalog.share_file(entries['robot']['cameras_file'])
+    assert arguments['mesh_roots'] == '[]'
+    assert run.backend_launch_arguments(
+        entries['backend'], {'name': 'bare'}, '<robot/>', '/c.yaml', None
+    )['world'] == ''
+
+
+def test_mesh_roots_resolve_to_shares():
+    assert run.mesh_roots(catalog.load('robots', 'openarm')) == []
+    ((prefix, directory),) = run.mesh_roots(catalog.load('robots', 'axol'))
+    assert prefix == 'package://assembly/'
+    assert directory.endswith('/fm_description/axol_description')
+    ((prefix, directory),) = run.mesh_roots(catalog.load('robots', 'so101'))
+    assert prefix == 'assets/'
+    assert directory.endswith('/fm_description/so101_description/assets')
+    entries = _entries('isaac', 'empty')
+    entries['robot'] = catalog.load('robots', 'axol')
+    arguments = run.backend_launch_arguments(
+        entries['backend'], entries['robot'], '<robot/>', '/c.yaml', None
+    )
+    assert json.loads(arguments['mesh_roots']) == run.mesh_roots(entries['robot'])
+
+
+def test_openarm_cameras_file_is_shipped():
+    robot = catalog.load('robots', 'openarm')
+    assert os.path.isfile(catalog.share_file(robot['cameras_file']))
+
+
 def test_scenario_node_runs_only_with_objects():
     empty = _entries('mujoco', 'empty')
     assert run.scenario_node_parameters(empty['backend'], empty['scenario'], 0, 0.0) is None

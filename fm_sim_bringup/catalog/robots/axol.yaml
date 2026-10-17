@@ -10,6 +10,10 @@ description_file:
   path: urdf/axol.sim.urdf.xacro
 description_args: {}
 mjcf: axol
+# The vendored URDF keeps its upstream package://assembly/ mesh URIs; fm-robot
+# vendors those meshes into fm_description's axol_description.
+mesh_roots:
+  - {prefix: 'package://assembly/', package: fm_description, path: axol_description}
 controllers_file:
   package: fm_sim_bringup
   path: config/axol/axol.controllers.yaml
