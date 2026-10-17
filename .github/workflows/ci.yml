@@ -209,3 +209,24 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Validate
         run: infra/aws/sim/deploy.sh validate
+
+  # The sim agent and the `fm sim` CLI (agent/, a uv project outside colcon):
+  # the suite runs against a fake runner, a stand-in docker and in-process
+  # Zenoh peers on 127.0.0.1, so no router, Docker daemon or image is needed.
+  agent:
+    name: sim agent and fm sim cli
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+      - name: Test
+        run: uv run --locked --extra dev pytest
+      - name: Lint
+        run: |
+          uv run --locked --extra dev ruff check src tests
+          uv run --locked --extra dev ruff format --check src tests

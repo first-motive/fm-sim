@@ -119,6 +119,24 @@ class FakeRunner:
     def stop_recording(self, run_id: str) -> None:
         self.calls.append(("stop_recording", run_id))
 
+    def latch_each_episode(self, success_of=lambda _seed: True) -> None:
+        """Latch every run's own outcome: its scenario and seed, scored by ``success_of(seed)``.
+
+        The default ``outcome_value`` is one fixed episode (seed 7). A test that
+        runs other seeds, as a trial does, needs each run's own.
+        """
+
+        def outcome(run_id: str) -> dict:
+            self.calls.append(("outcome", run_id))
+            spec = next(call[2] for call in reversed(self.calls) if call[:2] == ("start", run_id))
+            won = success_of(spec["seed"])
+            return {
+                "scenario": spec["scenario"], "seed": spec["seed"], "success": won,
+                "reason": "placed" if won else "dropped", "elapsed_s": 1.0,
+            }  # fmt: skip
+
+        self.outcome = outcome
+
     def outcome(self, run_id: str) -> dict | None:
         self.calls.append(("outcome", run_id))
         if self.outcome_gate is not None:
