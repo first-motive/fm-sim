@@ -141,11 +141,12 @@ gets the `robot_description` argument, the mujoco and isaac
 `controller_manager` still get it as a parameter, and mujoco's also gets the
 plugins file. `test/test_description_topic.py`
 launches mujoco (under `xvfb-run`) and isaac live with the one-joint probe robots
-in `test/fixtures/`, waits for `/robot_description`, and after shutdown checks that
-no controller_manager is left running. `test/test_isaac.py` covers the stage
-wiring without Isaac Sim: the runner's pure helpers (schema check, the
-`og.Controller.edit` arguments, object command validation), the `camera_info` node live,
-the relays and runner command the launch starts, and the launch arguments. `test/conftest.py` gives the package's tests a
+in `test/fixtures/`, waits for `/robot_description` and for the controller_manager to
+finish initialising, and after shutdown checks that no controller_manager is left
+running. `test/test_isaac.py` covers the stage wiring without Isaac Sim: the runner's
+pure helpers (schema check, the `og.Controller.edit` arguments, object command
+validation), the `camera_info` node live, the relays and runner command the launch
+starts, and the launch arguments. `test/conftest.py` gives the package's tests a
 ROS domain of their own, so packages tested in parallel do not see each other's topics.
 
 ## Build Type
