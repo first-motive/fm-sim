@@ -211,6 +211,8 @@ class SimAgent:
         self.ready_poll_s = READY_POLL_S
         self.max_run_s = MAX_RUN_S
         self.min_free_bytes = MIN_FREE_BYTES
+        #: Whether other processes may hold runs under this agent's label (see ``recover``).
+        self.keep_foreign_runs = False
         self._lock = threading.Lock()
         self._catalog_flight = threading.Lock()
         self._state = "idle"
@@ -333,6 +335,27 @@ class SimAgent:
                 "catalog_unavailable", "the robot's catalog entry names no broadcasters"
             ) from None
 
+    def _foreign_run(self) -> str | None:
+        """A run another process on this machine holds under this runner's label, if any.
+
+        On a Mac the managed agent and an in-process ``fm sim up --host local``
+        share one Docker and one label, and would otherwise both start a run.
+        Asked outside the lock, so a slow ``docker ps`` never stalls ``status``.
+
+        tradeoff: a failed listing lets ``up`` go ahead rather than refusing
+        every run on a Docker hiccup; ``docker run`` then fails on its own if
+        the simulator's ports are taken. The check and the start are not
+        atomic: two processes that ask in the same moment can both start.
+        """
+        with self._lock:
+            own = self._run.run_id if self._run is not None else None
+        try:
+            live = self.runner.active_runs()
+        except RunnerError as exc:
+            log(f"could not list this label's runs: {exc}")
+            return None
+        return next((run_id for run_id in live if run_id != own), None)
+
     def up(self, body: dict) -> str:
         try:
             spec = parse_spec(body)
@@ -340,6 +363,9 @@ class SimAgent:
             raise VerbError("invalid_spec", str(exc)) from None
         broadcasters = self._resolve(spec)
         self._check_free_space()
+        foreign = self._foreign_run()
+        if foreign is not None:
+            raise VerbError("busy", f"run {foreign} is active on {self.host}, started by another process")
 
         started = utc_now()
         run = Run(run_id=run_id_of(spec, started), spec=spec, started_at=started, broadcasters=broadcasters)
@@ -465,14 +491,37 @@ class SimAgent:
         Run once at start, before serving. A container a dead agent started
         would otherwise hold the simulator while this agent reports idle, and a
         summary it never closed would read as a run still going.
+
+        With ``keep_foreign_runs`` (an agent whose label other processes share,
+        as this machine's managed agent shares ``local`` with the in-process
+        verbs) nothing is removed while a run is up under the label, since
+        that run may be another process's; a listing that fails removes
+        nothing either. tradeoff: a run left by a dead agent under a shared
+        label then stays until ``fm sim down --host local`` with no managed
+        agent running clears it.
         """
-        try:
-            removed = self.runner.stop_stale()
-        except RunnerError as exc:
+        held: list[str] = []
+        if self.keep_foreign_runs:
+            try:
+                held = self.runner.active_runs()
+            except RunnerError as exc:
+                log(f"could not list this label's runs, so none are cleared: {exc}")
+                return []
+        if held:
+            # Another process on this machine holds a run under the label:
+            # removing "stale" containers now would kill it mid-run.
+            log(f"leaving {', '.join(held)}: held by another process under this label")
             removed = []
-            log(f"could not clear stale runs: {exc}")
+        else:
+            try:
+                removed = self.runner.stop_stale()
+            except RunnerError as exc:
+                removed = []
+                log(f"could not clear stale runs: {exc}")
         now = iso(utc_now())
         for summary in self.store.unfinished():
+            if summary.get("run_id") in held:
+                continue  # its holder closes it
             summary["ended_at"] = now
             self.store.write(summary)
         return removed

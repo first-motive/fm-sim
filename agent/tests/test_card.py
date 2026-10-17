@@ -57,3 +57,43 @@ def test_linux_reads_the_card_under_etc(monkeypatch):
     monkeypatch.delenv("FM_MACHINE_FILE", raising=False)
     monkeypatch.setattr(card_module.platform, "system", lambda: "Linux")
     assert card_path() == Path("/etc/fm/machine.json")
+
+
+# -- this machine (what --host local serves as) -------------------------------
+
+
+def test_this_machine_is_the_cards_name(tmp_path):
+    path = card(tmp_path, name="nish-mbp")
+    assert card_module.this_machine_host(path, hostname=lambda: "ignored") == "nish_mbp"
+
+
+def test_with_no_card_this_machine_is_the_hostnames_first_label_lower_cased(tmp_path):
+    missing = tmp_path / "machine.json"
+    host = card_module.this_machine_host(missing, hostname=lambda: "Nishs-MacBook-Pro.local")
+    assert host == "nishs_macbook_pro"
+
+
+@pytest.mark.parametrize("hostname", ["", "fm*ws", "9lives", "a/b.local"])
+def test_a_hostname_that_is_not_a_key_segment_is_refused(tmp_path, hostname):
+    with pytest.raises(CardError):
+        card_module.this_machine_host(tmp_path / "machine.json", hostname=lambda: hostname)
+
+
+def test_an_unusable_card_is_refused_not_passed_over_for_the_hostname(tmp_path):
+    path = card(tmp_path, name="fm/*")
+    with pytest.raises(CardError):
+        card_module.this_machine_host(path, hostname=lambda: "fine")
+    path.write_text("not json")
+    with pytest.raises(CardError):
+        card_module.this_machine_host(path, hostname=lambda: "fine")
+
+
+def test_a_dangling_symlink_or_directory_card_is_refused_not_passed_over(tmp_path):
+    dangling = tmp_path / "machine.json"
+    dangling.symlink_to(tmp_path / "nowhere.json")
+    with pytest.raises(CardError):
+        card_module.this_machine_host(dangling, hostname=lambda: "fine")
+    directory = tmp_path / "dir.json"
+    directory.mkdir()
+    with pytest.raises(CardError):
+        card_module.this_machine_host(directory, hostname=lambda: "fine")

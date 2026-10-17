@@ -67,7 +67,11 @@ class FakeRunner:
         self.serves_reset = True
         #: Run ids Docker would list as live under this host's label.
         self.live: list[str] = []
-        self._logs: queue.Queue = queue.Queue()
+        #: One log stream per run, as Docker keeps one per container. A shared
+        #: stream let a stopped run's end-of-stream reach the next run's pump
+        #: when the first pump was slow to read it, ending the wrong run.
+        self._logs: dict[str, queue.Queue] = {}
+        self._streams_lock = threading.Lock()
 
     def _maybe_fail(self, name: str) -> None:
         if name in self.fail:
@@ -87,8 +91,9 @@ class FakeRunner:
         if self.start_gate is not None:
             self.start_gate.wait(5)
         self._maybe_fail("start")
+        stream = self._stream(run_id)
         for line in self.log_lines:
-            self._logs.put(line)
+            stream.put(line)
 
     def list_controllers(self, run_id: str) -> dict[str, str]:
         self.calls.append(("list_controllers", run_id))
@@ -143,24 +148,32 @@ class FakeRunner:
             self.outcome_gate.wait(5)
         return self.outcome_value
 
+    def _stream(self, run_id: str) -> queue.Queue:
+        with self._streams_lock:
+            return self._logs.setdefault(run_id, queue.Queue())
+
     def stop(self, run_id: str) -> None:
         self.calls.append(("stop", run_id))
         self.ready.set()
-        self.exit()
+        self.exit(run_id)
 
-    def exit(self) -> None:
-        """The container exits: the log stream ends."""
-        self._logs.put(_EXIT)
+    def exit(self, run_id: str | None = None) -> None:
+        """The container exits (by default the last one started): its log stream ends."""
+        if run_id is None:
+            run_id = next(call[1] for call in reversed(self.calls) if call[0] == "start")
+        self._stream(run_id).put(_EXIT)
 
     def logs(self, run_id: str):
         self._maybe_fail("logs")
+        stream = self._stream(run_id)
         while True:
-            line = self._logs.get()
+            line = stream.get()
             if line is _EXIT:
                 return
             yield line
 
     def active_runs(self) -> list[str]:
+        self._maybe_fail("active_runs")
         return list(self.live)
 
     def stop_stale(self) -> list[str]:
