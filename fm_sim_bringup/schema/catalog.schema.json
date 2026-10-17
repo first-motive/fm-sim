@@ -121,7 +121,7 @@
                 "items": {"type": "string", "minLength": 1}
               }
             },
-            "robot_profile": {"type": "string", "description": "Robot profile the controllers read joint, controller and frame names from."}
+            "robot_profile": {"type": ["string", "null"], "minLength": 1, "description": "Robot profile the controllers read joint, controller and frame names from; null for a robot no profile describes yet, which refuses a controller with a launch."}
           }
         }
       ]

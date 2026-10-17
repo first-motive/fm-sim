@@ -58,7 +58,8 @@ What `run.launch.py` does, in order:
    controller entry `activate`s start active; the others load inactive, so a
    controller can switch to them.
 5. Includes the controller entry's `launch`, if any, with `use_sim`,
-   `robot_profile` and `scenario`.
+   `robot_profile` and `scenario`. A robot whose `robot_profile` is `null` refuses
+   a controller with a `launch`, since that launch reads its names from the profile.
 6. For a scenario with objects, starts the scenario node (`fm_sim_scenarios`) with
    `use_sim_time`. `empty` has none, so it has no `/sim/reset` or `/sim/outcome`.
 
@@ -152,9 +153,9 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm` (`supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz` |
+| `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
-| `controllers` | `idle` | `activate`, `launch` |
+| `controllers` | `idle`, `teleop` | `activate`, `launch` |
 
 The OpenArm entry expands fm-robot's `fm_control/urdf/openarm.sim.urdf.xacro`
 (`default_bimanual`, `emit_grasp_frame:=true`) and owns the sim controllers file,
@@ -167,6 +168,26 @@ since fm-robot ships none. Its roles follow the `fm_openarm_v2` robot profile:
 | `arm_trajectory` | `openarm_{left,right}_arm_controller` (JTC) |
 | `arm_forward_position` | `openarm_{left,right}_forward_position_controller` |
 | `gripper` | `openarm_{left,right}_gripper_controller` (JTC) |
+
+The SO-101 and Axol entries expand fm-robot's `so101.sim.urdf.xacro` and
+`axol.sim.urdf.xacro` with no extra args, and own their controllers files under
+`config/so101/` and `config/axol/`, named as fm_ros2's `fm_bringup` names them. No
+robot profile describes either yet, so their `robot_profile` is `null`.
+
+| Robot | `arm_trajectory` | `gripper` |
+|-------|------------------|-----------|
+| `so101` | `so101_arm_controller` | `so101_gripper_controller` |
+| `axol` | `axol_{left,right}_arm_controller` | none (the grippers are fixed) |
+
+Both also have `broadcasters: [joint_state_broadcaster]`. On Gazebo their meshes
+do not resolve yet (the SO-101 URDF's are relative, the Axol's
+`package://assembly/...`), so the arms load with no visual or collision geometry;
+the controllers still come up.
+
+| Controller | Activates | Launch |
+|------------|-----------|--------|
+| `idle` | nothing beyond the broadcasters | none |
+| `teleop` | `arm_trajectory`, for an operator's teleop source such as fm-teleop's leader source, which runs outside this launch | none |
 
 ### `catalog`
 
@@ -184,14 +205,14 @@ is the contract for that output.
 
 | Test | Checks |
 |------|--------|
-| `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation, `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
-| `test_run.py` | Description args, active and inactive controller sets, unknown values, unsupported robot-backend pairs, `seed` and `timeout_s` parsing, the world per backend, when the scenario node runs |
+| `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation (`robot_profile` a name or `null`), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, when the scenario node runs |
 | `test_scenario_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`. Needs the `openarm_mujoco` external and `xvfb-run` |
-| `test_run_launch.py` | Live: `openarm` on `mujoco` and on `gazebo` (server-only), `empty`, `idle` — broadcaster active, the other six controllers inactive, both arms in one hardware component. Needs the `openarm_mujoco` external and `xvfb-run` |
+| `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition. Needs the MJCF and description externals, `topic_based_ros2_control` and `xvfb-run` |
 
 ## Build Type
 
 `ament_python`. One console script, `catalog`. fm-robot's `fm_control` is an exec
-dependency (the OpenArm xacro); `fm-sim.repos` builds it from source.
+dependency (the robot xacros); `fm-sim.repos` builds it from source.
 `fm_sim_scenarios` is one too: the catalog checks scenarios with it and
 `run.launch.py` generates worlds and starts its node.

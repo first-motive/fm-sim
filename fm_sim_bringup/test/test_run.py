@@ -59,11 +59,41 @@ def test_resolve_refuses_an_unknown_backend():
         run.resolve('bullet', 'openarm', 'empty', 'idle')
 
 
-def test_openarm_idle_loads_every_controller_once():
-    entries = run.resolve('mujoco', 'openarm', 'empty', 'idle')
+@pytest.mark.parametrize('robot,controllers', [('openarm', 6), ('so101', 2), ('axol', 2)])
+def test_idle_loads_every_controller_once(robot, controllers):
+    entries = run.resolve('mujoco', robot, 'empty', 'idle')
     active, inactive = run.controller_sets(entries['robot'], entries['controller'])
     assert active == ['joint_state_broadcaster']
-    assert len(inactive) == len(set(inactive)) == 6
+    assert len(inactive) == len(set(inactive)) == controllers
+
+
+@pytest.mark.parametrize('robot,arm_controllers', [
+    ('openarm', ['openarm_left_arm_controller', 'openarm_right_arm_controller']),
+    ('so101', ['so101_arm_controller']),
+    ('axol', ['axol_left_arm_controller', 'axol_right_arm_controller']),
+])
+def test_teleop_activates_the_arm_trajectory_controllers(robot, arm_controllers):
+    entries = run.resolve('mujoco', robot, 'empty', 'teleop')
+    active, inactive = run.controller_sets(entries['robot'], entries['controller'])
+    assert active == ['joint_state_broadcaster', *arm_controllers]
+    assert not set(active) & set(inactive)
+
+
+def test_resolve_refuses_a_launch_controller_on_a_robot_without_profile(monkeypatch):
+    load = catalog.require_available
+
+    def idle_with_a_launch(kind, name):
+        entry = load(kind, name)
+        if kind == 'controllers':
+            entry['launch'] = {'package': 'fake_pkg', 'path': 'launch/run.launch.py'}
+        return entry
+
+    monkeypatch.setattr(catalog, 'require_available', idle_with_a_launch)
+    with pytest.raises(
+        catalog.CatalogError, match="'idle' needs a robot profile; robot 'so101' has none"
+    ):
+        run.resolve('mujoco', 'so101', 'empty', 'idle')
+    assert run.resolve('mujoco', 'openarm', 'empty', 'idle')['robot']['robot_profile']
 
 
 def test_resolve_refuses_a_backend_the_robot_does_not_support(monkeypatch):
