@@ -36,6 +36,7 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
+from fm_sim_cameras import cameras_file
 from fm_sim_scenarios import scenario as sc
 
 STAGE_SCHEMA_VERSION = 1
@@ -91,8 +92,8 @@ CLIPPING_RANGE_M = (0.01, 100.0)
 # The optical frame (z forward, y down) to the USD camera (looks down -z, y up):
 # a half turn about x, as quaternion (w, x, y, z).
 OPTICAL_TO_USD_WXYZ = (0.0, 1.0, 0.0, 0.0)
-# camera_info distortion models and their coefficient counts.
-DISTORTION_MODELS = {'plumb_bob': 5, 'equidistant': 4}
+# The camera_info distortion models Isaac renders cameras for.
+DISTORTION_MODELS = ('plumb_bob', 'equidistant')
 
 # OmniGraph node types, Isaac Sim 4.5 names.
 NODE_TYPES = {
@@ -113,8 +114,6 @@ _PACKAGE_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
 # Where run.launch.py writes a run's generated world: write_stage writes beside
 # it only inside such a directory.
 WORLD_DIR_PREFIX = 'fm_sim_world_'
-# Rendered size above which a camera must opt in (allow_large_image: true).
-MAX_IMAGE_PIXELS = 1920 * 1080
 # How far beyond the scenario's objects and spawn ranges a teleport may land.
 WORKSPACE_MARGIN_M = 0.25
 _SHAPES = ('box', 'cylinder', 'sphere')
@@ -393,71 +392,33 @@ def camera_mount(robot, frame):
 
 
 def check_cameras(cameras):
-    """Check a robot's cameras file contents (``{'cameras': {role: camera}}``).
+    """Check a robot's cameras file contents (``{'cameras': {role: camera}}``) for Isaac.
 
-    A camera has ``frame`` (an optical frame of the description), ``rate_hz``
-    (dividing ``RENDER_HZ``), ``intrinsics`` (width, height, fx, fy, cx, cy,
-    distortion_model, distortion) and, to render more than 1920x1080 pixels,
-    ``allow_large_image: true``. Returns ``{role: camera}``.
+    The shared verdict is ``fm_sim_cameras.cameras_file.check`` (roles, frames,
+    rates, intrinsics, the image size cap). Isaac adds its own: ``rate_hz`` must
+    divide ``RENDER_HZ``, and the distortion model must be one of
+    ``DISTORTION_MODELS``. Returns ``{role: camera}`` as the shared check does.
     """
-    if not isinstance(cameras, dict) or not isinstance(cameras.get('cameras'), dict):
-        raise StageError("a cameras file is a mapping with a 'cameras' mapping")
-    checked = {}
-    for role, camera in cameras['cameras'].items():
-        if not sc.FRAME_NAME.fullmatch(str(role)):
-            raise StageError(f'camera role {role!r} is not a valid name')
-        frame = camera.get('frame', '')
-        if not sc.FRAME_NAME.fullmatch(str(frame)):
-            raise StageError(f'camera {role}: frame {frame!r} is not a frame name')
-        rate = camera.get('rate_hz')
-        if not _positive(rate) or rate > RENDER_HZ or not math.isclose(
+    try:
+        checked = cameras_file.check(cameras)
+    except cameras_file.CameraError as error:
+        raise StageError(str(error)) from error
+    for role, camera in checked.items():
+        rate = camera['rate_hz']
+        if rate > RENDER_HZ or not math.isclose(
             RENDER_HZ / rate, round(RENDER_HZ / rate), abs_tol=1e-6
         ):
             raise StageError(
                 f'camera {role}: rate_hz must divide the {RENDER_HZ} Hz render rate '
                 f'(e.g. 60, 30, 15, 10), got {rate!r}'
             )
-        intrinsics = camera.get('intrinsics') or {}
-        for key in ('width', 'height'):
-            value = intrinsics.get(key)
-            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-                raise StageError(f'camera {role}: {key} must be a positive integer, got {value!r}')
-        for key in ('fx', 'fy', 'cx', 'cy'):
-            if not _positive(intrinsics.get(key)):
-                raise StageError(
-                    f'camera {role}: {key} must be a positive number, got {intrinsics.get(key)!r}'
-                )
-        pixels = intrinsics['width'] * intrinsics['height']
-        if pixels > MAX_IMAGE_PIXELS and camera.get('allow_large_image') is not True:
-            raise StageError(
-                f'camera {role}: {intrinsics["width"]}x{intrinsics["height"]} is above '
-                f'{MAX_IMAGE_PIXELS} pixels; set allow_large_image: true to render it'
-            )
-        model = intrinsics.get('distortion_model')
+        model = camera['intrinsics']['distortion_model']
         if model not in DISTORTION_MODELS:
             raise StageError(
-                f'camera {role}: unknown distortion_model {model!r}; models: '
-                f'{", ".join(sorted(DISTORTION_MODELS))}'
+                f'camera {role}: Isaac cannot render distortion_model {model!r}; '
+                f'models: {", ".join(DISTORTION_MODELS)}'
             )
-        distortion = intrinsics.get('distortion')
-        if (
-            not isinstance(distortion, list) or len(distortion) != DISTORTION_MODELS[model]
-            or not all(_finite(d) for d in distortion)
-        ):
-            raise StageError(
-                f'camera {role}: {model} takes {DISTORTION_MODELS[model]} finite '
-                f'distortion coefficients, got {distortion!r}'
-            )
-        checked[role] = camera
     return checked
-
-
-def _finite(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
-def _positive(value):
-    return _finite(value) and value > 0
 
 
 def usd_lens(intrinsics):

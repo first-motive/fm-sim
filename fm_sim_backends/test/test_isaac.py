@@ -15,6 +15,7 @@ import time
 import types
 
 from fm_sim_backends import camera_info, isaac
+from fm_sim_cameras import cameras_file
 from fm_sim_scenarios import isaac_stage
 from launch import LaunchContext
 from launch.actions import ExecuteProcess, LogInfo
@@ -204,14 +205,6 @@ def test_a_teleport_that_raises_is_logged_and_the_rest_still_move():
 # --- camera_info node ---------------------------------------------------------
 
 
-def test_camera_info_carries_the_intrinsics():
-    info = camera_info.camera_info(INTRINSICS)
-    assert (info.width, info.height, info.distortion_model) == (4, 2, 'equidistant')
-    assert list(info.k) == [500.0, 0.0, 2.0, 0.0, 510.0, 1.0, 0.0, 0.0, 1.0]
-    assert list(info.p)[:3] == [500.0, 0.0, 2.0]
-    assert list(info.d) == INTRINSICS['distortion']
-
-
 def test_camera_info_node_answers_each_image_of_the_calibrated_size():
     rclpy.init()
     try:
@@ -302,7 +295,7 @@ def test_stage_with_cameras_starts_the_relays_and_logs_the_runner(tmp_path, monk
     assert info['executable'] == 'camera_info'
     # Host-local discovery, like the runner.
     assert republish['additional_env'] == info['additional_env'] == isaac.RUNNER_ENV
-    assert json.loads(info['parameters'][0]['cameras']) == CAMERAS
+    assert json.loads(info['parameters'][0]['cameras']) == cameras_file.check({'cameras': CAMERAS})
     (notice,) = actions[2:]
     assert isinstance(notice, LogInfo)
     text = ''.join(part.text for part in notice.msg)
