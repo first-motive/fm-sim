@@ -1,0 +1,16 @@
+# mujoco_ros2_control plugins the mujoco backend always loads. The hardware
+# interface creates its own node, mujoco_ros2_control_node, and reads
+# mujoco_plugins from it; this file reaches that node through the
+# ros2_control_node process's --params-file.
+mujoco_ros2_control_node:
+  ros__parameters:
+    mujoco_plugins:
+      # Every free-joint body (a scenario's loose objects) in the world frame, for
+      # fm_sim_scenarios' scenario node to republish as /sim/objects. A world with
+      # no free bodies publishes empty arrays. frame_id and body_names keep their
+      # defaults (the MuJoCo world, stamped as frame_id '' by 0.1.2; every free
+      # body): an empty yaml list has no type, and the plugin refuses it.
+      object_poses:
+        type: mujoco_ros2_control_plugins/FreeJointStatePublisherPlugin
+        topic: /mujoco/free_joint_states
+        publish_rate: 30.0  # Hz of sim time; /sim/objects needs >= 10 Hz (wall time too, at real time)

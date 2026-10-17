@@ -1,10 +1,20 @@
 """Turn four catalog choices into what run.launch.py starts.
 
 Kept apart from the launch file so the rules (description args, which controllers
-start active) unit-test without a launch context, an engine or fm-robot.
+start active, the scenario world) unit-test without a launch context, an engine or
+fm-robot.
 """
 
+import json
+import math
+
 from fm_sim_bringup import catalog
+from fm_sim_scenarios import mujoco_world, scenario as sc
+
+# Backend name -> the generator that builds its world from robot model + scenario +
+# seed. A backend absent here runs the robot's own model and takes only scenarios
+# without objects.
+WORLD_GENERATORS = {'mujoco': mujoco_world.write}
 
 
 def description_args(backend, robot, mjcf_path, controllers_file):
@@ -64,3 +74,63 @@ def resolve(backend, robot, scenario, controller):
             f'controller {controller!r} needs a robot profile; robot {robot!r} has none yet'
         )
     return entries
+
+
+def parse_seed(text):
+    """Return the ``seed`` launch argument as an int, refusing anything not uint32."""
+    try:
+        return sc.check_seed(int(text))
+    except (ValueError, sc.ScenarioError) as error:
+        raise catalog.CatalogError(
+            f'seed must be an integer in [0, {sc.SEED_MAX}], got {text!r}'
+        ) from error
+
+
+def parse_timeout(text):
+    """Return the ``timeout_s`` launch argument: 0.0 when empty (the scenario's own).
+
+    Anything else must be a finite positive number.
+    """
+    if text == '':
+        return 0.0
+    try:
+        value = float(text)
+    except ValueError:
+        value = -1.0
+    if not (value > 0.0 and math.isfinite(value)):
+        raise catalog.CatalogError(f'timeout_s must be empty or a positive number, got {text!r}')
+    return value
+
+
+def world_model(backend, robot, scenario, seed, robot_mjcf, out_dir):
+    """Return the generated world for ``backend``, or None to run the robot's model.
+
+    The world is written to ``out_dir``, which the caller owns and removes.
+    Refuses a scenario with objects on a backend that has no generator yet.
+    """
+    generator = WORLD_GENERATORS.get(backend['name'])
+    if generator is None:
+        if scenario['objects']:
+            raise catalog.CatalogError(
+                f'scenario {scenario["name"]!r} has objects, and backend {backend["name"]!r} '
+                f'has no scenario generator yet; generators: {", ".join(sorted(WORLD_GENERATORS))}'
+            )
+        return None
+    mount = robot.get('mjcf_mount_xyz', [0.0, 0.0, 0.0])
+    return generator(robot_mjcf, mount, scenario, seed, out_dir)
+
+
+def scenario_node_parameters(backend, scenario, seed, timeout_s):
+    """Return the scenario node's parameters, or None when the scenario needs none.
+
+    A scenario without objects has nothing to publish, reset or judge.
+    """
+    if not scenario['objects']:
+        return None
+    return {
+        'scenario': json.dumps(scenario, sort_keys=True),
+        'seed': seed,
+        'backend': backend['name'],
+        'timeout_s': timeout_s,
+        'use_sim_time': True,
+    }

@@ -34,6 +34,35 @@
       "type": "object",
       "additionalProperties": {"type": "string"}
     },
+    "frame_name": {
+      "description": "A name that becomes an MJCF body, a marker or a frame.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "vector3": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+    "rgba": {
+      "type": "array",
+      "items": {"type": "number", "minimum": 0, "maximum": 1},
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "range": {
+      "description": "[low, high] with low <= high (checked on load).",
+      "type": "array",
+      "items": {"type": "number"},
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "pose": {
+      "description": "A pose in the world frame: position (m) and fixed-axis roll, pitch, yaw (rad).",
+      "type": "object",
+      "required": ["xyz"],
+      "additionalProperties": false,
+      "properties": {
+        "xyz": {"$ref": "#/definitions/vector3"},
+        "rpy": {"$ref": "#/definitions/vector3"}
+      }
+    },
     "entry": {
       "type": "object",
       "required": ["name", "package", "description", "available"],
@@ -78,6 +107,10 @@
             "description_file": {"$ref": "#/definitions/share_file"},
             "description_args": {"$ref": "#/definitions/string_map"},
             "mjcf": {"type": "string", "description": "fm_sim_models registry key of the MuJoCo model."},
+            "mjcf_mount_xyz": {
+              "$ref": "#/definitions/vector3",
+              "description": "Where the MJCF model's origin sits in the description's root frame. The MuJoCo generator mounts the model there, so the MuJoCo world and the description's world coincide. Default [0, 0, 0]."
+            },
             "controllers_file": {"$ref": "#/definitions/share_file"},
             "controller_roles": {
               "description": "Controller names by role. broadcasters always start active; a controller entry activates other roles, and the rest load inactive.",
@@ -99,10 +132,98 @@
         {
           "required": ["objects"],
           "properties": {
-            "objects": {"type": "array", "description": "Objects placed in the scene; the schema for each lands with the scenario generators."}
+            "objects": {
+              "type": "array",
+              "items": {"$ref": "#/definitions/scenario_object"},
+              "description": "Objects in the scene. Object and region names are unique (checked on load)."
+            },
+            "regions": {"type": "array", "items": {"$ref": "#/definitions/region"}},
+            "success": {"$ref": "#/definitions/success"}
           }
         }
       ]
+    },
+    "scenario_object": {
+      "type": "object",
+      "required": ["name", "shape", "size", "friction", "color", "pose"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/definitions/frame_name"},
+        "shape": {"enum": ["box", "cylinder", "sphere"]},
+        "size": {
+          "description": "box: full x, y, z extents; cylinder: radius, height; sphere: radius (m).",
+          "type": "array",
+          "items": {"type": "number", "exclusiveMinimum": 0}
+        },
+        "static": {"type": "boolean", "description": "Fixed to the world: no free joint, never respawned. Default false."},
+        "mass": {"type": "number", "exclusiveMinimum": 0, "description": "kg; required unless static."},
+        "friction": {"type": "number", "exclusiveMinimum": 0, "description": "Sliding friction coefficient."},
+        "color": {"$ref": "#/definitions/rgba"},
+        "pose": {"$ref": "#/definitions/pose"},
+        "spawn": {
+          "description": "Seeded uniform offsets added to pose at every spawn (m, and rad for yaw). Not for a static object.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "x": {"$ref": "#/definitions/range"},
+            "y": {"$ref": "#/definitions/range"},
+            "z": {"$ref": "#/definitions/range"},
+            "yaw": {"$ref": "#/definitions/range"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"shape": {"const": "box"}}},
+          "then": {"properties": {"size": {"minItems": 3, "maxItems": 3}}}
+        },
+        {
+          "if": {"properties": {"shape": {"const": "cylinder"}}},
+          "then": {"properties": {"size": {"minItems": 2, "maxItems": 2}}}
+        },
+        {
+          "if": {"properties": {"shape": {"const": "sphere"}}},
+          "then": {"properties": {"size": {"minItems": 1, "maxItems": 1}}}
+        },
+        {
+          "if": {"required": ["static"], "properties": {"static": {"const": true}}},
+          "then": {"not": {"required": ["spawn"]}},
+          "else": {"required": ["mass"]}
+        }
+      ]
+    },
+    "region": {
+      "description": "A box volume in the world frame, drawn as a marker; never a body in the sim.",
+      "type": "object",
+      "required": ["name", "size", "pose", "color"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/definitions/frame_name"},
+        "size": {
+          "description": "Full x, y, z extents (m).",
+          "type": "array",
+          "items": {"type": "number", "exclusiveMinimum": 0},
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "pose": {"$ref": "#/definitions/pose"},
+        "color": {"$ref": "#/definitions/rgba"}
+      }
+    },
+    "success": {
+      "description": "object_in_region: the object's origin stays inside the region, grown by tolerance on every side, for hold_s seconds; the episode fails at timeout_s.",
+      "type": "object",
+      "required": ["type", "object", "region", "tolerance", "hold_s", "timeout_s"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["object_in_region"]},
+        "object": {"$ref": "#/definitions/frame_name"},
+        "region": {"$ref": "#/definitions/frame_name"},
+        "tolerance": {"type": "number", "minimum": 0, "description": "m"},
+        "hold_s": {"type": "number", "minimum": 0},
+        "timeout_s": {"type": "number", "exclusiveMinimum": 0}
+      }
     },
     "controller": {
       "allOf": [

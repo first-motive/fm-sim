@@ -21,16 +21,21 @@ system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 | `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `axol`'s committed MJCF resolves from this package's share |
 | `fm_sim_ee_follower` | ament_python | `ee_follower` node: damped-least-squares IK from `/commanded_ee_right` to the right arm's forward position controller, standing in for the loader's IK; ROS-free DLS core |
 | `fm_sim_bringup` | ament_python | `run.launch.py` and the catalog of backends, robots, scenarios and controllers, resolved from the ament index |
+| `fm_sim_scenarios` | ament_python | Backend-neutral scenario logic (seeded spawns, success predicate), the per-backend world generators (MuJoCo today) and the scenario node serving `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
+| `fm_sim_msgs` | ament_cmake | The scenario interfaces: `ObjectState(s)`, `Outcome`, `Reset` |
+| `fm_sim` | ament_cmake (meta) | Metapackage tying the seven together for a single install |
 
 ## Run Contract
 
 `fm_sim_bringup/run.launch.py` takes four names, `backend`, `robot`, `scenario` and
-`controller`, plus `use_sim`. Each is an entry in an ament resource type
+`controller`, plus `use_sim`, `seed` and `timeout_s`. Each is an entry in an ament resource type
 (`fm_sim.backends`, `fm_sim.robots`, `fm_sim.scenarios`, `fm_sim.controllers`)
 whose content points at the entry's yaml, so any package registers an entry by
 installing two files. The launch validates all four, expands the robot's fm-robot
 xacro with the backend's args, includes the backend host, spawns the robot's
-controllers by role, and includes the controller's own launch.
+controllers by role, and includes the controller's own launch. On MuJoCo it first
+builds the scenario into one world with the robot, and a scenario with objects
+adds the scenario node; see [Scenarios](../fm_sim_bringup/README.md#scenarios).
 
 ![run](diagrams/run.svg)
 
@@ -43,7 +48,6 @@ fm-robot is built from source (pinned in `fm-sim.repos`) because it publishes no
 Jazzy image. Its `fm_control` needs moveit_servo and the Unitree messages: rosdep
 installing MoveIt is most of the cost, while building fm-robot and its two
 externals takes seconds.
-| `fm_sim` | ament_cmake (meta) | Metapackage tying the four together for a single install |
 
 ## Backend Hosts
 

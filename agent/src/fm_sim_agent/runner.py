@@ -150,7 +150,11 @@ class Runner(Protocol):
         """Stop the recorder and let it finish the file."""
 
     def outcome(self, run_id: str) -> dict | None:
-        """The latched ``/sim/outcome``, or ``None`` if none has been published."""
+        """The latched ``/sim/outcome``, or ``None`` if none has been published.
+
+        It is the latest episode's verdict, whichever seed that episode ran
+        under: ``scenario`` and ``seed`` say which, for the caller to match.
+        """
 
     def stop(self, run_id: str) -> None:
         """Stop the run and remove what it left. Stopping a stopped run is not an error."""
@@ -163,7 +167,7 @@ class Runner(Protocol):
 
 
 def parse_outcome(text: str) -> dict | None:
-    """The fields RunSummary keeps from one ``ros2 topic echo`` of Outcome."""
+    """``scenario``, ``seed`` and the verdict from one ``ros2 topic echo`` of Outcome."""
     try:
         documents = [doc for doc in yaml.safe_load_all(text) if isinstance(doc, dict)]
     except yaml.YAMLError:
@@ -176,7 +180,16 @@ def parse_outcome(text: str) -> dict | None:
         return None
     if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)):
         return None
-    return {"success": success, "reason": reason, "elapsed_s": float(elapsed)}
+    scenario, seed = message.get("scenario"), message.get("seed")
+    if not isinstance(scenario, str) or isinstance(seed, bool) or not isinstance(seed, int):
+        return None
+    return {
+        "scenario": scenario,
+        "seed": seed,
+        "success": success,
+        "reason": reason,
+        "elapsed_s": float(elapsed),
+    }
 
 
 def parse_reset(text: str) -> tuple[bool, str]:

@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fm_sim_scenarios</name>
+  <version>0.0.0</version>
+  <description>Backend-neutral sim scenarios: seeded spawns, the success predicate, the MuJoCo world generator and the scenario node (/sim/objects, /sim/markers, /sim/reset, /sim/outcome)</description>
+  <maintainer email="nish@ubundi.co.za">First Motive</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>fm_sim_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <!-- The MuJoCo backend: free-joint poses and the respawn service. -->
+  <exec_depend>mujoco_ros2_control_msgs</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <!-- conftest reads the shipped can_on_table entry from fm_sim_bringup's source tree. -->
+  <test_depend>python3-yaml</test_depend>
+  <!-- compile, from the MuJoCo build mujoco_ros2_control loads, checks generated worlds. -->
+  <test_depend>mujoco_vendor</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

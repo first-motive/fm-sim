@@ -19,15 +19,15 @@ PLACEHOLDER = {
 
 @pytest.fixture
 def extra_prefix(tmp_path, monkeypatch):
-    """Return a function that registers a controller entry in a throwaway prefix."""
+    """Return a function that registers an entry (default: a controller) in a temp prefix."""
     monkeypatch.setenv(
         'AMENT_PREFIX_PATH', f'{tmp_path}{os.pathsep}{os.environ["AMENT_PREFIX_PATH"]}'
     )
 
-    def register(name, entry, marker_content=None):
-        marker = tmp_path / 'share/ament_index/resource_index/fm_sim.controllers' / name
+    def register(name, entry, marker_content=None, kind='controllers'):
+        marker = tmp_path / f'share/ament_index/resource_index/fm_sim.{kind}' / name
         marker.parent.mkdir(parents=True, exist_ok=True)
-        relative = f'fake_pkg/catalog/controllers/{name}.yaml'
+        relative = f'fake_pkg/catalog/{kind}/{name}.yaml'
         marker.write_text((marker_content or relative) + '\n')
         entry_file = tmp_path / 'share' / relative
         entry_file.parent.mkdir(parents=True, exist_ok=True)
@@ -44,7 +44,7 @@ def test_schema_is_valid_json_schema():
 def test_registered_entries():
     assert {'mujoco', 'gazebo', 'isaac'} <= set(catalog.names('backends'))
     assert {'openarm', 'so101', 'axol'} <= set(catalog.names('robots'))
-    assert 'empty' in catalog.names('scenarios')
+    assert {'empty', 'can_on_table'} <= set(catalog.names('scenarios'))
     assert {'idle', 'teleop'} <= set(catalog.names('controllers'))
 
 
@@ -119,6 +119,43 @@ def test_schema_rejects_escaping_paths(path):
         jsonschema.validate(
             {'package': 'p', 'path': path}, {**schema, '$ref': '#/definitions/share_file'}
         )
+
+
+def _can_on_table():
+    return catalog.load('scenarios', 'can_on_table')
+
+
+def test_can_on_table_uses_fm_skills_geometry():
+    entry = _can_on_table()
+    objects = {obj['name']: obj for obj in entry['objects']}
+    table, paper, can = objects['table'], objects['paper'], objects['can']
+    # specs.yaml: table_z 0.207, can 0.033 x 0.135, A4 paper.
+    assert table['pose']['xyz'][2] + table['size'][2] / 2 == pytest.approx(0.207)
+    assert can['size'] == [0.033, 0.135]
+    assert paper['size'][:2] == [0.297, 0.210]
+    assert entry['success']['object'] == 'can'
+    (target,) = entry['regions']
+    assert target['pose']['xyz'][:2] == paper['pose']['xyz'][:2]
+
+
+@pytest.mark.parametrize('change, match', [
+    (lambda s: s['objects'][2].update(size=[0.033]), 'is too short'),
+    (lambda s: s['objects'][0].update(spawn={'x': [0.0, 0.1]}), 'should not be valid'),
+    (lambda s: s['objects'][2].pop('mass'), "'mass' is a required property"),
+    (lambda s: s['objects'][2].update(shape='mesh'), "'mesh' is not one of"),
+    (lambda s: s['objects'][2].update(name='../can'), 'does not match'),
+    (lambda s: s['objects'][2]['spawn'].update(roll=[0.0, 0.1]), 'Additional properties'),
+    (lambda s: s['success'].update(type='upright'), "'upright' is not one of"),
+    (lambda s: s['success'].update(region='shelf'), "success region 'shelf'"),
+])
+def test_malformed_scenario_is_rejected(extra_prefix, change, match):
+    entry = _can_on_table()
+    del entry['package']
+    entry['name'] = 'broken'
+    change(entry)
+    extra_prefix('broken', entry, kind='scenarios')
+    with pytest.raises(catalog.CatalogError, match=match):
+        catalog.load('scenarios', 'broken')
 
 
 @pytest.mark.parametrize('profile,valid', [('fm_openarm_v2', True), (None, True), ('', False)])

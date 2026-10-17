@@ -1,4 +1,5 @@
-# Catalog entry (fm_sim.scenarios): the robot alone in each backend's default world.
+# Catalog entry (fm_sim.scenarios): the robot alone. No objects, so no scenario node
+# runs and there is no /sim/reset or /sim/outcome.
 name: empty
 description: The robot alone, no objects
 available: true

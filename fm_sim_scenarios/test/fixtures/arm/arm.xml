@@ -1,0 +1,19 @@
+<!-- A one-joint arm whose mesh sits under a relative meshdir, as the vendored
+     robot models do: the generated world must still resolve it from elsewhere. -->
+<mujoco model="probe_arm">
+  <compiler angle="radian" meshdir="assets"/>
+  <asset>
+    <mesh name="link" file="tetra.obj"/>
+  </asset>
+  <worldbody>
+    <body name="arm_base">
+      <body name="arm_link" pos="0 0 0.05">
+        <joint name="arm_joint" type="hinge" axis="0 0 1" range="-1.5 1.5"/>
+        <geom name="arm_link" type="mesh" mesh="link" mass="0.1"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="arm_joint_ctrl" joint="arm_joint" kp="10"/>
+  </actuator>
+</mujoco>

@@ -1,6 +1,11 @@
 """The rules run.launch.py applies to the four catalog entries."""
 
+import json
+import os
+
 from fm_sim_bringup import catalog, run
+from fm_sim_models.models import mjcf_path
+from fm_sim_scenarios import scenario as sc
 import pytest
 
 ROBOT = {
@@ -105,3 +110,75 @@ def test_resolve_refuses_a_backend_the_robot_does_not_support(monkeypatch):
         catalog.CatalogError, match="not supported on backend 'gazebo' yet; supported: mujoco$"
     ):
         run.resolve('gazebo', 'openarm', 'empty', 'idle')
+
+
+@pytest.mark.parametrize('text, seed', [('0', 0), ('42', 42), ('4294967295', 2 ** 32 - 1)])
+def test_seed_parses(text, seed):
+    assert run.parse_seed(text) == seed
+
+
+@pytest.mark.parametrize('text', ['', '-1', '4294967296', '1.5', 'x'])
+def test_seed_refuses_non_uint32(text):
+    with pytest.raises(catalog.CatalogError, match='seed must be an integer'):
+        run.parse_seed(text)
+
+
+def test_timeout_empty_keeps_the_scenario_one():
+    assert run.parse_timeout('') == 0.0
+    assert run.parse_timeout('12.5') == 12.5
+
+
+@pytest.mark.parametrize('text', ['0', '-3', 'x', 'nan', 'inf', '1e400'])
+def test_timeout_refuses_non_positive(text):
+    with pytest.raises(catalog.CatalogError, match='timeout_s'):
+        run.parse_timeout(text)
+
+
+def _entries(backend, scenario):
+    return run.resolve(backend, 'openarm', scenario, 'idle')
+
+
+def test_backend_without_generator_runs_the_robot_model_for_empty():
+    entries = _entries('gazebo', 'empty')
+    world = run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 0, '/robot.xml', '/unused'
+    )
+    assert world is None
+
+
+def test_backend_without_generator_refuses_objects():
+    entries = _entries('gazebo', 'can_on_table')
+    with pytest.raises(catalog.CatalogError, match="backend 'gazebo' has no scenario generator"):
+        run.world_model(
+            entries['backend'], entries['robot'], entries['scenario'], 0, '/robot.xml', '/unused'
+        )
+
+
+@pytest.mark.skipif(
+    not os.path.isfile(mjcf_path('openarm')), reason='openarm_mujoco external (vcs import)'
+)
+def test_mujoco_builds_the_openarm_world(tmp_path):
+    entries = _entries('mujoco', 'can_on_table')
+    world = run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 3, mjcf_path('openarm'),
+        str(tmp_path),
+    )
+    assert world == str(tmp_path / 'can_on_table_3.xml')
+    with open(world) as world_file:
+        text = world_file.read()
+    assert f'file="{mjcf_path("openarm")}"' in text
+    assert '<frame name="robot_mount" pos="0 0 0.698">' in text
+    (x, y, z), _ = sc.spawn_poses(entries['scenario'], 3)['can']
+    assert f'<body name="can" pos="{x:.9g} {y:.9g} {z:.9g}"' in text
+
+
+def test_scenario_node_runs_only_with_objects():
+    empty = _entries('mujoco', 'empty')
+    assert run.scenario_node_parameters(empty['backend'], empty['scenario'], 0, 0.0) is None
+    entries = _entries('mujoco', 'can_on_table')
+    parameters = run.scenario_node_parameters(entries['backend'], entries['scenario'], 7, 30.0)
+    assert parameters['backend'] == 'mujoco'
+    assert parameters['seed'] == 7
+    assert parameters['timeout_s'] == 30.0
+    assert parameters['use_sim_time'] is True
+    assert json.loads(parameters['scenario']) == entries['scenario']
