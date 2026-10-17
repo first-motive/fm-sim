@@ -11,7 +11,7 @@ in the catalog ([`fm_sim_bringup`](../fm_sim_bringup/README.md#scenarios)).
 | Module | Role |
 |--------|------|
 | `scenario` | ROS-free: `check` (finite numbers, unique names, spawn ranges, success references), `spawn_poses(scenario, seed)` (offsets drawn objects in yaml order, in x, y, z, yaw order per object), `static_poses`, `in_region`, and `EpisodeMonitor`, which judges the `object_in_region` predicate one episode at a time |
-| `mujoco_world` | `generate` / `write`: robot MJCF + scenario + seed → one MJCF world, the robot attached at its mount, static objects as world geoms, the others as free bodies |
+| `mujoco_world` | `generate` / `write`: robot MJCF + scenario + seed (+ cameras) → one MJCF world, the robot attached at its mount, static objects as world geoms, the others as free bodies. A world camera goes in the world; cameras on robot bodies go into a copy of the robot model written beside the world, which drops the model's own cameras and makes its asset directories absolute (a model with `<include>` is refused) |
 | `isaac_stage` | Isaac Sim 4.5 generator, pure Python: `write` (scenario + seed → the stage's objects with mass, friction and seeded spawn; `WORLD_GENERATORS['isaac']`) and `write_stage` (+ robot URDF, cameras → `stage.json` with the URDF import settings, cameras on their optical frames with USD lenses from the real intrinsics, and the ROS 2 bridge OmniGraph). `fm_sim_backends/isaac/fm_sim_isaac.py` replays it inside Isaac Sim |
 | `isaac_objects` | The scenario node's Isaac backend: poses from `/isaac/object_poses` (tf2_msgs/TFMessage from the bridge graph), teleports on `/isaac/object_pose_commands`, acknowledged once a pose update stamped strictly after the command puts every object within 5 mm of its target |
 | `scenario_node` | The `scenario_node` executable: `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
@@ -43,7 +43,8 @@ any other frame is skipped and logged. A reset the engine refuses, or that
 raises, answers `ok: false` and keeps the old seed and episode.
 
 A backend joins by adding a class to `scenario_node.BACKENDS` (subscribe to its
-poses, move objects) and a generator to `fm_sim_bringup.run.WORLD_GENERATORS`.
+poses, move objects) and a generator module (`world_path`, `body_names`, `write`)
+to `fm_sim_bringup.run.WORLD_GENERATORS`.
 
 ## Tests
 
@@ -52,7 +53,7 @@ The fixture is the `can_on_table` entry `fm_sim_bringup` ships, read from the so
 | Test | Checks |
 |------|--------|
 | `test_scenario.py` | Seeded spawns (deterministic, in range, uint32 seeds), `check` failures, quaternions, `in_region` with tolerance and yaw, the monitor's hold, timeout and one verdict per episode |
-| `test_mujoco_world.py` | Same bytes per seed; the world compiles with mujoco_vendor's `compile` (the engine mujoco_ros2_control runs); with the mujoco Python binding, the robot mounted unchanged, objects at their spawn, contact parameters, and objects settling on the table. The binding tests skip when the wheel (`requirements-sim.txt`) is absent |
+| `test_mujoco_world.py` | Same bytes per seed; cameras in the world and the robot copy (own camera dropped, meshdir absolute, missing body and `<include>` refused), compiled by the engine build and, with the binding, looking along their optical axes as the link turns; the world compiles with mujoco_vendor's `compile` (the engine mujoco_ros2_control runs); with the mujoco Python binding, the robot mounted unchanged, objects at their spawn, contact parameters, and objects settling on the table. The binding tests skip when the wheel (`requirements-sim.txt`) is absent |
 | `test_isaac_stage.py` | Isaac stage: seeded object specs and physics, package URI resolution, joint topics read from the description, camera mounts through fixed joints, USD lens round trip, camera file checks, a bridge graph that wires only nodes it creates and carries the contract topics; with fm_control installed, the real OpenArm description and the shipped cameras file |
 | `test_isaac_objects.py` | The node on `backend: isaac` against a fake stage: poses reach `/sim/objects`, a reset teleports through the command topic, a stage that never moves, no stage listening, a non-world frame, and a stale pose not acknowledging a move |
 | `test_scenario_node.py` | The node on a fake backend: topic contents, a slow reset that does not stall `/sim/objects`, the latched outcome per episode and seed, success, a failed or raising reset keeping the old seed, non-finite poses left out, the MuJoCo adapter's world-frame guard |

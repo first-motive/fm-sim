@@ -128,7 +128,7 @@
             "controllers_file": {"$ref": "#/definitions/share_file"},
             "cameras_file": {
               "$ref": "#/definitions/share_file",
-              "description": "Optional cameras file: per role, the optical frame, rate_hz and real intrinsics (checked by fm_sim_scenarios.isaac_stage.check_cameras). Absent renders no cameras."
+              "description": "Optional cameras file: per role (chest, wrist_right), the optical frame, rate_hz and real intrinsics, checked by fm_sim_cameras.cameras_file; each backend also refuses what it cannot render. Absent renders no cameras."
             },
             "controller_roles": {
               "description": "Controller names by role. broadcasters always start active; a controller entry activates other roles, and the rest load inactive.",

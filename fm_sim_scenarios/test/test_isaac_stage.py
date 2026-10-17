@@ -63,8 +63,8 @@ INTRINSICS = {
     'distortion_model': 'plumb_bob', 'distortion': [0.0, 0.0, 0.0, 0.0, 0.0],
 }
 CAMERAS = {'cameras': {
-    'wrist': {'frame': 'cam', 'rate_hz': 30, 'intrinsics': INTRINSICS},
-    'head': {'frame': 'head_cam', 'rate_hz': 10, 'intrinsics': INTRINSICS},
+    'wrist_right': {'frame': 'cam', 'rate_hz': 30, 'intrinsics': INTRINSICS},
+    'chest': {'frame': 'head_cam', 'rate_hz': 10, 'intrinsics': INTRINSICS},
 }}
 
 
@@ -216,7 +216,7 @@ def test_camera_frame_must_be_a_link():
 
 def test_usd_camera_looks_along_the_optical_axis():
     (camera, _) = stage.camera_specs(_robot(), '/probe', stage.check_cameras(CAMERAS))
-    assert camera['role'] == 'head'
+    assert camera['role'] == 'chest'
     assert camera['parent_prim'] == stage.CAMERAS_PRIM
     # USD cameras look down -z: rotated into the stage, that must be the optical +z.
     q = camera['orient_wxyz']
@@ -227,8 +227,8 @@ def test_usd_camera_looks_along_the_optical_axis():
 
 def test_camera_specs_place_each_camera_and_its_rate():
     head, wrist = stage.camera_specs(_robot(), '/probe', stage.check_cameras(CAMERAS))
-    assert wrist['prim_path'] == '/probe/arm/fm_cam_wrist'
-    assert wrist['image_topic'] == '/cam_wrist/image_raw'
+    assert wrist['prim_path'] == '/probe/arm/fm_cam_wrist_right'
+    assert wrist['image_topic'] == '/cam_wrist_right/image_raw'
     assert (wrist['frame_skip_count'], wrist['rate_hz']) == (1, 30.0)
     assert (head['frame_skip_count'], head['rate_hz']) == (5, 10.0)
 
@@ -248,18 +248,18 @@ def test_usd_lens_reproduces_the_intrinsics():
 
 
 @pytest.mark.parametrize('change, match', [
-    (lambda c: c['cameras'].update({'../x': c['cameras']['head']}), 'role'),
-    (lambda c: c['cameras']['head'].update(frame='a/b'), 'frame name'),
-    (lambda c: c['cameras']['head'].update(rate_hz=0), 'rate_hz'),
-    (lambda c: c['cameras']['head'].update(rate_hz=25), 'divide the 60 Hz'),
-    (lambda c: c['cameras']['head'].update(rate_hz=120), 'divide the 60 Hz'),
-    (lambda c: c['cameras']['head']['intrinsics'].update(width=3840, height=2160),
+    (lambda c: c['cameras'].update({'../x': c['cameras']['chest']}), 'role'),
+    (lambda c: c['cameras']['chest'].update(frame='a/b'), 'frame name'),
+    (lambda c: c['cameras']['chest'].update(rate_hz=0), 'rate_hz'),
+    (lambda c: c['cameras']['chest'].update(rate_hz=25), 'divide the 60 Hz'),
+    (lambda c: c['cameras']['chest'].update(rate_hz=120), 'divide the 60 Hz'),
+    (lambda c: c['cameras']['chest']['intrinsics'].update(width=3840, height=2160),
      'allow_large_image'),
-    (lambda c: c['cameras']['head']['intrinsics'].update(width=640.5), 'width'),
-    (lambda c: c['cameras']['head']['intrinsics'].update(fx=float('nan')), 'fx'),
-    (lambda c: c['cameras']['head']['intrinsics'].update(distortion_model='rational'),
+    (lambda c: c['cameras']['chest']['intrinsics'].update(width=640.5), 'width'),
+    (lambda c: c['cameras']['chest']['intrinsics'].update(fx=float('nan')), 'fx'),
+    (lambda c: c['cameras']['chest']['intrinsics'].update(distortion_model='rational'),
      'unknown distortion_model'),
-    (lambda c: c['cameras']['head']['intrinsics'].update(distortion=[0.0]), 'takes 5'),
+    (lambda c: c['cameras']['chest']['intrinsics'].update(distortion=[0.0]), 'takes 5'),
 ])
 def test_bad_cameras_are_refused(change, match):
     cameras = copy.deepcopy(CAMERAS)
@@ -270,10 +270,10 @@ def test_bad_cameras_are_refused(change, match):
 
 def test_a_large_camera_renders_when_it_opts_in():
     cameras = copy.deepcopy(CAMERAS)
-    # deepcopy keeps the two cameras sharing one intrinsics dict; give head its own.
-    cameras['cameras']['head']['intrinsics'] = dict(INTRINSICS, width=3840, height=2160)
-    cameras['cameras']['head']['allow_large_image'] = True
-    assert stage.check_cameras(cameras)['head']['intrinsics']['width'] == 3840
+    # deepcopy keeps the two cameras sharing one intrinsics dict; give chest its own.
+    cameras['cameras']['chest']['intrinsics'] = dict(INTRINSICS, width=3840, height=2160)
+    cameras['cameras']['chest']['allow_large_image'] = True
+    assert stage.check_cameras(cameras)['chest']['intrinsics']['width'] == 3840
 
 
 def test_the_shipped_cameras_fit_the_caps():
@@ -309,11 +309,11 @@ def test_graph_carries_the_contract_topics():
     assert values['clock.inputs:topicName'] == '/clock'
     assert values['joint_state.inputs:topicName'] == '/isaac_joint_states'
     assert values['joint_command.inputs:topicName'] == '/isaac_joint_commands'
-    assert values['camera_wrist.inputs:topicName'] == '/cam_wrist/image_raw'
-    assert values['camera_wrist.inputs:frameId'] == 'cam'
-    assert values['camera_wrist.inputs:type'] == 'rgb'
-    assert values['render_wrist.inputs:width'] == 640
-    assert prims['render_wrist.inputs:cameraPrim'] == ['/probe/arm/fm_cam_wrist']
+    assert values['camera_wrist_right.inputs:topicName'] == '/cam_wrist_right/image_raw'
+    assert values['camera_wrist_right.inputs:frameId'] == 'cam'
+    assert values['camera_wrist_right.inputs:type'] == 'rgb'
+    assert values['render_wrist_right.inputs:width'] == 640
+    assert prims['render_wrist_right.inputs:cameraPrim'] == ['/probe/arm/fm_cam_wrist_right']
     assert prims['joint_state.inputs:targetPrim'] == [stage.ARTICULATION_ROOT]
     assert values['transforms.inputs:topicName'] == stage.OBJECT_POSES_TOPIC
     assert prims['transforms.inputs:targetPrims'] == [
@@ -363,7 +363,7 @@ def test_write_stage_writes_urdf_and_spec(tmp_path):
     assert spec['robot']['import_config']['merge_fixed_joints'] is True
     assert spec['object_commands_topic'] == stage.OBJECT_COMMANDS_TOPIC
     assert spec['object_workspace'] == stage.object_workspace(CAN_ON_TABLE)
-    assert [c['role'] for c in spec['cameras']] == ['head', 'wrist']
+    assert [c['role'] for c in spec['cameras']] == ['chest', 'wrist_right']
     with open(spec['robot']['urdf_path']) as urdf:
         assert '/share/probe_meshes/meshes/arm.stl' in urdf.read()
 

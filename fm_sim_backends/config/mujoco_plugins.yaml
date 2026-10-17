@@ -14,3 +14,14 @@ mujoco_ros2_control_node:
         type: mujoco_ros2_control_plugins/FreeJointStatePublisherPlugin
         topic: /mujoco/free_joint_states
         publish_rate: 30.0  # Hz of sim time; /sim/objects needs >= 10 Hz (wall time too, at real time)
+      # Renders every MJCF camera offscreen (GLFW when the process has a display,
+      # else EGL; see mujoco.launch.py) and publishes it raw on
+      # /mujoco_cameras/<camera>/color, depth and camera_info. fm_sim_cameras'
+      # sim_camera nodes read the color images of the cam_<role> cameras the
+      # scenario world carries. 10 Hz of sim time: the bridge caps cameras at 10 Hz.
+      # A world without cameras starts no render thread. Both claims are
+      # mujoco_ros2_control 0.1.2's camera_plugin.cpp; fm_sim_bringup's
+      # test_camera_launch.py checks the rendering live.
+      mujoco_cameras:
+        type: mujoco_ros2_control_plugins/CameraPlugin
+        camera_publish_rate: 10.0

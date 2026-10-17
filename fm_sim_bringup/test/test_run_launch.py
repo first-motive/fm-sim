@@ -5,7 +5,7 @@ every other robot controller loaded inactive. On MuJoCo and Gazebo every joint s
 in one hardware component (one MuJoCo world; the one system gz_ros2_control
 initialises); Isaac keeps the description's per-arm systems and needs no Isaac Sim
 running for the controllers to come up. Needs the MJCF and description externals
-(vcs import fm-sim.repos), topic_based_ros2_control and xvfb-run; the engines run
+(vcs import fm-sim.repos), topic_based_ros2_control and Mesa's EGL; the engines run
 headless on software GL, Gazebo server-only.
 """
 

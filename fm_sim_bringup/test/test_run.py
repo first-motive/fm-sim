@@ -1,12 +1,17 @@
 """The rules run.launch.py applies to the four catalog entries."""
 
 import json
+import math
 import os
 
+from ament_index_python.packages import get_package_share_directory
 from fm_sim_bringup import catalog, run
+from fm_sim_cameras import cameras_file
 from fm_sim_models.models import mjcf_path
-from fm_sim_scenarios import scenario as sc
+from fm_sim_scenarios import isaac_stage, scenario as sc
+import numpy as np
 import pytest
+import yaml
 
 ROBOT = {
     'name': 'arm',
@@ -304,3 +309,234 @@ def test_scenario_node_runs_only_with_objects():
     assert parameters['timeout_s'] == 30.0
     assert parameters['use_sim_time'] is True
     assert json.loads(parameters['scenario']) == entries['scenario']
+
+
+def test_backend_without_camera_renders_has_no_cameras():
+    entries = _entries('gazebo', 'empty')
+    assert run.sim_cameras(entries['backend'], entries['robot'], '<robot/>', '/r.xml') == []
+
+
+def test_robot_without_cameras_file_has_no_cameras():
+    entries = _entries('mujoco', 'empty')
+    robot = {k: v for k, v in entries['robot'].items() if k != 'cameras_file'}
+    assert run.sim_cameras(entries['backend'], robot, '<robot/>', '/r.xml') == []
+
+
+def test_mujoco_camera_render_is_the_plugin_default_topic():
+    # CameraPlugin publishes a camera's color image on <plugin key>/<camera>/color.
+    with open(os.path.join(
+        get_package_share_directory('fm_sim_backends'), 'config', 'mujoco_plugins.yaml'
+    )) as plugins_file:
+        plugins = yaml.safe_load(plugins_file)
+    plugins = plugins['mujoco_ros2_control_node']['ros__parameters']['mujoco_plugins']
+    (key,) = [k for k, v in plugins.items()
+              if v['type'] == 'mujoco_ros2_control_plugins/CameraPlugin']
+    assert run.RENDERED_CAMERAS['mujoco'][1] == f'/{key}/cam_{{role}}/color'
+    # The bridge caps cameras at 10 Hz; rendering faster only burns the engine's CPU.
+    assert plugins[key]['camera_publish_rate'] <= 10.0
+
+
+def _openarm_description(entries, world):
+    import xacro
+    robot = entries['robot']
+    return xacro.process_file(
+        catalog.share_file(robot['description_file']),
+        mappings=run.description_args(
+            entries['backend'], robot, world, catalog.share_file(robot['controllers_file'])
+        ),
+    ).toxml()
+
+
+needs_openarm = pytest.mark.skipif(
+    not os.path.isfile(mjcf_path('openarm')), reason='openarm_mujoco external (vcs import)'
+)
+
+
+@needs_openarm
+def test_openarm_cameras_mount_on_the_world_and_the_right_hand(tmp_path):
+    entries = _entries('mujoco', 'can_on_table')
+    world = run.world_file(entries['backend'], entries['scenario'], 0, str(tmp_path))
+    cameras = run.sim_cameras(
+        entries['backend'], entries['robot'], _openarm_description(entries, world),
+        mjcf_path('openarm'),
+    )
+    by_role = {camera.role: camera for camera in cameras}
+    assert sorted(by_role) == ['chest', 'wrist_right']
+    assert by_role['chest'].model.body is None
+    assert by_role['wrist_right'].model.body == 'openarm_right_ee_base_link'
+    assert by_role['chest'].render_topic == '/mujoco_cameras/cam_chest/color'
+    parameters = run.camera_node_parameters(by_role['wrist_right'])
+    assert parameters == {
+        'role': 'wrist_right',
+        'cameras_file': catalog.share_file(entries['robot']['cameras_file']),
+        'render_topic': '/mujoco_cameras/cam_wrist_right/color',
+        'use_sim_time': True,
+    }
+    path = run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 0, mjcf_path('openarm'),
+        str(tmp_path), cameras,
+    )
+    assert path == world
+
+
+@needs_openarm
+def test_openarm_camera_refused_off_a_shared_body(monkeypatch, tmp_path):
+    entries = _entries('mujoco', 'empty')
+    description = _openarm_description(entries, '/unused.xml')
+    monkeypatch.setattr(run.mujoco_world, 'body_names', lambda robot_mjcf: set())
+    with pytest.raises(catalog.CatalogError, match='moves with joint'):
+        run.sim_cameras(entries['backend'], entries['robot'], description, mjcf_path('openarm'))
+
+
+def _fk(urdf, link, positions):
+    """Return the pose of ``link`` in the URDF root at joint ``positions`` (revolute only)."""
+    import xml.etree.ElementTree as ET
+    from fm_sim_cameras import mount
+    root = ET.fromstring(urdf)
+    parent_joint = {j.find('child').get('link'): j for j in root.findall('joint')}
+    transform = np.eye(4)
+    while link in parent_joint:
+        joint = parent_joint[link]
+        step = mount._origin(joint)
+        if joint.get('type') in ('revolute', 'continuous'):
+            axis = np.array([float(v) for v in joint.find('axis').get('xyz').split()])
+            angle = positions.get(joint.get('name'), 0.0)
+            k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+            turn = np.eye(4)
+            turn[:3, :3] = np.eye(3) + math.sin(angle) * k + (1 - math.cos(angle)) * k @ k
+            step = step @ turn
+        elif joint.get('type') != 'fixed':
+            raise AssertionError(f'unexpected joint type {joint.get("type")}')
+        transform = step @ transform
+        link = joint.find('parent').get('link')
+    return transform
+
+
+@needs_openarm
+def test_openarm_mujoco_cameras_sit_on_the_description_frames(tmp_path):
+    # The real wiring: description -> mounts -> generated world -> MuJoCo, compared
+    # with the description's own forward kinematics at an arbitrary arm pose.
+    mujoco = pytest.importorskip('mujoco', reason='mujoco Python binding (requirements-sim.txt)')
+    entries = _entries('mujoco', 'can_on_table')
+    world = run.world_file(entries['backend'], entries['scenario'], 4, str(tmp_path))
+    description = _openarm_description(entries, world)
+    cameras = run.sim_cameras(
+        entries['backend'], entries['robot'], description, mjcf_path('openarm')
+    )
+    run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 4, mjcf_path('openarm'),
+        str(tmp_path), cameras,
+    )
+    model = mujoco.MjModel.from_xml_path(world)
+    data = mujoco.MjData(model)
+    rng = np.random.default_rng(8)
+    positions = {}
+    for index in range(1, 8):
+        name = f'openarm_right_joint{index}'
+        low, high = model.joint(name).range
+        positions[name] = float(rng.uniform(low, high))
+        data.qpos[model.joint(name).qposadr[0]] = positions[name]
+    mujoco.mj_forward(model, data)
+    specs = cameras_file.load(catalog.share_file(entries['robot']['cameras_file']))
+    for camera in cameras:
+        expected = _fk(description, specs[camera.role]['frame'], positions)
+        rotation = data.cam(camera.model.name).xmat.reshape(3, 3)
+        assert data.cam(camera.model.name).xpos == pytest.approx(expected[:3, 3], abs=1e-6)
+        # MuJoCo's camera x is optical x; its y and z are optical -y and -z.
+        assert rotation @ np.diag([1.0, -1.0, -1.0]) == pytest.approx(expected[:3, :3], abs=1e-6)
+        assert model.cam(camera.model.name).fovy[0] == pytest.approx(camera.model.fovy_deg)
+
+
+def test_world_file_names_the_world_only_where_it_carries_cameras(tmp_path):
+    mujoco = _entries('mujoco', 'can_on_table')
+    assert run.world_file(mujoco['backend'], mujoco['scenario'], 2, str(tmp_path)) == str(
+        tmp_path / 'can_on_table_2.xml'
+    )
+    isaac = _entries('isaac', 'can_on_table')
+    assert run.world_file(isaac['backend'], isaac['scenario'], 2, str(tmp_path)) is None
+    assert run.sim_cameras(isaac['backend'], isaac['robot'], '<robot/>', '/r.xml') == []
+
+
+# --- One cameras file, one shared verdict, explicit backend refusals ----------
+
+OPENARM_CAMERAS_YAML = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', 'config', 'openarm', 'cameras.yaml'
+)
+
+
+def _openarm_cameras(change=None):
+    with open(OPENARM_CAMERAS_YAML) as openarm_file:
+        data = yaml.safe_load(openarm_file)
+    if change:
+        change(data)
+    return data
+
+
+@pytest.fixture
+def mujoco_verdict(monkeypatch, tmp_path):
+    """Return MuJoCo's verdict on a cameras file: ``run.sim_cameras`` on the real OpenArm."""
+    entries = _entries('mujoco', 'empty')
+    description = _openarm_description(entries, '/unused.xml')
+    share_file = catalog.share_file
+
+    def verdict(data):
+        path = tmp_path / 'cameras.yaml'
+        path.write_text(yaml.safe_dump(data))
+        monkeypatch.setattr(
+            run.catalog, 'share_file',
+            lambda ref: str(path) if ref == entries['robot']['cameras_file'] else share_file(ref),
+        )
+        cameras = run.sim_cameras(
+            entries['backend'], entries['robot'], description, mjcf_path('openarm')
+        )
+        assert sorted(camera.role for camera in cameras) == sorted(data['cameras'])
+        return True
+    return verdict
+
+
+def _isaac_verdict(data):
+    isaac_stage.check_cameras(data)
+    return True
+
+
+@needs_openarm
+def test_the_shipped_cameras_file_passes_both_backends(mujoco_verdict):
+    data = _openarm_cameras()
+    assert mujoco_verdict(data) and _isaac_verdict(data)
+
+
+@pytest.mark.parametrize('change', [
+    lambda d: d['cameras'].update(head=d['cameras']['chest']),
+    lambda d: d['cameras']['chest'].update(rate_hz=-1),
+    lambda d: d['cameras']['chest'].update(intrinsics=dict(
+        d['cameras']['chest']['intrinsics'], width=3840, height=2160)),
+])
+@needs_openarm
+def test_the_shared_loader_refuses_for_both_backends(mujoco_verdict, change):
+    with pytest.raises(catalog.CatalogError):
+        mujoco_verdict(_openarm_cameras(change))
+    with pytest.raises(isaac_stage.StageError):
+        _isaac_verdict(_openarm_cameras(change))
+
+
+@needs_openarm
+def test_plumb_bob_renders_on_isaac_but_not_through_the_mujoco_warp(mujoco_verdict):
+    def plumb_bob(d):
+        d['cameras']['chest']['intrinsics'] = dict(
+            d['cameras']['chest']['intrinsics'], distortion_model='plumb_bob',
+            distortion=[0.0, 0.0, 0.0, 0.0, 0.0],
+        )
+    data = _openarm_cameras(plumb_bob)
+    assert _isaac_verdict(data)
+    with pytest.raises(catalog.CatalogError, match='cannot be rendered by the fisheye warp'):
+        mujoco_verdict(data)
+
+
+@needs_openarm
+def test_a_rate_isaac_cannot_divide_still_renders_on_mujoco(mujoco_verdict):
+    def seven_hz(d):
+        d['cameras']['chest']['rate_hz'] = 7
+    data = _openarm_cameras(seven_hz)
+    assert mujoco_verdict(data)
+    with pytest.raises(isaac_stage.StageError, match='divide the 60 Hz'):
+        _isaac_verdict(data)

@@ -8,6 +8,8 @@
   <license>Apache-2.0</license>
 
   <exec_depend>fm_sim_msgs</exec_depend>
+  <!-- isaac_stage checks cameras with the shared cameras-file loader. -->
+  <exec_depend>fm_sim_cameras</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>

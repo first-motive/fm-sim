@@ -22,8 +22,9 @@ system-wide view see [`fm-ros2`](https://github.com/first-motive/fm-ros2).
 | `fm_sim_ee_follower` | ament_python | `ee_follower` node: damped-least-squares IK from `/commanded_ee_right` to the right arm's forward position controller, standing in for the loader's IK; ROS-free DLS core |
 | `fm_sim_bringup` | ament_python | `run.launch.py` and the catalog of backends, robots, scenarios and controllers, resolved from the ament index |
 | `fm_sim_scenarios` | ament_python | Backend-neutral scenario logic (seeded spawns, success predicate), the per-backend world generators (MuJoCo, and the Isaac Sim stage spec) and the scenario node serving `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
+| `fm_sim_cameras` | ament_python | Simulated cameras as the real ones publish them: camera mounts from the description, the fisheye warp of a pinhole render, and the `sim_camera` node publishing `/cam_<role>/image_raw/compressed` and `/cam_<role>/camera_info` |
 | `fm_sim_msgs` | ament_cmake | The scenario interfaces: `ObjectState(s)`, `Outcome`, `Reset` |
-| `fm_sim` | ament_cmake (meta) | Metapackage tying the seven together for a single install |
+| `fm_sim` | ament_cmake (meta) | Metapackage tying the eight together for a single install |
 
 ## Run Contract
 
@@ -34,8 +35,10 @@ whose content points at the entry's yaml, so any package registers an entry by
 installing two files. The launch validates all four, expands the robot's fm-robot
 xacro with the backend's args, includes the backend host, spawns the robot's
 controllers by role, and includes the controller's own launch. On MuJoCo it first
-builds the scenario into one world with the robot, and a scenario with objects
-adds the scenario node; see [Scenarios](../fm_sim_bringup/README.md#scenarios).
+builds the scenario into one world with the robot and its cameras, and a scenario
+with objects adds the scenario node; see
+[Scenarios](../fm_sim_bringup/README.md#scenarios) and
+[Cameras](../fm_sim_bringup/README.md#cameras).
 
 ![run](diagrams/run.svg)
 
@@ -64,7 +67,7 @@ Source: [`diagrams/backends.d2`](diagrams/backends.d2).
 
 | Backend | Launch file | Hosts | Notes |
 |---------|-------------|-------|-------|
-| `mujoco` | `mujoco.launch.py` | `mujoco_ros2_control/ros2_control_node` under `xvfb-run` | **Daily driver**, native arm64 on M5 (CPU, no GPU) |
+| `mujoco` | `mujoco.launch.py` | `mujoco_ros2_control/ros2_control_node`, headless; its CameraPlugin renders on EGL, or as `MUJOCO_GL` says | **Daily driver**, native arm64 on M5 (CPU, no GPU) |
 | `gazebo` | `gazebo.launch.py` | Gazebo Harmonic via `ros_gz_sim` + `create` + `ros_gz_bridge` (clock); `gz_ros2_control` in-engine | Wired; Linux/GPU, headless server-only anywhere |
 | `isaac` | `isaac.launch.py` | standalone `controller_manager` with `topic_based_ros2_control`, bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Wired; Linux + NVIDIA. Builds the Isaac Sim 4.5 stage (URDF, objects, cameras, ROS 2 bridge graph) and starts Isaac when `FM_ISAAC_PYTHON` is set and a world is given |
 
@@ -87,7 +90,7 @@ drives it on amd64 ubuntu.
 | Backend | macOS (container) | Linux (native) | How it comes up headless |
 |---------|-------------------|----------------|--------------------------|
 | `mock` | headless | yes | `sim_loop`, no engine |
-| `mujoco` | headless | yes | `ros2_control_node` under `xvfb-run` |
+| `mujoco` | headless | yes | `ros2_control_node` headless; cameras on EGL with no display (`MUJOCO_GL=osmesa` forces Mesa's software rasteriser) |
 | `gazebo` | headless | yes (GPU) | `gz -s` server-only, software GL |
 | `isaac` | — | yes (NVIDIA) | not on macOS — Isaac Sim is Linux + NVIDIA |
 

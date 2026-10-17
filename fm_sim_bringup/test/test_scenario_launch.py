@@ -5,7 +5,7 @@ shows on /sim/objects, /sim/reset with a seed moves it to that seed's spawn insi
 the scenario's ranges, and with nothing moving the can, /sim/outcome latches a
 timeout failure for the reset's episode. ``timeout_s:=10`` keeps the episode short.
 After shutdown, the generated world's temporary directory is gone.
-Needs the openarm_mujoco external (vcs import fm-sim.repos) and xvfb-run.
+Needs the openarm_mujoco external (vcs import fm-sim.repos) and Mesa's EGL.
 """
 
 import glob

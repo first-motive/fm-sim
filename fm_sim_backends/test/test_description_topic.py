@@ -12,6 +12,10 @@ The launch is stopped only once the controller_manager has served its last
 service. A Jazzy controller_manager signalled while it still initialises from the
 description can hang past SIGTERM or abort in ``init_services``; that is its own
 race, not the backend's shutdown wiring this file checks.
+
+MuJoCo runs twice: on its default renderer (egl, no wrapper) and with
+``MUJOCO_GL=glfw``, which wraps the controller_manager in the xvfb-run wrapper
+whose signal forwarding the shutdown check covers.
 """
 
 import os
@@ -22,7 +26,9 @@ import unittest
 
 from controller_manager_msgs.srv import SetHardwareComponentState
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import (
+    IncludeLaunchDescription, SetEnvironmentVariable, UnsetEnvironmentVariable,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 import launch_testing
 import launch_testing.actions
@@ -42,8 +48,10 @@ def _probe_description(backend):
 
 
 @pytest.mark.launch_test
-@launch_testing.parametrize('backend', ['mujoco', 'isaac'])
-def generate_test_description(backend):
+@launch_testing.parametrize(
+    'backend, mujoco_gl', [('mujoco', None), ('mujoco', 'glfw'), ('isaac', None)]
+)
+def generate_test_description(backend, mujoco_gl):
     controllers_file = os.path.join(
         tempfile.mkdtemp(prefix=f'fm_sim_backends_{backend}_'), 'controllers.yaml'
     )
@@ -58,8 +66,13 @@ def generate_test_description(backend):
         }.items(),
     )
     # The returned dict is how launch_testing hands its values to the test methods.
+    # Rows share this process's environment: each sets or clears MUJOCO_GL itself.
+    renderer = (
+        SetEnvironmentVariable('MUJOCO_GL', mujoco_gl) if mujoco_gl
+        else UnsetEnvironmentVariable('MUJOCO_GL')
+    )
     return (
-        LaunchDescription([backend_launch, launch_testing.actions.ReadyToTest()]),
+        LaunchDescription([renderer, backend_launch, launch_testing.actions.ReadyToTest()]),
         {'backend': backend, 'controllers_file': controllers_file},
     )
 
