@@ -196,3 +196,16 @@ jobs:
           set -eo pipefail
           docker run --rm -e LIBGL_ALWAYS_SOFTWARE=1 fm-sim:smoke \
             /ros_entrypoint.sh bash -lc 'timeout 90 gz sim -s -r --iterations 200 empty.sdf'
+
+  # The AWS sim host stack (infra/aws/sim): cfn-lint, the controller and idle
+  # tests against fakes, and shellcheck. No AWS credentials; nothing is deployed.
+  infra-aws-sim:
+    name: aws sim host stack (static)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate
+        run: infra/aws/sim/deploy.sh validate

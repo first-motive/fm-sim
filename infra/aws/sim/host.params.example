@@ -1,0 +1,16 @@
+# Stack parameters for deploy.sh. Copy outside the repo, fill in, and point
+# FM_SIM_PARAMS at the copy. No secret belongs here: the Tailscale key is only
+# named. Keys left out keep the template default.
+FmSetupCommit=<full 40-character fm-setup commit with the sim-cloud role>
+FmSimCommit=<full 40-character fm-sim commit>
+SimImageDigest=sha256:<64-hex digest of ghcr.io/first-motive/fm-sim:jazzy>
+RouterEndpoint=tcp/<router tailnet name>:7447
+TailscaleAuthKeyParameterName=/fm-sim/cloud-host/tailscale-auth-key
+MonthlyBudgetUsd=100
+# Pin the exact GPU image for production; without it each deploy takes the
+# latest AMI that ImageParameter names. Replace with your region's resolved id.
+ImageIdOverride=ami-0123456789abcdef0
+# BudgetNotificationEmail=<alerts address>
+# InstanceType=g6e.xlarge
+# IdleMinutes=15
+# MaxLifetimeMinutes=480
