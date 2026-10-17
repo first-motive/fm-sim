@@ -1,0 +1,50 @@
+# Axol controllers in sim: one 7-joint JTC per arm. The Axol's grippers are fixed
+# in its URDF, so there is no gripper controller. fm-robot ships no controllers
+# file, so the sim catalog owns this one. Names and joints match fm_ros2's
+# fm_bringup axol config and the joints in fm-robot's axol.ros2_control.xacro
+# ({left,right}_{s1,s2,s3,e1,e2,w1,w2}_0).
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz, as the OpenArm
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    axol_left_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    axol_right_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+axol_left_arm_controller:
+  ros__parameters:
+    joints:
+      - left_s1_0
+      - left_s2_0
+      - left_s3_0
+      - left_e1_0
+      - left_e2_0
+      - left_w1_0
+      - left_w2_0
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
+
+axol_right_arm_controller:
+  ros__parameters:
+    joints:
+      - right_s1_0
+      - right_s2_0
+      - right_s3_0
+      - right_e1_0
+      - right_e2_0
+      - right_w1_0
+      - right_w2_0
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
