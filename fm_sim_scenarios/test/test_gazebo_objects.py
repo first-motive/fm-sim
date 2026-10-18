@@ -35,7 +35,7 @@ class FakeGazebo:
     making them. ``slow`` delays the reply (not the move, as Gazebo queues it) to
     the first request for each named object by that many seconds; ``slow_apply``
     (``(reply_s, apply_s)``) answers the first one after ``reply_s`` and applies it
-    after ``apply_s``.
+    after ``apply_s``. ``applied`` logs each pose a move set, in order.
     """
 
     def __init__(self, node, frame=gazebo_world.WORLD_NAME, stale=(), answers=True):
@@ -48,6 +48,7 @@ class FakeGazebo:
         self.slow = {}
         self.slow_apply = {}
         self.requests = []
+        self.applied = []
         self.late_replies = 0
         self.ahead_s = 0.0
         self._node = node
@@ -73,21 +74,22 @@ class FakeGazebo:
             # rollback that followed: a queued move landing out of order.
             reply_s, apply_s = stale
             p = request.pose.position
-            threading.Timer(
-                apply_s, lambda: self.positions.__setitem__(name, (p.x, p.y, p.z))
-            ).start()
+            threading.Timer(apply_s, lambda: self._apply(name, p)).start()
             time.sleep(reply_s)
             response.success = True
             return response
         if ok and self.applies:
-            p = request.pose.position
-            self.positions[name] = (p.x, p.y, p.z)
+            self._apply(name, request.pose.position)
         delay = self.slow.pop(name, 0.0)
         if delay:
             time.sleep(delay)
             self.late_replies += 1
         response.success = ok
         return response
+
+    def _apply(self, name, p):
+        self.positions[name] = (p.x, p.y, p.z)
+        self.applied.append((name, self.positions[name]))
 
     def _publish(self):
         now = self._node.get_clock().now()
@@ -289,10 +291,13 @@ def test_a_stale_forward_move_after_the_rollback_is_reported(gazebo, monkeypatch
     # The rollback landed (the adapter checks that before answering), and the warning
     # names the object whose move may still land.
     assert 'restored every object, but can may still move' in response.message
-    forward, rollback = [r.pose.position for r in gz.requests if r.entity.name == 'can']
-    assert (rollback.x, rollback.y, rollback.z) == pytest.approx(START['can'])
     target = sc.spawn_poses(CAN_ON_TABLE, 3)['can'][0]
     assert _wait(lambda: gz.positions['can'] == pytest.approx(target), 10.0)
+    # The can was back at its start before the stale move landed. Read from the log,
+    # not the live pose, which that move can overwrite before the reply reaches a
+    # loaded probe.
+    landed = [position for name, position in gz.applied if name == 'can']
+    assert landed == [pytest.approx(START['can']), pytest.approx(target)]
 
 
 def test_a_move_that_does_not_land_is_undone(gazebo):

@@ -190,6 +190,7 @@ class TestCanOnTable(unittest.TestCase):
         reset = node.create_client(Reset, '/sim/reset')
         self.assertTrue(reset.wait_for_service(timeout_sec=30.0))
         response = None
+        # Real time, not sim time: the adapter's move and rollback deadlines are too.
         deadline = time.monotonic() + 60.0
         while time.monotonic() < deadline:
             future = reset.call_async(Reset.Request(seed=SEED))

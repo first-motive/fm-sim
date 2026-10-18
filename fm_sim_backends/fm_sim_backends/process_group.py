@@ -26,15 +26,18 @@ import platform
 import re
 import shlex
 
-# Under launch's own escalation (SIGTERM 5 s after SIGINT, SIGKILL 5 s later) and
-# well past a normal gz-sim exit (about a second).
+# Lands with launch's SIGTERM (5 s after its SIGINT): a server that ignored SIGINT
+# is killed then, before launch's SIGKILL, which reaches only this wrapper.
 KILL_AFTER_S = 5
+# The watchdog starts once, writes nowhere (so it holds none of launch's output pipes), and
+# is stopped when the job exits in time.
 _GROUP = (
-    'set -m; "$@" & job=$!; '
-    'stop() {{ kill -$1 -$job 2>/dev/null; '
-    '( sleep {kill_after}; kill -KILL -$job 2>/dev/null ) & }}; '
+    'set -m; watch=; "$@" & job=$!; '
+    'stop() {{ kill -$1 -$job 2>/dev/null; [ -n "$watch" ] || {{ '
+    '( sleep {kill_after}; kill -KILL -$job 2>/dev/null ) >/dev/null 2>&1 & watch=$!; }}; }}; '
     'trap "stop INT" INT; trap "stop TERM" TERM; '
-    'wait $job; wait $job'
+    'wait $job; wait $job; status=$?; '
+    '[ -z "$watch" ] || kill -- -$watch 2>/dev/null; exit $status'
 ).format(kill_after=KILL_AFTER_S)
 _SPARING = (
     'set -m; "$@" & job=$!; '

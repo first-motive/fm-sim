@@ -200,6 +200,29 @@ def test_a_child_that_hangs_on_shutdown_is_killed(tmp_path):
             os.kill(stuck, signal.SIGKILL)
 
 
+@pytest.mark.skipif(platform.system() != 'Linux', reason='the wrapper is checked on Linux')
+def test_a_job_that_exits_on_the_signal_keeps_its_status(tmp_path):
+    # The wrapper returns the job's own status, and its output closes without
+    # waiting out the watchdog, which would otherwise hold launch's pipes open.
+    started = tmp_path / 'started'
+    child = (
+        'import signal, sys, time; '
+        'signal.signal(signal.SIGINT, lambda *_: sys.exit(3)); '
+        'open(sys.argv[1], "w").write("1"); time.sleep(300)'
+    )
+    wrapper = subprocess.Popen(
+        process_group.command(sys.executable, '-c', child, str(started)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    deadline = time.monotonic() + 10.0
+    while not started.exists():
+        assert time.monotonic() < deadline, 'the child never started'
+        time.sleep(0.05)
+    wrapper.send_signal(signal.SIGINT)
+    wrapper.communicate(timeout=process_group.KILL_AFTER_S - 1.0)
+    assert wrapper.returncode == 3
+
+
 def test_spare_must_be_a_process_name():
     with pytest.raises(ValueError, match='process name'):
         process_group.command('true', spare='x; rm -rf /')
