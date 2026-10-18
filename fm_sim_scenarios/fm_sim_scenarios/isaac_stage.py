@@ -286,12 +286,39 @@ def write(robot_mjcf, mount_xyz, scenario, seed, out_dir):
 # --- The robot half (URDF, cameras, bridge) -----------------------------------
 
 
+def _resolved(path):
+    """``path`` with its directories' symlinks resolved, the file name kept.
+
+    A symlink-install share links each file into the source tree, so only the
+    directories are resolved: a link that leads a directory out of its root still
+    shows, and an installed mesh file still counts as in its share.
+    """
+    head, tail = os.path.split(os.path.normpath(path))
+    return os.path.join(os.path.realpath(head), tail)
+
+
 def _confined(directory, relative, uri):
-    base = os.path.normpath(directory)
-    path = os.path.normpath(os.path.join(base, relative))
-    if os.path.commonpath([base, path]) != base or path == base:
+    base = os.path.realpath(directory)
+    path = _resolved(os.path.join(base, relative))
+    if not _under(path, base):
         raise StageError(f'mesh {uri!r} leaves its root {base}')
     return path
+
+
+def _installed_shares():
+    """Return the ``share`` directory of every ``AMENT_PREFIX_PATH`` install prefix."""
+    prefixes = os.environ.get('AMENT_PREFIX_PATH', '').split(os.pathsep)
+    # A relative entry names no fixed place, so it allows nothing.
+    return [os.path.join(prefix, 'share') for prefix in prefixes if os.path.isabs(prefix)]
+
+
+def _under(path, directory):
+    """Return True when ``path`` lies strictly inside ``directory`` (its symlinks resolved)."""
+    base = os.path.realpath(directory)
+    try:
+        return path != base and os.path.commonpath([base, path]) == base
+    except ValueError:  # one absolute, one relative: never inside
+        return False
 
 
 def mesh_path(uri, mesh_roots, share_directory):
@@ -301,9 +328,11 @@ def mesh_path(uri, mesh_roots, share_directory):
     are tried first: they map what a robot's vendored URDF uses (a relative
     ``assets/`` path, a ``package://`` name no package has) to the directory it
     means. Then ``package://<pkg>/`` resolves in that package's share
-    (``share_directory``, ``get_package_share_directory`` in the launch), and
-    ``file://`` or an absolute path is kept. The result must stay under the root
-    or share it resolved against; a relative path no root matches is refused.
+    (``share_directory``, ``get_package_share_directory`` in the launch). A
+    ``file://`` or absolute path is kept only inside a mesh root or an installed
+    share (``<prefix>/share`` of an ``AMENT_PREFIX_PATH`` entry). The result must
+    stay under the root or share it resolved against; a relative path no root
+    matches is refused.
     """
     for prefix, directory in mesh_roots:
         if uri.startswith(prefix):
@@ -316,7 +345,11 @@ def mesh_path(uri, mesh_roots, share_directory):
     if uri.startswith('file://'):
         uri = uri[len('file://'):]
     if os.path.isabs(uri):
-        return os.path.normpath(uri)
+        path = _resolved(uri)
+        allowed = [directory for _, directory in mesh_roots] + _installed_shares()
+        if not any(_under(path, directory) for directory in allowed):
+            raise StageError(f'mesh {uri!r} is outside every mesh root and installed share')
+        return path
     raise StageError(f'mesh {uri!r} is relative and no mesh root of the robot matches it')
 
 
@@ -619,7 +652,7 @@ def write_stage(world_path, robot_description, cameras, mesh_roots, share_direct
     ``parse_mesh_roots``' result (``[]`` for none);
     ``share_directory`` resolves the description's ``package://`` mesh URIs.
     """
-    out_dir = os.path.dirname(os.path.abspath(world_path))
+    out_dir = os.path.dirname(os.path.realpath(world_path))
     if not os.path.basename(out_dir).startswith(WORLD_DIR_PREFIX):
         raise StageError(
             f'{world_path} is not in a {WORLD_DIR_PREFIX}* run directory; the stage is '

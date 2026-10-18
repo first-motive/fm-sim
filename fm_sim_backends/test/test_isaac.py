@@ -14,7 +14,7 @@ import threading
 import time
 import types
 
-from fm_sim_backends import camera_info, isaac
+from fm_sim_backends import camera_info, cameras, isaac
 from fm_sim_cameras import cameras_file
 from fm_sim_scenarios import isaac_stage
 from launch import LaunchContext
@@ -278,7 +278,7 @@ def test_no_world_builds_no_stage():
 
 def test_stage_with_cameras_starts_the_relays_and_logs_the_runner(tmp_path, monkeypatch):
     recorder = _NodeRecorder()
-    monkeypatch.setattr(isaac, 'Node', recorder)
+    monkeypatch.setattr(cameras, 'Node', recorder)
     world = _world(tmp_path)
     actions = isaac.stage_actions(world, URDF, _cameras_file(tmp_path), '[]', '', False)
     run_dir = os.path.dirname(world)
@@ -308,7 +308,7 @@ def test_relays_are_launch_ros_nodes_with_the_host_local_env():
     # Unpatched: launch_ros's Node on Jazzy must accept additional_env.
     from launch_ros.actions import Node
 
-    relays = isaac.camera_relays(CAMERAS)
+    relays = cameras.camera_relays(CAMERAS)
     assert len(relays) == 2 and all(isinstance(relay, Node) for relay in relays)
     context = LaunchContext()
     for relay in relays:
@@ -320,7 +320,7 @@ def test_relays_are_launch_ros_nodes_with_the_host_local_env():
 
 
 def test_isaac_python_starts_the_runner_on_the_stage(tmp_path, monkeypatch):
-    monkeypatch.setattr(isaac, 'Node', _NodeRecorder())
+    monkeypatch.setattr(cameras, 'Node', _NodeRecorder())
     world = _world(tmp_path)
     stage_path = os.path.join(os.path.dirname(world), 'stage.json')
     notice, process = isaac.stage_actions(world, URDF, '', '[]', '/isaac/python.sh', True)
@@ -342,7 +342,7 @@ def test_isaac_python_starts_the_runner_on_the_stage(tmp_path, monkeypatch):
 
 
 def test_mesh_roots_resolve_the_robot_meshes_in_the_written_urdf(tmp_path, monkeypatch):
-    monkeypatch.setattr(isaac, 'Node', _NodeRecorder())
+    monkeypatch.setattr(cameras, 'Node', _NodeRecorder())
     world = _world(tmp_path)
     urdf = URDF.replace(
         '<link name="cam"/>',
