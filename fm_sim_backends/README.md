@@ -110,7 +110,10 @@ The server is `gz sim` run as a bash job whose traps pass launch's SIGINT and
 SIGTERM to its whole process group
 ([`process_group`](fm_sim_backends/process_group.py), shared with the MuJoCo
 launch's `xvfb-run`, which spares Xvfb so the node stops first; checked with
-bash 5.2 on Linux, and not used on macOS).
+bash 5.2 on Linux, and not used on macOS). If the group is still alive 5 s after
+the signal, a watchdog sends it SIGKILL: gz-sim can hang on its way out (seen
+with both cameras rendering on software GL), and launch's own SIGKILL reaches
+only the wrapper.
 ros_gz_sim's `gz_sim.launch.py` ran `ruby gz sim` under
 `sh -c`, which swallowed SIGINT, and the server outlived the launch. The catalog
 entry runs it server-only with `--headless-rendering` (EGL), so cameras render

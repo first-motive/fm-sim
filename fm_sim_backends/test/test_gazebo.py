@@ -111,7 +111,13 @@ def _alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    # A killed child orphaned to a PID 1 that never reaps (CI's container) stays a
+    # zombie, which signal 0 still finds.
+    try:
+        with open(f'/proc/{pid}/stat') as stat:
+            return stat.read().rsplit(')', 1)[1].split()[0] != 'Z'
+    except FileNotFoundError:
+        return False
 
 
 @pytest.mark.skipif(platform.system() != 'Linux', reason='the wrapper is checked on Linux')
@@ -165,6 +171,62 @@ def test_a_spared_child_outlives_the_signal_the_others_get(tmp_path):
     finally:
         if _alive(spared):
             os.kill(spared, signal.SIGKILL)
+
+
+@pytest.mark.skipif(platform.system() != 'Linux', reason='the wrapper is checked on Linux')
+def test_a_child_that_hangs_on_shutdown_is_killed(tmp_path):
+    # gz-sim can hang on its way out; the watchdog kills the group, even with the
+    # wrapper itself SIGKILLed (as launch does last), which nothing can forward.
+    child_pid = tmp_path / 'child.pid'
+    child = (
+        'import os, signal, sys, time; '
+        '[signal.signal(s, signal.SIG_IGN) for s in (signal.SIGINT, signal.SIGTERM)]; '
+        'open(sys.argv[1], "w").write(str(os.getpid())); time.sleep(300)'
+    )
+    wrapper = subprocess.Popen(
+        process_group.command(sys.executable, '-c', child, str(child_pid))
+    )
+    deadline = time.monotonic() + 10.0
+    while not child_pid.exists() or not child_pid.read_text().strip():
+        assert time.monotonic() < deadline, 'the child never started'
+        time.sleep(0.05)
+    stuck = int(child_pid.read_text())
+    try:
+        wrapper.send_signal(signal.SIGINT)
+        time.sleep(0.5)
+        assert _alive(stuck), 'the child was meant to ignore SIGINT'
+        wrapper.kill()
+        wrapper.wait(timeout=5.0)
+        deadline = time.monotonic() + process_group.KILL_AFTER_S + 5.0
+        while _alive(stuck) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not _alive(stuck), 'a child that ignores shutdown outlived the wrapper'
+    finally:
+        if _alive(stuck):
+            os.kill(stuck, signal.SIGKILL)
+
+
+@pytest.mark.skipif(platform.system() != 'Linux', reason='the wrapper is checked on Linux')
+def test_a_job_that_exits_on_the_signal_keeps_its_status(tmp_path):
+    # The wrapper returns the job's own status, and its output closes without
+    # waiting out the watchdog, which would otherwise hold launch's pipes open.
+    started = tmp_path / 'started'
+    child = (
+        'import signal, sys, time; '
+        'signal.signal(signal.SIGINT, lambda *_: sys.exit(3)); '
+        'open(sys.argv[1], "w").write("1"); time.sleep(300)'
+    )
+    wrapper = subprocess.Popen(
+        process_group.command(sys.executable, '-c', child, str(started)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    deadline = time.monotonic() + 10.0
+    while not started.exists():
+        assert time.monotonic() < deadline, 'the child never started'
+        time.sleep(0.05)
+    wrapper.send_signal(signal.SIGINT)
+    wrapper.communicate(timeout=process_group.KILL_AFTER_S - 1.0)
+    assert wrapper.returncode == 3
 
 
 def test_spare_must_be_a_process_name():

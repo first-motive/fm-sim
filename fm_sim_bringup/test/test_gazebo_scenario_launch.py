@@ -30,6 +30,7 @@ import launch_testing
 import launch_testing.actions
 import pytest
 import rclpy
+from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, CompressedImage
@@ -39,6 +40,9 @@ if platform.system() != 'Linux':
     pytest.skip('Gazebo runs headless in the Linux image only', allow_module_level=True)
 
 STARTUP_TIMEOUT_S = 240.0
+# Longer than a reset can take: the move's and the rollback's 5 s deadlines, each
+# followed by the wait for poses to land.
+RESET_CALL_TIMEOUT_S = 30.0
 EPISODE_TIMEOUT_S = 10.0
 SEED = 5
 # The can settles from its spawn onto the table or paper: a millimetre down, a
@@ -89,6 +93,27 @@ def _spin_until(node, predicate, timeout_s):
     return False
 
 
+def _sim_s(node):
+    return node.get_clock().now().nanoseconds * 1e-9
+
+
+def _spin_until_sim(node, predicate, sim_s, wall_cap_s=STARTUP_TIMEOUT_S):
+    """Spin until ``predicate``, for at most ``sim_s`` of sim time (``wall_cap_s`` wall).
+
+    Gazebo renders both cameras on software GL here and can run at a fifth of
+    real time or less, so a bound on a sim-time process is judged in sim time.
+    """
+    start = _sim_s(node)
+    deadline = time.monotonic() + wall_cap_s
+    while time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+        if predicate():
+            return True
+        if _sim_s(node) - start > sim_s:
+            return False
+    return False
+
+
 def _can(states):
     for state in states.objects:
         if state.name == 'can':
@@ -118,7 +143,11 @@ class TestCanOnTable(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         rclpy.init()
-        cls.node = rclpy.create_node('scenario_launch_probe')
+        # On sim time, so episode bounds are judged as the scenario node judges them.
+        cls.node = rclpy.create_node(
+            'scenario_launch_probe',
+            parameter_overrides=[Parameter('use_sim_time', value=True)],
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -155,16 +184,20 @@ class TestCanOnTable(unittest.TestCase):
         gaps = [later - earlier for earlier, later in zip(stamps, stamps[1:])]
         self.assertLessEqual(max(gaps), MAX_STAMP_GAP_S, f'/sim/objects stamp gaps {gaps}')
 
-        # Reset; the engine's respawn service may still be coming up.
+        # Reset; the engine's respawn service may still be coming up. Each call is
+        # waited out before the next: a reset can take its move's and its rollback's
+        # deadlines, and a second call sent over a running one would queue behind it.
         reset = node.create_client(Reset, '/sim/reset')
         self.assertTrue(reset.wait_for_service(timeout_sec=30.0))
         response = None
-        deadline = time.monotonic() + 30.0
+        # Real time, not sim time: the adapter's move and rollback deadlines are too.
+        deadline = time.monotonic() + 60.0
         while time.monotonic() < deadline:
             future = reset.call_async(Reset.Request(seed=SEED))
-            rclpy.spin_until_future_complete(node, future, timeout_sec=10.0)
+            rclpy.spin_until_future_complete(node, future, timeout_sec=RESET_CALL_TIMEOUT_S)
+            self.assertTrue(future.done(), 'a reset did not answer')
             response = future.result()
-            if response is not None and response.ok:
+            if response.ok:
                 break
             time.sleep(1.0)
         self.assertTrue(response is not None and response.ok, response)
@@ -190,12 +223,13 @@ class TestCanOnTable(unittest.TestCase):
             self.assertGreaterEqual(position[index], nominal[index] + low - SETTLE_TOLERANCE_M)
             self.assertLessEqual(position[index], nominal[index] + high + SETTLE_TOLERANCE_M)
 
-        # Idle never moves the can: the reset's episode times out as a failure.
+        # Idle never moves the can: the reset's episode times out as a failure, within
+        # its timeout of sim time (and a margin for the tick that judges it).
         self.assertTrue(
-            _spin_until(
-                node, lambda: any(o.seed == SEED for o in outcomes), EPISODE_TIMEOUT_S * 6
+            _spin_until_sim(
+                node, lambda: any(o.seed == SEED for o in outcomes), EPISODE_TIMEOUT_S * 1.5
             ),
-            f'no outcome for seed {SEED}: {outcomes}',
+            f'no outcome for seed {SEED} by sim time {_sim_s(node):.1f} s: {outcomes}',
         )
         (outcome,) = [o for o in outcomes if o.seed == SEED]
         self.assertEqual(outcome.scenario, 'can_on_table')
