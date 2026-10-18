@@ -111,7 +111,13 @@ def _alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    # A killed child orphaned to a PID 1 that never reaps (CI's container) stays a
+    # zombie, which signal 0 still finds.
+    try:
+        with open(f'/proc/{pid}/stat') as stat:
+            return stat.read().rsplit(')', 1)[1].split()[0] != 'Z'
+    except FileNotFoundError:
+        return False
 
 
 @pytest.mark.skipif(platform.system() != 'Linux', reason='the wrapper is checked on Linux')
