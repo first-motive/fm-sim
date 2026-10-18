@@ -2,9 +2,11 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Simulation layer for First Motive's ROS2 stack. Groups the headless dev loop, the
-backend hosts, and the MJCF model registry — the packages that run the robot in
-simulation.
+Simulation layer for First Motive's ROS2 stack. One launch runs a backend, a
+robot, a scenario and a controller together; a sim agent runs that launch on a
+sim host (this Mac, fm-ws-01 or AWS), and the `fm sim` CLI and the desktop app's
+Simulation screen drive it over Zenoh. The headless dev loop, the backend hosts
+and the MJCF model registry sit underneath.
 
 Part of First Motive's ROS2 stack. Builds standalone here; assembled
 with the other six package repos by
@@ -39,8 +41,12 @@ colcon test && colcon test-result --verbose
 
 ## Run
 
-`run.sh` is the standalone front door: it launches the headless sim loop that
-Foxglove Studio renders at `ws://localhost:8765`. The sim stack targets ROS2
+`run.sh` is the standalone front door for the dev loop: it launches
+`fm_sim_core`'s `sim.launch.py`, the headless sim loop on mujoco or a backend
+host on gazebo and isaac. The container path publishes port 8765 for Foxglove
+Studio, but the launch starts no `foxglove_bridge`. A full run, with a scenario,
+a controller and cameras, goes through [the run contract](#run-contract) or
+[`fm sim`](#sim-agent). The sim stack targets ROS2
 Jazzy only (Humble sim is retired). Jazzy has no macOS build, so on a Mac every
 backend runs inside the fm-docker Linux container (OrbStack) —
 there is no native-Mac path for any sim engine. Linux runs bare-metal native.
@@ -85,8 +91,9 @@ it, and falls back to a plain bash `select` otherwise, so the choice always work
 It is terminal-gated: `--backend` and the `curl | bash` path (no TTY) skip it, so
 the curl-to-launch flow is untouched. The chosen engine is forwarded to
 `sim.launch.py` as `backend:=<engine>`. `mujoco` runs the in-process `sim_loop`;
-`gazebo`/`isaac` need a robot description and a controllers file fm-sim does not
-own yet, and fail with a clear pointer when run without them. The description is
+`gazebo`/`isaac` need a robot description and a controllers file passed in,
+which `sim.launch.py` does not build (`run.launch.py` builds both from the
+catalog), and fail with a clear pointer when run without them. The description is
 [`fm-robot`](https://github.com/first-motive/fm-robot)'s
 `fm_control/urdf/<robot>.sim.urdf.xacro`, expanded with `sim_backend:=mujoco|gz|isaac`.
 
@@ -179,7 +186,9 @@ testability.
 
 ![backends](docs/diagrams/backends.svg)
 
-Full backend table, run contract, MJCF registry, and dev loop:
+Sim hosts, the run contract and its four dimensions, the agent's verbs and
+error codes, the trust boundary, how to add a robot, scenario or controller, the
+backend table, MJCF registry, and dev loop:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Governance

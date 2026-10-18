@@ -1,7 +1,8 @@
 # Catalog entry (fm_sim.controllers): the arm trajectory controllers start active so
 # an operator's teleop source can drive them, such as fm-teleop's leader source
 # (JointTrajectory on <arm controller>/joint_trajectory). The source runs outside
-# this launch; MoveIt Servo sources need a Servo role no sim robot has yet.
+# this launch. A MoveIt Servo source also needs the robot's servo launch role, which
+# this entry does not activate (policy_serve does).
 name: teleop
 description: Arm trajectory controllers active for an operator's teleop source
 available: true

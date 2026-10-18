@@ -173,9 +173,9 @@ JPEG-compresses it, and publishes:
 `sim_camera` publishes at most at the role's `rate_hz`, judged on the stamps; the
 10 Hz render bounds it below that (OpenArm's file says 15). Fisheye pixels whose
 rays fall outside the render, towards the image corners (about 12 % of OpenArm's
-frame, asserted in fm_sim_cameras' `test_fisheye.py`), are black. Isaac renders
-the same cameras file through its own stage and relays (see fm_sim_backends);
-Gazebo has no cameras yet. The cameras file is checked by
+frame, asserted in fm_sim_cameras' `test_fisheye.py`), are black. Gazebo and
+Isaac render the same cameras file through their own camera sensors and the
+shared relays; Gazebo renders no lens distortion (see fm_sim_backends). The cameras file is checked by
 `fm_sim_cameras.cameras_file` for every backend, and each backend refuses what
 it cannot render on top. Camera topics carry no integrity check beyond the sim
 host's own DDS graph.
