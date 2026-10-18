@@ -37,9 +37,9 @@ which Jazzy ignores and that Humble launch still needs.
 - **MuJoCo** hosts the `controller_manager` inside the simulation: it loads the
   description, steps the MJCF physics, and exposes the hardware interfaces the
   controllers drive. The MJCF is the `mujoco_model` the description names: under
-  `run.launch.py`, the world `fm_sim_scenarios` generates around the vendored
-  `openarm_mujoco` v2 model, which it attaches in place so its relative
-  `meshdir="assets"` resolves. [`config/mujoco_plugins.yaml`](config/mujoco_plugins.yaml)
+  `run.launch.py`, the world `fm_sim_scenarios` generates around the robot's model
+  from `fm_sim_models`, which it attaches in place so a relative `meshdir`
+  resolves, and whose `<option>` it copies. [`config/mujoco_plugins.yaml`](config/mujoco_plugins.yaml)
   always loads mujoco_ros2_control's free-joint state publisher, putting every
   free body's world pose on `/mujoco/free_joint_states` at 30 Hz of sim time, and
   its CameraPlugin under the key `mujoco_cameras`, which renders every camera in

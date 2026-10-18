@@ -1,15 +1,20 @@
 # Catalog entry (fm_sim.robots): the bimanual OpenArm v2 in fm-robot's canonical
 # openarm_* names. Controller names follow the fm_openarm_v2 robot profile.
 name: openarm
-description: OpenArm v2, bimanual with pinch grippers (fm-robot openarm_* names)
+description: OpenArm v2, bimanual with the loader's parallel-jaw hands and limits (fm-robot openarm_* names)
 available: true
 description_file:
   package: fm_control
   path: urdf/openarm.sim.urdf.xacro
 description_args:
   robot_preset: default_bimanual
-  # The profile's TCP is the pinch gripper's grasp frame.
+  # The hand fm-rob-01's loader runs: prismatic fingers over 0..0.05 m and its joint
+  # limits. hand: pinch with mjcf: openarm_pinch gives openarm_description's stock
+  # v2.0 pinch gripper instead; the two must change together.
+  hand: loader
+  # The profile's TCP is the hand's grasp frame.
   emit_grasp_frame: 'true'
+# fm_sim_models' v2 MJCF patched to the same hand and limits.
 mjcf: openarm
 # The vendored MJCF has the arm bases at its origin; the description mounts them
 # 0.698 m up on openarm_body_link0 (as openarm_mujoco's pedestal.xml does).

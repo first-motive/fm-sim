@@ -159,7 +159,7 @@ images and the cameras are fisheyes, so each MJCF camera is a pinhole wide
 enough for its fisheye's edge midpoints (`fisheye.render_camera`), mounted where
 the description puts the optical frame: `fm_sim_cameras.mount` walks the frame's
 fixed joints up to the nearest link the MJCF also has as a body (the right
-wrist camera rides `openarm_right_ee_base_link`), or to the description's root
+wrist camera rides `openarm_right_hand`), or to the description's root
 (the chest camera is a world camera). The engine's CameraPlugin renders each at
 10 Hz of sim time (mujoco_ros2_control 0.1.2's behaviour; `test_camera_launch.py`
 checks it live); `sim_camera` warps the render into the real fisheye image,

@@ -234,7 +234,7 @@ def test_gazebo_writes_the_scenario_world(tmp_path):
 
 
 @pytest.mark.skipif(
-    not os.path.isfile(mjcf_path('openarm')), reason='openarm_mujoco external (vcs import)'
+    not os.path.isfile(mjcf_path('openarm_pinch')), reason='openarm_mujoco external (vcs import)'
 )
 def test_mujoco_builds_the_openarm_world(tmp_path):
     entries = _entries('mujoco', 'can_on_table')
@@ -362,7 +362,7 @@ def _openarm_description(entries, world):
 
 
 needs_openarm = pytest.mark.skipif(
-    not os.path.isfile(mjcf_path('openarm')), reason='openarm_mujoco external (vcs import)'
+    not os.path.isfile(mjcf_path('openarm_pinch')), reason='openarm_mujoco external (vcs import)'
 )
 
 
@@ -377,7 +377,7 @@ def test_openarm_cameras_mount_on_the_world_and_the_right_hand(tmp_path):
     by_role = {camera.role: camera for camera in cameras}
     assert sorted(by_role) == ['chest', 'wrist_right']
     assert by_role['chest'].model.body is None
-    assert by_role['wrist_right'].model.body == 'openarm_right_ee_base_link'
+    assert by_role['wrist_right'].model.body == 'openarm_right_hand'
     assert by_role['chest'].render_topic == '/mujoco_cameras/cam_chest/color'
     parameters = run.camera_node_parameters(by_role['wrist_right'])
     assert parameters == {

@@ -2,7 +2,9 @@
 
 The robot model is attached unchanged (``<model>`` asset + ``<attach>``), so its
 own compiler settings, defaults and relative mesh paths keep resolving against its
-file. The attach sits in a frame at the robot's ``mjcf_mount_xyz``, which puts the
+file. MuJoCo keeps only the world's ``<option>`` on attach, so the robot model's
+``<option>`` (its physics settings, such as noslip for a gripper) is copied into the
+world. The attach sits in a frame at the robot's ``mjcf_mount_xyz``, which puts the
 MuJoCo world on the robot description's root frame; scenario poses are in that
 frame. Static objects become world geoms; the others become free bodies spawned
 at ``scenario.spawn_poses(scenario, seed)``.
@@ -22,6 +24,7 @@ to their bodies, and its asset directories made absolute so its meshes still
 resolve from the copy's directory.
 """
 
+import copy
 from dataclasses import dataclass
 import os
 import xml.etree.ElementTree as ET
@@ -179,6 +182,9 @@ def generate(robot_mjcf, mount_xyz, scenario, seed, model_name='fm_sim_world', w
     fixed = sc.static_poses(scenario)
 
     root = ET.Element('mujoco', {'model': model_name})
+    robot_option = ET.parse(robot_mjcf).getroot().find('option')
+    if robot_option is not None:
+        root.append(copy.deepcopy(robot_option))
     asset = ET.SubElement(root, 'asset')
     ET.SubElement(asset, 'model', {'name': ROBOT_MODEL, 'file': robot_mjcf})
     world = ET.SubElement(root, 'worldbody')
