@@ -431,8 +431,15 @@ def test_a_failed_pull_is_refused_with_its_last_line(docker, capsys):
     assert code == 1
     final = lines[-1]
     assert set(final) == {"ok", "error", "status"}
-    assert final["error"] == {"code": "pull_failed", "message": "Error response from daemon: denied"}
+    assert final["error"]["code"] == "pull_failed"
+    assert final["error"]["message"].startswith("Error response from daemon: denied; ")
+    assert final["error"]["message"].endswith("run: docker login ghcr.io")
     assert_local_status(final["status"])
+
+
+def test_a_pull_that_fails_for_another_reason_gets_no_login_hint():
+    message = this_machine.pull_failure("no space left on device", "ghcr.io/first-motive/fm-sim:jazzy")
+    assert message == "no space left on device"
 
 
 def test_a_pull_that_misses_the_pin_is_a_digest_mismatch(docker, capsys, monkeypatch):
