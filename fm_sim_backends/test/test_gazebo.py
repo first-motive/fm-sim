@@ -167,6 +167,39 @@ def test_a_spared_child_outlives_the_signal_the_others_get(tmp_path):
             os.kill(spared, signal.SIGKILL)
 
 
+@pytest.mark.skipif(platform.system() != 'Linux', reason='the wrapper is checked on Linux')
+def test_a_child_that_hangs_on_shutdown_is_killed(tmp_path):
+    # gz-sim can hang on its way out; the watchdog kills the group, even with the
+    # wrapper itself SIGKILLed (as launch does last), which nothing can forward.
+    child_pid = tmp_path / 'child.pid'
+    child = (
+        'import os, signal, sys, time; '
+        '[signal.signal(s, signal.SIG_IGN) for s in (signal.SIGINT, signal.SIGTERM)]; '
+        'open(sys.argv[1], "w").write(str(os.getpid())); time.sleep(300)'
+    )
+    wrapper = subprocess.Popen(
+        process_group.command(sys.executable, '-c', child, str(child_pid))
+    )
+    deadline = time.monotonic() + 10.0
+    while not child_pid.exists() or not child_pid.read_text().strip():
+        assert time.monotonic() < deadline, 'the child never started'
+        time.sleep(0.05)
+    stuck = int(child_pid.read_text())
+    try:
+        wrapper.send_signal(signal.SIGINT)
+        time.sleep(0.5)
+        assert _alive(stuck), 'the child was meant to ignore SIGINT'
+        wrapper.kill()
+        wrapper.wait(timeout=5.0)
+        deadline = time.monotonic() + process_group.KILL_AFTER_S + 5.0
+        while _alive(stuck) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not _alive(stuck), 'a child that ignores shutdown outlived the wrapper'
+    finally:
+        if _alive(stuck):
+            os.kill(stuck, signal.SIGKILL)
+
+
 def test_spare_must_be_a_process_name():
     with pytest.raises(ValueError, match='process name'):
         process_group.command('true', spare='x; rm -rf /')

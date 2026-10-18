@@ -131,6 +131,11 @@ def gazebo(monkeypatch):
     rclpy.shutdown()
 
 
+# The first poses reach the probe once DDS discovery completes, which a loaded CI
+# host can stretch well past the 5 s the behaviour checks allow.
+DISCOVERY_S = 30.0
+
+
 def _wait(predicate, timeout_s=5.0):
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -164,7 +169,7 @@ def _reset(probe, seed):
 def test_objects_come_from_the_bridged_poses(gazebo):
     _, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     positions = _positions(received[-1])
     assert positions['can'] == pytest.approx(START['can'])
     assert positions['ball'] == pytest.approx(START['ball'])
@@ -184,7 +189,7 @@ def test_a_stale_pose_is_left_out(gazebo):
 def test_non_finite_or_future_poses_are_skipped(gazebo, bad):
     gz, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     if bad == 'nan':
         gz.positions['can'] = (float('nan'), 0.0, 0.0)
     else:
@@ -206,7 +211,7 @@ def test_poses_in_another_frame_are_skipped(gazebo):
 def test_reset_moves_each_free_object_through_set_pose(gazebo):
     gz, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     response = _reset(probe, 11)
     assert response.ok, response.message
     spawn = sc.spawn_poses(CAN_ON_TABLE, 11)
@@ -222,7 +227,7 @@ def test_reset_moves_each_free_object_through_set_pose(gazebo):
 def test_a_refused_move_fails_the_reset(gazebo):
     gz, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     gz.succeeds = False
     response = _reset(probe, 3)
     assert not response.ok
@@ -232,7 +237,7 @@ def test_a_refused_move_fails_the_reset(gazebo):
 def test_a_second_object_refused_restores_the_first(gazebo):
     gz, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     gz.refuse = {'ball'}
     response = _reset(probe, 3)
     assert not response.ok
@@ -251,7 +256,7 @@ def test_a_second_object_refused_restores_the_first(gazebo):
 def test_a_late_reply_is_ignored(gazebo, monkeypatch):
     gz, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     gz.slow = {'can': 2.5}
     response = _reset(probe, 3)
     assert not response.ok
@@ -277,13 +282,15 @@ def test_a_stale_forward_move_after_the_rollback_is_reported(gazebo, monkeypatch
     monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 3.0)
     gz, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     gz.slow_apply = {'can': (4.0, 9.0)}
     response = _reset(probe, 3)
     assert not response.ok
-    # The rollback landed, and the warning names the object whose move may still land.
+    # The rollback landed (the adapter checks that before answering), and the warning
+    # names the object whose move may still land.
     assert 'restored every object, but can may still move' in response.message
-    assert gz.positions['can'] == pytest.approx(START['can'])
+    forward, rollback = [r.pose.position for r in gz.requests if r.entity.name == 'can']
+    assert (rollback.x, rollback.y, rollback.z) == pytest.approx(START['can'])
     target = sc.spawn_poses(CAN_ON_TABLE, 3)['can'][0]
     assert _wait(lambda: gz.positions['can'] == pytest.approx(target), 10.0)
 
@@ -291,7 +298,7 @@ def test_a_stale_forward_move_after_the_rollback_is_reported(gazebo, monkeypatch
 def test_a_move_that_does_not_land_is_undone(gazebo):
     gz, probe = gazebo()
     received = _objects(probe)
-    assert _wait(lambda: received and len(received[-1].objects) == 4)
+    assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
     gz.applies = False
     response = _reset(probe, 3)
     assert not response.ok

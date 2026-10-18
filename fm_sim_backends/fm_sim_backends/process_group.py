@@ -7,7 +7,11 @@ running. Here bash runs the command as a job (``set -m``: a process group of its
 own, and the command does not start with SIGINT ignored), and traps pass each
 shutdown signal on; bash then waits for the job and returns its exit status.
 
-By default the signal goes to the job's whole process group (gz-sim). With
+By default the signal goes to the job's whole process group (gz-sim), and a
+watchdog then sends that group SIGKILL if it is still alive ``KILL_AFTER_S``
+later. gz-sim can hang on its way out (seen with the cameras rendering on
+software GL): it then outlived the launch's SIGKILL, which reaches only this
+wrapper. The watchdog is a job of its own, so that SIGKILL does not stop it. With
 ``spare``, it goes to the job's children except those named ``spare`` (MuJoCo's
 xvfb-run spares ``Xvfb``): the node stops first, and the wrapper then stops what
 it spared, as on a normal exit. Signalling Xvfb in the same instant would cut the
@@ -22,11 +26,16 @@ import platform
 import re
 import shlex
 
+# Under launch's own escalation (SIGTERM 5 s after SIGINT, SIGKILL 5 s later) and
+# well past a normal gz-sim exit (about a second).
+KILL_AFTER_S = 5
 _GROUP = (
     'set -m; "$@" & job=$!; '
-    'trap "kill -INT -$job" INT; trap "kill -TERM -$job" TERM; '
+    'stop() {{ kill -$1 -$job 2>/dev/null; '
+    '( sleep {kill_after}; kill -KILL -$job 2>/dev/null ) & }}; '
+    'trap "stop INT" INT; trap "stop TERM" TERM; '
     'wait $job; wait $job'
-)
+).format(kill_after=KILL_AFTER_S)
 _SPARING = (
     'set -m; "$@" & job=$!; '
     'forward() {{ for pid in $(pgrep -P $job); do '
