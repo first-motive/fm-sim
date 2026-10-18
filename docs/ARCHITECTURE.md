@@ -47,7 +47,7 @@ agent, so a run either one starts shows in both.
 | `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `axol`'s committed MJCF resolves from this package's share |
 | `fm_sim_ee_follower` | ament_python | `ee_follower` node: damped-least-squares IK from `/commanded_ee_right` to the right arm's forward position controller, standing in for the loader's IK; ROS-free DLS core |
 | `fm_sim_bringup` | ament_python | `run.launch.py` and the catalog of backends, robots, scenarios and controllers, resolved from the ament index |
-| `fm_sim_scenarios` | ament_python | Backend-neutral scenario logic (seeded spawns, success predicate), the per-backend world generators (MuJoCo, and the Isaac Sim stage spec) and the scenario node serving `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
+| `fm_sim_scenarios` | ament_python | Backend-neutral scenario logic (seeded spawns, success predicate), the per-backend world generators (MuJoCo, Gazebo, and the Isaac Sim stage spec) and the scenario node serving `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
 | `fm_sim_cameras` | ament_python | Simulated cameras as the real ones publish them: camera mounts from the description, the fisheye warp of a pinhole render, and the `sim_camera` node publishing `/cam_<role>/image_raw/compressed` and `/cam_<role>/camera_info` |
 | `fm_sim_msgs` | ament_cmake | The scenario interfaces: `ObjectState(s)`, `Outcome`, `Reset` |
 | `fm_sim` | ament_cmake (meta) | Metapackage tying the eight together for a single install |
@@ -65,8 +65,8 @@ whose content points at the entry's yaml, so any package registers an entry by
 installing two files. The launch validates all four, expands the robot's fm-robot
 xacro with the backend's args, includes the backend host, spawns the robot's
 controllers by role, starts the launch roles the controller activates, and
-includes the controller's own launch. On MuJoCo and Isaac it first builds the
-scenario into a world for that seed, and a scenario with objects adds the
+includes the controller's own launch. It first builds the scenario into a
+world for that seed on every backend, and a scenario with objects adds the
 scenario node. The seven steps, in order, are in
 [`fm_sim_bringup`](../fm_sim_bringup/README.md#run-contract).
 
@@ -92,15 +92,14 @@ backend missing from its `supported_backends`.
 | | | `policy_serve`; `fastwam` (placeholder, unavailable) | fm-teleop `fm_teleop_policy` |
 
 An entry joins the catalog wherever its package is installed beside
-`fm_sim_bringup`. The fm-sim image builds only this repo and the externals in
-`fm-sim.repos`, so a sim host's agent, which reads the catalog from that image,
-offers `idle` and `teleop` alone; the controllers from other repos list in a
-workspace that builds their packages too. An unavailable entry's `description`
+`fm_sim_bringup`. A sim host's agent reads the catalog from the image it runs.
+The public fm-sim image builds only this repo and the externals in
+`fm-sim.repos`, so it offers `idle` and `teleop` alone. The private
+`ghcr.io/first-motive/fm-sim-controllers:jazzy` image, built from fm-skills'
+`docker/sim-controllers.Dockerfile`, adds a colcon overlay with `fm_skills`,
+`classical`, `policy_serve` and `fastwam`; a host selects it with `FM_SIM_IMAGE`
+and pins it with `FM_SIM_IMAGE_DIGEST`. An unavailable entry's `description`
 says why it is refused, and `ros2 run fm_sim_bringup catalog` prints it.
-
-Only MuJoCo and Isaac have a world generator. Gazebo refuses a scenario with
-objects, and renders no cameras, until its generator lands (see
-[Not Yet On Main](#not-yet-on-main)).
 
 ### Scenario Topics
 
@@ -187,7 +186,8 @@ fm-robot's sim xacro passes the looked-up path as its `mujoco_model` argument.
 
 | Robot key | MJCF | Status |
 |-----------|------|--------|
-| `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml` | Joint names match description |
+| `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml`, patched to the loader hand | Matches fm-robot's default `hand:=loader` description |
+| `openarm_pinch` | `openarm_mujoco/v2/openarm_bimanual.xml` | Stock v2.0 pinch gripper; matches `hand:=pinch` |
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match system |
 | `g1_d` | `unitree_mujoco/.../g1_29dof.xml` | Wired, not yet validated — bipedal legs differ from wheeled G1-D |
 | `axol` | `models/axol/axol.xml` (package share) | Almond Bot Axol, bimanual 2×7-DOF — mujoco validated; real CAN deferred |
@@ -359,7 +359,7 @@ needs the bridge allowlist and the app's topic table.
 **A scenario.** Add the yaml under `fm_sim_bringup/catalog/scenarios/`:
 objects, regions and an `object_in_region` success predicate, with poses in the
 description's world frame. The schema and the generators check it on load. A
-scenario with objects runs only on a backend with a world generator.
+scenario with objects runs on every backend.
 
 **A robot.** It needs a `<robot>.sim.urdf.xacro` in fm-robot that takes
 `sim_backend`, a MuJoCo model registered in `fm_sim_models`, a controllers file,
@@ -372,9 +372,9 @@ runs only controllers without a launch. Add the robot to
 
 | Work | State |
 |------|-------|
-| Gazebo scenario generator and cameras | In review as fm-sim #57. Until it merges, Gazebo refuses a scenario with objects and publishes no cameras |
-| Loader hand for the sim OpenArm | fm-robot's loader-hand preset is merged (fm-robot #53), but fm-sim still pins fm-robot `f5e63b5` and the v2.0 pinch hand. The fm-sim switch to the loader hand and the `fm_openarm_v2` profiles' `hand_frame` change are pending, so `fm_skills` stays unavailable |
-| Controllers from other repos in the image | `fm_skills`, `classical`, `act`, `smolvla`, `pi0` and `policy_serve` are registered in their own repos but not built into the fm-sim image, so no sim host's agent offers them |
+| `fm_skills` in sim | Built into the controllers image, but `available: false` until a live pick in sim passes on the loader hand |
+| VLA controllers | `act`, `smolvla` and `pi0` need torch, so no image builds them; they wait for a GPU variant of the controllers image |
+| Controllers image on a host | The image is private, so a host needs a ghcr login to pull it, and no host selects it by default |
 
 ## Design Notes
 
