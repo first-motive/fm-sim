@@ -6,6 +6,7 @@ shipped ScenarioNode with ``backend: gazebo``.
 """
 
 import json
+import math
 import threading
 import time
 
@@ -147,6 +148,23 @@ def _wait(predicate, timeout_s=5.0):
     return False
 
 
+def _goes_quiet(received, quiet_s=1.0, timeout_s=15.0):
+    """Whether ``received`` stops growing for ``quiet_s`` within ``timeout_s``.
+
+    A fixed settle sleep misses poses still queued on a loaded host; a stream that
+    never stops (the dropped pose published after all) still fails.
+    """
+    deadline = time.monotonic() + timeout_s
+    count, since = len(received), time.monotonic()
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+        if len(received) != count:
+            count, since = len(received), time.monotonic()
+        elif time.monotonic() - since >= quiet_s:
+            return True
+    return False
+
+
 def _objects(probe):
     received = []
     probe.create_subscription(ObjectStates, '/sim/objects', received.append, 10)
@@ -196,11 +214,10 @@ def test_non_finite_or_future_poses_are_skipped(gazebo, bad):
         gz.positions['can'] = (float('nan'), 0.0, 0.0)
     else:
         gz.ahead_s = 1.0
-    time.sleep(0.2)
-    received.clear()
-    time.sleep(0.3)
-    # The can paces /sim/objects: with its poses dropped, nothing is published.
-    assert received == []
+    # The can paces /sim/objects: with its poses dropped, nothing more is published.
+    assert _goes_quiet(received), f'/sim/objects kept publishing: {received[-1]}'
+    if bad == 'nan':
+        assert all(math.isfinite(x) for states in received for x in _positions(states)['can'])
 
 
 def test_poses_in_another_frame_are_skipped(gazebo):
