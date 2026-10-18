@@ -110,6 +110,20 @@ def repository_of(ref: str) -> str:
     return head if sep and "/" not in tail else ref
 
 
+#: What a registry says when the pull needs credentials it was not given (a private
+#: image, such as fm-sim-controllers, before ``docker login``).
+_AUTH_REFUSAL = re.compile(r"denied|unauthorized|authentication required", re.IGNORECASE)
+
+
+def pull_failure(message: str, image: str) -> str:
+    """``message`` (capped), with how to log in when the registry refused credentials."""
+    message = message[:300]
+    if not _AUTH_REFUSAL.search(message):
+        return message
+    registry = image.split("/", 1)[0]
+    return f"{message}; if {image} is private, run: docker login {registry}"
+
+
 def agent_command(image: str, host: str) -> list[str]:
     """The managed agent's argv: the service as this machine, off the host network."""
     return [
@@ -625,7 +639,9 @@ class LocalHost:
                 process.kill()
                 process.wait()
         if code != 0:
-            raise LocalError("pull_failed", last[:300] or f"docker pull exited with {code}")
+            raise LocalError(
+                "pull_failed", pull_failure(last, self.image) or f"docker pull exited with {code}"
+            )
         if self.pin:
             tagged = self._docker("tag", source, self.image)
             if tagged.returncode != 0:
