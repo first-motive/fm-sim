@@ -2,7 +2,7 @@
   "_fm_render": {
     "artifact": "render-lock",
     "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
-    "sha256": "17241420ba2dd9955cc040a9ac0e20dc98f565f9057f17f7d9fd2e039e00db3d"
+    "sha256": "cebeaf849c605fa5b4c62b9ebad90804815cd786436637da9cb3255c0d17bd0b"
   },
   "artifacts": {
     "agents-invariants": {
@@ -86,14 +86,6 @@
       ],
       "sha256": "a54b579e3a04cf302f04cf2e63bfb74569a3d258819edfca30fa645aa3d6f60e",
       "stamp": "html"
-    },
-    "qemu-binfmt": {
-      "mode": "block",
-      "paths": [
-        ".github/workflows/ci.yml"
-      ],
-      "sha256": "83c33276dedb113f2237a8de56620ea914da38d4afd9f70c28c44267553b6375",
-      "stamp": "sh"
     },
     "render-check": {
       "mode": "file",
