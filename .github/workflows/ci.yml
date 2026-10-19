@@ -54,7 +54,10 @@ jobs:
 
   image:
     name: build + publish image (FROM fm-docker jazzy base)
-    runs-on: ubuntu-latest
+    # A pull request builds arm64 natively on the arm runner: smoke-container
+    # already builds amd64, and emulating arm64 under QEMU took most of half an
+    # hour. Main keeps the multi-arch build it publishes.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
@@ -85,13 +88,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Build multi-arch (arm64 + amd64). Publish to GHCR only on main — branch and
-      # PR runs build to validate without pushing.
+      # Build multi-arch (arm64 + amd64) on main and publish it to GHCR. A pull
+      # request builds arm64 only, to validate without pushing.
       - name: Build + publish the sim image
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/arm64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: ghcr.io/first-motive/fm-sim:jazzy
           cache-from: type=gha
