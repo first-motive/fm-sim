@@ -180,8 +180,14 @@ def generate_launch_description():
                 # Jazzy reads the description from the topic and ignores this
                 # parameter; fm-app's Humble fm_bringup still includes this
                 # backend and needs it until that launch moves to Jazzy.
+                # use_sim_time: the engine publishes /clock, and the controllers
+                # stamp /joint_states (so the robot's /tf) from this node's clock,
+                # which must match the sim-time stamps of /sim/objects and cameras.
+                # The clock comes from this same process, so it runs whenever the
+                # controllers do.
                 parameters=[
-                    {'robot_description': robot_description}, controllers_file, plugins_file,
+                    {'robot_description': robot_description, 'use_sim_time': True},
+                    controllers_file, plugins_file,
                 ],
                 output='screen',
             ),
