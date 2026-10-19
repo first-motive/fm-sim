@@ -65,7 +65,7 @@ DEFAULT_IMAGE = "ghcr.io/first-motive/fm-sim:jazzy"
 #: amd64 and arm64), or None to follow the tag. CI pushes the tag on every main
 #: push; this pin moves only when it is bumped here. Read the tag's current one
 #: with ``docker buildx imagetools inspect <DEFAULT_IMAGE>``.
-DEFAULT_IMAGE_DIGEST: str | None = "sha256:25f5c4384d6be8deb8cb399313a3906008a5f7d42570988e4531da4086f744bb"
+DEFAULT_IMAGE_DIGEST: str | None = "sha256:e91d0cedbbfeb345d0e992db3ee09cac7f96d8427098d7fcb250e3ddaba7488c"
 IMAGE_ENV = "FM_SIM_IMAGE"
 DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 #: ``[registry[:port]/]path[:tag]``, lower case, no digest (the pin adds that),
