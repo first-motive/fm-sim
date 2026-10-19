@@ -101,6 +101,14 @@ def test_controller_manager_keeps_the_description_parameter(backend, monkeypatch
         assert extra == []
 
 
+def test_mujoco_controller_manager_runs_on_sim_time(monkeypatch):
+    # Its clock stamps /joint_states and so the robot's /tf; on wall time they never
+    # line up with the sim-time /sim/objects (fm-skills' gt perception drops them).
+    _, call = _engine_node(monkeypatch)
+    (parameters,) = [p for p in call['parameters'] if isinstance(p, dict)]
+    assert parameters['use_sim_time'] is True
+
+
 def _engine_node(monkeypatch, system='Linux', mujoco_gl=None):
     module = _load('mujoco')
     monkeypatch.setattr(module.platform, 'system', lambda: system)
