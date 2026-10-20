@@ -36,6 +36,8 @@ flowchart LR
 | `down` | queryable | `{"run_id"?}` | `{"ok": true, "summary": RunSummary}` |
 | `reset` | queryable | `{"seed": int}` | `{"ok": true}` |
 | `runs` | queryable | `{"limit"?: int}` | `{"ok": true, "runs": [RunSummary]}`, newest first |
+| `description` | queryable | none | `{"ok": true, run_id, urdf}`, the active run's `/robot_description` |
+| `asset` | queryable | `{"uri": "package://…"}` | the mesh's raw bytes; only a `<visual>` mesh the run's description names |
 | `logs` | published on `fm/sim/<host>/logs/<run_id>` | none | one `{"t", "level", "node", "msg"}` per line |
 
 The shapes are the ones in the simulation contracts (§3). A refusal is a Zenoh

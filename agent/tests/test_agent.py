@@ -13,7 +13,7 @@ from fm_sim_agent import agent as agent_module
 from fm_sim_agent.agent import RESET_TIMEOUT_S
 from fm_sim_agent.runs import SUMMARY_KEYS
 from fm_sim_agent.spec import valid_run_id
-from tests.fakes import SPEC, wait_for
+from tests.fakes import SPEC, URDF, wait_for
 
 STATUS_KEYS = {"host", "state", "run_id", "spec", "since", "version"}
 
@@ -828,3 +828,80 @@ def test_a_down_during_a_failing_docker_run_still_stops_the_container(agent, run
     runner.start_gate = None
     del runner.fail["start"]
     assert ask(agent, "up", {**SPEC, "seed": 8})["ok"] is True
+
+
+# -- description and asset ------------------------------------------------------
+
+
+def test_description_is_the_running_runs_urdf_read_once(agent, runner):
+    run_id = up_running(agent)
+    first = ask(agent, "description", {})
+    assert first == {"ok": True, "run_id": run_id, "urdf": URDF}
+    ask(agent, "description", {})
+    assert runner.names().count("description") == 1
+
+
+def test_description_with_no_run_is_not_running(agent):
+    assert code(ask(agent, "description", {})) == "not_running"
+
+
+def test_a_description_not_yet_published_is_not_running_and_asked_again(agent, runner):
+    up_running(agent)
+    runner.fail["description"] = "no /robot_description was echoed"
+    assert code(ask(agent, "description", {})) == "not_running"
+    del runner.fail["description"]
+    assert ask(agent, "description", {})["ok"] is True
+
+
+def test_asset_serves_a_visual_mesh_the_description_names(agent, runner):
+    run_id = up_running(agent)
+    assert agent.answer("asset", json.dumps({"uri": "package://desc/meshes/arm.dae"}).encode()) == {
+        "ok": True, "data": b"mesh:desc/meshes/arm.dae",
+    }  # fmt: skip
+    # Every visual mesh in one read, never the collision mesh.
+    reads = [call for call in runner.calls if call[0] == "assets"]
+    assert reads == [("assets", run_id, [("desc", "meshes/arm.dae"), ("desc", "meshes/base.dae")])]
+
+
+def test_meshes_are_read_once_across_runs_of_one_image(agent, runner):
+    up_running(agent)
+    ask(agent, "asset", {"uri": "package://desc/meshes/arm.dae"})
+    ask(agent, "down", {})
+    up_running(agent, seed=2)
+    assert ask(agent, "asset", {"uri": "package://desc/meshes/base.dae"})["ok"] is True
+    assert runner.names().count("assets") == 1
+
+
+def test_a_new_image_reads_the_meshes_again(agent, runner):
+    up_running(agent)
+    ask(agent, "asset", {"uri": "package://desc/meshes/arm.dae"})
+    ask(agent, "down", {})
+    runner.image = "sha256:two"
+    up_running(agent, seed=2)
+    ask(agent, "asset", {"uri": "package://desc/meshes/arm.dae"})
+    assert runner.names().count("assets") == 2
+
+
+def test_a_failed_mesh_read_is_internal_error(agent, runner):
+    up_running(agent)
+    runner.fail["assets"] = "docker exec failed"
+    assert code(ask(agent, "asset", {"uri": "package://desc/meshes/arm.dae"})) == "internal_error"
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "package://desc/meshes/base.stl",  # collision, not drawn
+        "package://desc/meshes/other.dae",
+        "package://desc/../etc/passwd",
+        "/etc/passwd",
+    ],
+)
+def test_asset_refuses_any_file_the_description_does_not_draw(agent, runner, uri):
+    up_running(agent)
+    assert code(ask(agent, "asset", {"uri": uri})) == "invalid_request"
+
+
+def test_asset_needs_a_uri(agent):
+    up_running(agent)
+    assert code(ask(agent, "asset", {})) == "invalid_request"

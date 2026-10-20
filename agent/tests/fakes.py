@@ -44,6 +44,16 @@ SPEC = {
 _EXIT = object()
 
 
+#: Two visual meshes and one collision mesh, which ``asset`` must never serve.
+URDF = (
+    '<robot name="r"><link name="base"><visual><geometry>'
+    '<mesh filename="package://desc/meshes/base.dae"/></geometry></visual>'
+    '<collision><geometry><mesh filename="package://desc/meshes/base.stl"/></geometry></collision></link>'
+    '<link name="arm"><visual><geometry><mesh filename="package://desc/meshes/arm.dae"/></geometry></visual></link>'
+    "</robot>"
+)
+
+
 class FakeRunner:
     """Records every call. Failures and slowness are switched on per test."""
 
@@ -65,6 +75,7 @@ class FakeRunner:
         self.log_lines: list[str] = []
         self.controllers = {"joint_state_broadcaster": "active", "openarm_right_arm_controller": "inactive"}
         self.serves_reset = True
+        self.urdf = URDF
         #: Run ids Docker would list as live under this host's label.
         self.live: list[str] = []
         #: One log stream per run, as Docker keeps one per container. A shared
@@ -151,6 +162,16 @@ class FakeRunner:
     def _stream(self, run_id: str) -> queue.Queue:
         with self._streams_lock:
             return self._logs.setdefault(run_id, queue.Queue())
+
+    def description(self, run_id: str) -> str:
+        self.calls.append(("description", run_id))
+        self._maybe_fail("description")
+        return self.urdf
+
+    def assets(self, run_id: str, files: list[tuple[str, str]], limit: int) -> dict[tuple[str, str], bytes]:
+        self.calls.append(("assets", run_id, sorted(files)))
+        self._maybe_fail("assets")
+        return {(package, path): f"mesh:{package}/{path}".encode() for package, path in files}
 
     def stop(self, run_id: str) -> None:
         self.calls.append(("stop", run_id))

@@ -14,10 +14,12 @@ the values they act on arrive as positional arguments.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
 import subprocess
+import tarfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
@@ -98,6 +100,34 @@ RUN_TIMEOUT_S = 90.0
 COMMAND_TIMEOUT_S = 30.0
 PROBE_TIMEOUT_S = 10.0
 OUTCOME_TIMEOUT_S = 5.0
+DESCRIPTION_TIMEOUT_S = 10.0
+ASSETS_TIMEOUT_S = 60.0
+#: Resolves each ``package path`` pair to a file under its share directory,
+#: names it on stderr (``asset<TAB>package<TAB>path<TAB>member``), and tars the
+#: ones that exist. A package or file that is not there is skipped, so one
+#: unresolvable mesh does not cost the rest.
+ASSETS_SCRIPT = r"""
+set -e
+IFS=: read -ra prefixes <<< "$AMENT_PREFIX_PATH"
+members=()
+while [ "$#" -ge 2 ]; do
+  package="$1"; path="$2"; shift 2
+  for prefix in "${prefixes[@]}"; do
+    file="$prefix/share/$package/$path"
+    if [ -d "$prefix/share/$package" ]; then
+      if [ -f "$file" ]; then
+        printf 'asset\t%s\t%s\t%s\n' "$package" "$path" "${file#/}" >&2
+        members+=("${file#/}")
+      fi
+      break
+    fi
+  done
+done
+exec tar -chf - -C / -- "${members[@]}"
+"""
+#: tradeoff: 120 slots is past any run's node count; the cost is a few more
+#: unicast discovery probes from the one process that asks.
+PROBE_CYCLONE = "<CycloneDDS><Domain><Discovery><MaxAutoParticipantIndex>120</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>"
 STOP_TIMEOUT_S = 20
 RECORD_STOP_TIMEOUT_S = 15.0
 
@@ -156,6 +186,13 @@ class Runner(Protocol):
         under: ``scenario`` and ``seed`` say which, for the caller to match.
         """
 
+    def description(self, run_id: str) -> str:
+        """The run's latched ``/robot_description``, or raise when it has none yet."""
+
+    def assets(self, run_id: str, files: list[tuple[str, str]], limit: int) -> dict[tuple[str, str], bytes]:
+        """Each ``(package, path)`` in its package's share directory, read in one
+        call, at most ``limit`` bytes in all. A file that is not there is left out."""
+
     def stop(self, run_id: str) -> None:
         """Stop the run and remove what it left. Stopping a stopped run is not an error."""
 
@@ -193,6 +230,35 @@ def parse_outcome(text: str) -> dict | None:
         "reason": reason,
         "elapsed_s": float(elapsed),
     }
+
+
+def parse_description(text: str) -> str:
+    """The URDF out of ``ros2 topic echo --field data``: everything before its
+    closing ``---``. Raises when nothing was echoed."""
+    urdf = text.rsplit("\n---", 1)[0].strip()
+    if not urdf.startswith("<"):
+        raise RunnerError("no /robot_description was echoed")
+    return urdf
+
+
+def parse_assets(archive: bytes, listing: str) -> dict[tuple[str, str], bytes]:
+    """The files out of ``ASSETS_SCRIPT``'s tar, by the ``(package, path)`` its
+    stderr maps each member to. A member the listing does not name is dropped."""
+    names = {}
+    for line in listing.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 4 and parts[0] == "asset":
+            names[parts[3]] = (parts[1], parts[2])
+    found = {}
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+        for member in tar:
+            key = names.get(member.name)
+            if key is None or not member.isfile():
+                continue
+            data = tar.extractfile(member)
+            if data is not None:
+                found[key] = data.read()
+    return found
 
 
 def parse_reset(text: str) -> tuple[bool, str]:
@@ -430,6 +496,52 @@ class DockerRunner:
             # No outcome latched yet is the common case for a run stopped early,
             # and the echo then waits until the timeout. Null, not an error.
             return None
+
+    def description(self, run_id: str) -> str:
+        # A run fills Cyclone's default ten participant slots on its own, so a
+        # probe joining it gets "no free participant index". The probe widens
+        # only its own range, appended to whatever profile the run uses.
+        script = (
+            'export CYCLONEDDS_URI="${CYCLONEDDS_URI:+$CYCLONEDDS_URI,}' + PROBE_CYCLONE + '" && exec "$@"'
+        )
+        command = [
+            ENTRYPOINT, "bash", "-c", script, "fm-sim-description",
+            "ros2", "topic", "echo", "--once", "--full-length", "--field", "data",
+            "--qos-durability", "transient_local", "--qos-reliability", "reliable",
+            "/robot_description", "std_msgs/msg/String",
+        ]  # fmt: skip
+        return parse_description(self._exec(run_id, command, DESCRIPTION_TIMEOUT_S).stdout)
+
+    def assets(self, run_id: str, files: list[tuple[str, str]], limit: int) -> dict[tuple[str, str], bytes]:
+        # One exec for every mesh: a viewer asks for all of them at once, and
+        # each exec costs a container entry and a ROS environment. Packages and
+        # paths are arguments, never spliced into the script; the script finds
+        # each package's share directory on AMENT_PREFIX_PATH and tars what is
+        # there, following the install tree's symlinks.
+        args = [part for pair in files for part in pair]
+        command = [
+            "exec",
+            self.container(run_id),
+            ENTRYPOINT,
+            "bash",
+            "-c",
+            ASSETS_SCRIPT,
+            "fm-sim-assets",
+            *args,
+        ]
+        try:
+            done = subprocess.run(
+                [self.docker, *command], capture_output=True, timeout=ASSETS_TIMEOUT_S, check=False
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RunnerError(f"docker exec timed out after {ASSETS_TIMEOUT_S:.0f}s") from exc
+        except OSError as exc:
+            raise RunnerError(f"cannot run docker: {exc}") from exc
+        if done.returncode != 0:
+            raise RunnerError(f"reading meshes failed: {done.stderr.decode(errors='replace').strip()[-200:]}")
+        if len(done.stdout) > limit:
+            raise RunnerError(f"the meshes are larger than {limit} bytes")
+        return parse_assets(done.stdout, done.stderr.decode(errors="replace"))
 
     def stop(self, run_id: str) -> None:
         name = self.container(run_id)
