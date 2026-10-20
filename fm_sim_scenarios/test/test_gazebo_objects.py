@@ -135,7 +135,8 @@ def gazebo(monkeypatch):
 
 
 # The first poses reach the probe once DDS discovery completes, which a loaded CI
-# host can stretch well past the 5 s the behaviour checks allow.
+# host can stretch well past the 5 s the behaviour checks allow. The same host can
+# slow the 50 Hz stream itself, so a wait for a count of messages uses it too.
 DISCOVERY_S = 30.0
 
 
@@ -200,7 +201,7 @@ def test_objects_come_from_the_bridged_poses(gazebo):
 def test_a_stale_pose_is_left_out(gazebo):
     _, probe = gazebo(stale=['ball'])
     received = _objects(probe)
-    assert _wait(lambda: len(received) >= 5)
+    assert _wait(lambda: len(received) >= 5, DISCOVERY_S)
     assert all('ball' not in _positions(states) for states in received)
     assert all('can' in _positions(states) for states in received)
 
