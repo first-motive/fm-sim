@@ -69,10 +69,12 @@ DEFAULT_IMAGE = "ghcr.io/first-motive/fm-sim:jazzy"
 DEFAULT_IMAGE_DIGEST: str | None = "sha256:e91d0cedbbfeb345d0e992db3ee09cac7f96d8427098d7fcb250e3ddaba7488c"
 IMAGE_ENV = "FM_SIM_IMAGE"
 DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-#: ``[registry[:port]/]path[:tag]``, lower case, no digest (the pin adds that),
-#: and never starting with ``-``.
+#: ``[registry[:port]/]path[:tag][@sha256:<64 hex>]``, lower case, never starting
+#: with ``-``. The digest form is what fm-setup's unit passes as ``--image``: a
+#: host pinned to one image digest runs exactly that image.
 IMAGE_PATTERN = re.compile(
-    r"^[a-z0-9][a-z0-9._-]*(?::[0-9]+)?(?:/[a-z0-9][a-z0-9._-]*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$"
+    r"^[a-z0-9][a-z0-9._-]*(?::[0-9]+)?(?:/[a-z0-9][a-z0-9._-]*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?"
+    r"(?:@sha256:[0-9a-f]{64})?$"
 )
 #: The same override fm-setup's sim step reads, to try a digest before pinning it.
 IMAGE_DIGEST_ENV = "FM_SIM_IMAGE_DIGEST"
@@ -143,8 +145,12 @@ def image_pin(ref: str) -> str | None:
     """The digest ``ref`` is pinned to: ``$FM_SIM_IMAGE_DIGEST``, else the default's pin.
 
     A ref other than ``DEFAULT_IMAGE`` (a local dev build such as
-    ``fm-sim:jazzy``) has no pin unless the environment names one.
+    ``fm-sim:jazzy``) has no pin unless the environment names one. A ref that
+    already carries a digest is refused: here the pin is added to the ref, so
+    the digest belongs in ``$FM_SIM_IMAGE_DIGEST``.
     """
+    if "@" in ref:
+        raise ImageError(f"name the digest in ${IMAGE_DIGEST_ENV}, not in the image reference")
     pin = os.environ.get(IMAGE_DIGEST_ENV, "").strip() or (
         DEFAULT_IMAGE_DIGEST if ref == DEFAULT_IMAGE else None
     )

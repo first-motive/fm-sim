@@ -771,3 +771,27 @@ def test_a_bad_image_is_refused_by_the_in_process_verbs_and_the_service(monkeypa
     monkeypatch.setenv("FM_ROUTER_ENDPOINT", "tcp/router:7447")
     assert service.main(["--host", "local"]) == 1
     assert "is not an image reference" in capsys.readouterr().err
+
+
+DIGEST = "sha256:" + "a" * 64
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        f"ghcr.io/first-motive/fm-sim-controllers@{DIGEST}",  # what fm-setup's unit passes
+        f"ghcr.io/first-motive/fm-sim:jazzy@{DIGEST}",
+        "fm-sim:jazzy",
+    ],
+)
+def test_an_image_ref_may_carry_a_digest(ref):
+    assert service.image_ref(ref) == ref
+
+
+@pytest.mark.parametrize(
+    "ref",
+    ["ghcr.io/x@sha256:short", "ghcr.io/x@md5:" + "a" * 32, "-ghcr.io/x", f"ghcr.io/x@{DIGEST} --privileged"],
+)
+def test_a_malformed_image_ref_is_refused(ref):
+    with pytest.raises(service.ImageError):
+        service.image_ref(ref)
