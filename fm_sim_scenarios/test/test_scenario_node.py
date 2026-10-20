@@ -57,7 +57,9 @@ class FakeObjects:
 
     def move(self, poses):
         self.moves.append(poses)
-        self.release.wait(5.0)
+        # Every test releases the move itself; the bound only frees the executor if
+        # a test fails first. It must outlast any wait a test makes before releasing.
+        self.release.wait(30.0)
         if self.error is not None:
             raise self.error
         if self.ok:
@@ -146,8 +148,11 @@ def test_a_slow_reset_does_not_stall_the_objects(ros):
     future = _reset(probe, 5)
     assert _until(lambda: FakeObjects.last.moves)
     before = len(objects)
-    time.sleep(1.0)   # 50 at the fake's rate; a stalled node publishes none
-    assert len(objects) - before >= 10, 'objects stopped while the reset waited'
+    # Wait for the count rather than sleep a fixed second: a loaded CI host can drop
+    # the fake's 50 Hz to a few messages a second, while a stalled node publishes none.
+    assert _until(lambda: len(objects) - before >= 10, 10.0), (
+        'objects stopped while the reset waited'
+    )
     assert not future.done()
     FakeObjects.last.release.set()
     assert _until(future.done)
