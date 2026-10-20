@@ -159,8 +159,8 @@ backend binds to is defined in [`fm-robot`](https://github.com/first-motive/fm-r
 ROS2 Jazzy has no native macOS build, so on a Mac every backend runs inside the
 fm-docker Linux container (OrbStack) — there is no native-Mac path for any sim
 engine. Linux runs bare-metal native. `run.sh` picks the path from the host OS;
-`scripts/smoke.sh` drives the matrix on a Mac and the `smoke-container` CI job
-drives it on amd64 ubuntu.
+`scripts/smoke.sh` drives the matrix on a Mac and the `image` CI job drives it
+in the built image on amd64 and arm64 ubuntu.
 
 | Backend | macOS (container) | Linux (native) | How it comes up headless |
 |---------|-------------------|----------------|--------------------------|
@@ -171,7 +171,7 @@ drives it on amd64 ubuntu.
 
 On Jazzy, Gazebo Harmonic ships arm64 binaries, and `gazebo` runs headless on
 arm64 under software GL. `smoke.sh` still captures PASS / SKIP / FAIL rather than
-assuming success, and the amd64 CI lane covers the same matrix.
+assuming success, and the amd64 and arm64 CI lanes cover the same matrix.
 
 `isaac` is out on macOS by design. The Isaac Sim application is Linux + NVIDIA
 only and never runs on Apple silicon or the container base image; only its topic

@@ -2,8 +2,8 @@
 # macOS smoke test for the fm-sim backends. Builds the sim image from the working
 # tree, then runs each backend bounded inside the container (real arm64 + OrbStack)
 # and prints a pass/skip/fail table. This is the hand-run truth on a Mac that the
-# ubuntu container CI (amd64) cannot give: each backend on arm64 under software GL
-# is captured as PASS/SKIP/FAIL rather than assumed.
+# ubuntu container CI cannot give: each backend under OrbStack and software GL is
+# captured as PASS/SKIP/FAIL rather than assumed.
 #
 #   ./scripts/smoke.sh                 # build + smoke all backends
 #   SMOKE_TIMEOUT=120 ./scripts/smoke.sh   # widen the per-backend window

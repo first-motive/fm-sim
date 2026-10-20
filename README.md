@@ -108,8 +108,8 @@ this image installs the ros2_control stack itself rather than inheriting it. Tea
 ### Backend × host
 
 Every Mac backend runs headless in the container; Linux runs native. `gazebo`
-runs server-only (`gz -s`) under software GL — proven on the amd64 CI lane, with
-arm64 captured by `scripts/smoke.sh` (a Mac smoke runner that drives the matrix
+runs server-only (`gz -s`) under software GL — proven on the amd64 and arm64 CI
+lanes, and on a Mac by `scripts/smoke.sh` (a smoke runner that drives the matrix
 below and prints a pass/skip/fail table).
 
 | Backend | macOS (container) | Linux (native) | Notes |
