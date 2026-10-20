@@ -22,6 +22,14 @@ scenario starts from, so it counts as applied either way).
 ``error`` holds no run: the failed run's summary is already written, and the
 next ``up`` is accepted.
 
+``description`` and ``asset`` let a viewer draw the active run's robot from its
+own meshes. ``description`` is the run's ``/robot_description``, read once per
+run. ``asset`` is one mesh's bytes, and only a mesh that description draws: the
+URI must be one of its ``<visual>`` mesh filenames, so a caller can name no other
+file in the image. Reading the description starts one background read of every
+mesh it draws; ``asset`` answers from that, and the meshes are kept across runs
+until the image changes.
+
 What a caller is told is deliberately plain: a code and a short reason. What a
 container call printed — Docker's stderr, a traceback — goes to the agent's own
 log, never onto the fabric.
@@ -36,6 +44,7 @@ takes it while holding ``_lock``.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import threading
@@ -44,6 +53,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from xml.etree import ElementTree
 from importlib.metadata import PackageNotFoundError, version
 
 from fm_sim_agent import logline
@@ -61,7 +71,23 @@ from fm_sim_agent.spec import (
     valid_run_id,
 )
 
-VERBS = ("status", "catalog", "up", "down", "reset", "runs")
+VERBS = ("status", "catalog", "up", "down", "reset", "runs", "description", "asset")
+
+#: Verbs whose success reply is raw bytes rather than a JSON body.
+BINARY_VERBS = ("asset",)
+
+#: tradeoff: a URDF is tens of kilobytes and the largest OpenArm mesh is about
+#: a megabyte; these bound a description or image that sends far more.
+MAX_DESCRIPTION_BYTES = 4 << 20
+MAX_ASSET_BYTES = 64 << 20
+#: tradeoff: every mesh one robot draws, read in one go; OpenArm's are about
+#: 5 MB. The cache across runs holds at most this much.
+MAX_MESHES_BYTES = 256 << 20
+#: How long ``asset`` waits on the background read before giving up.
+MESHES_WAIT_S = 60.0
+
+#: ``package://<package>/<path>``, the only mesh URI form a sim robot uses.
+PACKAGE_URI = re.compile(r"package://([A-Za-z][A-Za-z0-9_]*)/([A-Za-z0-9_./-]+)")
 
 #: Ceiling on a request body. Every body the contract defines is a few hundred
 #: bytes; anything past this is a caller spending the agent's memory.
@@ -145,6 +171,11 @@ class Run:
     #: is made under it too. It is never taken while holding the agent's
     #: ``_lock``, and ``_lock`` is never taken while holding it.
     write_lock: threading.Lock = field(default_factory=threading.Lock)
+    #: The run's URDF and the visual mesh URIs it names, read once on first ask.
+    description: tuple[str, frozenset[str]] | None = None
+    description_lock: threading.Lock = field(default_factory=threading.Lock)
+    #: Set once the background read of the description's meshes has ended.
+    meshes_read: threading.Event = field(default_factory=threading.Event)
 
 
 def agent_version() -> str:
@@ -172,6 +203,19 @@ def decode_body(payload: bytes | None) -> dict:
     if not isinstance(decoded, dict):
         raise VerbError("invalid_request", "body must be a JSON object")
     return decoded
+
+
+def visual_meshes(urdf: str) -> frozenset[str]:
+    """Every ``<visual>`` mesh filename a URDF names. An unparsable URDF names none."""
+    try:
+        root = ElementTree.fromstring(urdf)
+    except ElementTree.ParseError:
+        return frozenset()
+    return frozenset(
+        mesh.get("filename", "")
+        for mesh in root.iterfind("./link/visual/geometry/mesh")
+        if mesh.get("filename")
+    )
 
 
 def check_catalog(doc: object) -> dict:
@@ -221,6 +265,10 @@ class SimAgent:
         self._run: Run | None = None
         self._catalog: tuple[str, dict] | None = None
         self._catalog_failed_at: float | None = None
+        #: Mesh bytes by URI, for the image they were read from. Guarded by ``_meshes_lock``.
+        self._meshes: dict[str, bytes] = {}
+        self._meshes_image: str | None = None
+        self._meshes_lock = threading.Lock()
 
     # -- the verb set -------------------------------------------------------
 
@@ -233,6 +281,8 @@ class SimAgent:
             "down": self._down,
             "reset": self._reset,
             "runs": self._runs,
+            "description": self._description,
+            "asset": self._asset,
         }
         try:
             if verb not in handlers:
@@ -274,6 +324,16 @@ class SimAgent:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= RUNS_MAX_LIMIT:
             raise VerbError("invalid_request", f"limit must be an integer from 1 to {RUNS_MAX_LIMIT}")
         return {"runs": self.store.recent(limit)}
+
+    def _description(self, _body: dict) -> dict:
+        run, (urdf, _meshes) = self.description()
+        return {"run_id": run.run_id, "urdf": urdf}
+
+    def _asset(self, body: dict) -> dict:
+        uri = body.get("uri")
+        if not isinstance(uri, str):
+            raise VerbError("invalid_request", "uri is required")
+        return {"data": self.asset(uri)}
 
     # -- operations ---------------------------------------------------------
 
@@ -484,6 +544,81 @@ class SimAgent:
             raise VerbError("reset_failed", "the reset did not take; see the agent log") from None
         with run.write_lock:
             run.reset_seed = seed
+
+    def description(self) -> tuple[Run, tuple[str, frozenset[str]]]:
+        """The active run's URDF and the visual mesh URIs it names."""
+        with self._lock:
+            run = self._run
+            if run is None or self._state not in ("starting", "running"):
+                raise VerbError("not_running", f"no run on {self.host} to describe")
+        with run.description_lock:
+            if run.description is None:
+                try:
+                    urdf = self.runner.description(run.run_id)
+                except RunnerError as exc:
+                    log(f"{run.run_id}: description failed: {exc}")
+                    raise VerbError("not_running", "the run has not published its description yet") from None
+                if len(urdf.encode()) > MAX_DESCRIPTION_BYTES:
+                    raise VerbError("internal_error", "the run's description is too large")
+                run.description = (urdf, visual_meshes(urdf))
+                threading.Thread(
+                    target=self._read_meshes, args=(run,), name=f"meshes-{run.run_id}", daemon=True
+                ).start()
+            return run, run.description
+
+    def _read_meshes(self, run: Run) -> None:
+        """Reads every mesh the run's description draws that the cache lacks."""
+        try:
+            image = self.runner.image_id()
+            with self._meshes_lock:
+                if image != self._meshes_image:
+                    self._meshes, self._meshes_image = {}, image
+                wanted = {
+                    uri: (match.group(1), match.group(2))
+                    for uri in run.description[1]
+                    if uri not in self._meshes
+                    and (match := PACKAGE_URI.fullmatch(uri)) is not None
+                    and ".." not in match.group(2).split("/")
+                }
+            if not wanted:
+                return
+            found = self.runner.assets(run.run_id, list(wanted.values()), MAX_MESHES_BYTES)
+            missing = [uri for uri, key in wanted.items() if key not in found]
+            if missing:
+                log(f"{run.run_id}: {len(missing)} meshes are not in the image, e.g. {missing[0]}")
+            with self._meshes_lock:
+                if image != self._meshes_image:
+                    return
+                for uri, key in wanted.items():
+                    data = found.get(key)
+                    held = sum(map(len, self._meshes.values()))
+                    if (
+                        data is not None
+                        and len(data) <= MAX_ASSET_BYTES
+                        and held + len(data) <= MAX_MESHES_BYTES
+                    ):
+                        self._meshes[uri] = data
+        except RunnerError as exc:
+            log(f"{run.run_id}: reading meshes failed: {exc}")
+        except Exception:  # noqa: BLE001 - a background thread's failure is logged, never lost
+            log(f"{run.run_id}: reading meshes failed:\n{traceback.format_exc()}")
+        finally:
+            run.meshes_read.set()
+
+    def asset(self, uri: str) -> bytes:
+        """One mesh the active run's description draws."""
+        run, (_urdf, meshes) = self.description()
+        match = PACKAGE_URI.fullmatch(uri)
+        if uri not in meshes or match is None or ".." in match.group(2).split("/"):
+            raise VerbError("invalid_request", "not a mesh this run's description draws")
+        with self._meshes_lock:
+            data = self._meshes.get(uri)
+        if data is None and run.meshes_read.wait(MESHES_WAIT_S):
+            with self._meshes_lock:
+                data = self._meshes.get(uri)
+        if data is None:
+            raise VerbError("internal_error", "the mesh could not be read; see the agent log")
+        return data
 
     def recover(self) -> list[str]:
         """Clear what a previous agent left: its containers, and its open summaries.

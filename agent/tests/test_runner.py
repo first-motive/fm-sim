@@ -25,6 +25,7 @@ from fm_sim_agent.runner import (
     RunnerError,
     capped_lines,
     launch_args,
+    parse_description,
     parse_outcome,
     parse_reset,
 )
@@ -364,3 +365,15 @@ def test_a_label_other_than_the_host_marks_runs_and_scopes_listing(docker, monke
 
 def test_the_label_defaults_to_the_host(tmp_path):
     assert DockerRunner("fm-sim:jazzy", tmp_path, "fm_ws_01").label == "fm_ws_01"
+
+
+def test_parse_description_is_the_echoed_urdf_without_its_separator():
+    assert (
+        parse_description('<?xml version="1.0" ?><robot name="r"/>\n---\n')
+        == '<?xml version="1.0" ?><robot name="r"/>'
+    )
+
+
+def test_parse_description_with_nothing_echoed_raises():
+    with pytest.raises(RunnerError):
+        parse_description("")

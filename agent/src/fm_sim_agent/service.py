@@ -32,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fm_sim_agent.agent import (
+    BINARY_VERBS,
     MAX_BODY_BYTES,
     MAX_RUN_S,
     MIN_FREE_BYTES,
@@ -160,11 +161,13 @@ def encode(body: dict) -> bytes:
     return json.dumps(body, sort_keys=True).encode()
 
 
-def _reply(query, key: str, body: dict) -> None:
+def _reply(query, key: str, body: dict, binary: bool = False) -> None:
     import zenoh
 
     encoding = zenoh.Encoding.APPLICATION_JSON
-    if body.get("ok"):
+    if body.get("ok") and binary:
+        query.reply(key, body["data"], encoding=zenoh.Encoding.APPLICATION_OCTET_STREAM)
+    elif body.get("ok"):
         query.reply(key, encode(body), encoding=encoding)
     else:
         query.reply_err(encode(body), encoding=encoding)
@@ -184,7 +187,7 @@ def _handler(agent: SimAgent, host: str, verb: str, lane: Lane | None):
         payload = query.payload.to_bytes() if query.payload is not None else None
 
         def answer() -> None:
-            _reply(query, key, agent.answer(verb, payload))
+            _reply(query, key, agent.answer(verb, payload), binary=verb in BINARY_VERBS)
 
         if lane is None:
             answer()
