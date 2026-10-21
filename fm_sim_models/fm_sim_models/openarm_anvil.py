@@ -222,6 +222,13 @@ def mjcf_text(urdf_path, share_directory=_share_directory):
     _resolve_meshes(urdf, os.path.dirname(os.path.abspath(urdf_path)), share_directory)
     root = _compile(urdf)
     _child(root, 'option').set('noslip_iterations', str(NOSLIP_ITERATIONS))
+    # The servos below are plain PD: held against gravity, an arm settles below its
+    # command, and a controller that commands the measured pose lets it sink centimetres.
+    # Every robot body is weightless to the joints instead, as a gravity-compensated arm is.
+    # tradeoff: tracking under load is then not the hardware's; model the loader's
+    # gravity feedforward instead if a test ever depends on it.
+    for body in root.iter('body'):
+        body.set('gravcomp', '1')
     actuators = _child(root, 'actuator')
     contact = _child(root, 'contact')
     for side in SIDES:

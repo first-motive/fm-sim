@@ -241,3 +241,9 @@ def test_compiles_whatever_gl_backend_the_run_names():
     code = 'from fm_sim_models import openarm_anvil; openarm_anvil._mujoco().MjSpec()'
     env = {**os.environ, 'MUJOCO_GL': 'osmesa'}
     subprocess.run([sys.executable, '-c', code], env=env, check=True)
+
+
+def test_every_robot_body_is_gravity_compensated(probe):
+    # Plain PD servos sag under gravity; a pick holding where the arm is would sink.
+    model = mujoco.MjModel.from_xml_string(probe(synthetic_urdf()))
+    assert model.nbody > 1 and all(model.body_gravcomp[1:] == 1.0)
