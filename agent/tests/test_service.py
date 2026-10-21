@@ -10,13 +10,15 @@ from __future__ import annotations
 import json
 import socket
 import threading
+from pathlib import Path
 
 import pytest
 import zenoh
 
+from fm_sim_agent import bridge
 from fm_sim_agent.agent import VERBS, SimAgent
 from fm_sim_agent.agent import MAX_BODY_BYTES
-from fm_sim_agent.service import Fabric, Lane, key_of, serve
+from fm_sim_agent.service import Fabric, Lane, bridge_of, build_parser, key_of, serve
 from tests.fakes import SPEC, FakeRunner, wait_for
 
 HOST = "fm_ws_01"
@@ -254,3 +256,43 @@ def test_a_lane_that_cannot_submit_frees_its_slot():
     with pytest.raises(RuntimeError):
         lane.submit(lambda: None)
     assert lane.slots.acquire(blocking=False)
+
+
+# -- the bridge config ---------------------------------------------------------
+
+
+def bridge_files(directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "bridge-sim.json5").write_text("{}")
+    (directory / "cyclonedds.xml").write_text("<CycloneDDS/>")
+    return directory / "bridge-sim.json5"
+
+
+def test_a_run_on_the_host_network_gets_no_bridge(tmp_path, monkeypatch):
+    monkeypatch.setenv(bridge.CONFIG_ENV, str(bridge_files(tmp_path)))
+    assert bridge_of(build_parser().parse_args([])) is None
+
+
+def test_without_its_files_the_agent_says_live_topics_are_off(tmp_path, monkeypatch, capsys):
+    config = bridge_files(tmp_path)
+    (tmp_path / "cyclonedds.xml").unlink()
+    monkeypatch.setenv(bridge.CONFIG_ENV, str(config))
+    assert bridge_of(build_parser().parse_args(["--no-host-network"])) is None
+    assert capsys.readouterr().out == (
+        f"fm-sim-agent: live topics are off: no {tmp_path / 'cyclonedds.xml'} (fm-comms renders them)\n"
+    )
+
+
+def test_the_flag_names_the_bridge_config_before_the_environment(tmp_path, monkeypatch):
+    from_env = bridge_files(tmp_path / "env")
+    from_flag = bridge_files(tmp_path / "flag")
+    monkeypatch.setenv(bridge.CONFIG_ENV, str(from_env))
+    args = build_parser().parse_args(["--no-host-network"])
+    assert bridge_of(args) == from_env.resolve()
+    args = build_parser().parse_args(["--no-host-network", "--bridge-config", str(from_flag)])
+    assert bridge_of(args) == from_flag.resolve()
+
+
+def test_the_default_bridge_config_is_fm_comms_user_config(monkeypatch):
+    monkeypatch.delenv(bridge.CONFIG_ENV, raising=False)
+    assert bridge.config_path() == (Path.home() / ".config/fm-comms/bridge-sim.json5").resolve()

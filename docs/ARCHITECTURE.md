@@ -309,7 +309,7 @@ interrupted. Every verb and flag:
 
 | Host | Set up by | Serves | Backends | Notes |
 |------|-----------|--------|----------|-------|
-| This Mac | `fm sim host pull local`, then `start local` (or the desktop app's This Mac card) | `fm/sim/<this machine>/*` | MuJoCo, Gazebo (headless) | Runs in OrbStack or Docker, off the host network. Needs `FM_ROUTER_ENDPOINT`. With no managed agent, `--host local` runs the agent in-process with no router |
+| This Mac | `fm sim host pull local`, then `start local` (or the desktop app's This Mac card) | `fm/sim/<this machine>/*` | MuJoCo, Gazebo (headless) | Runs in OrbStack or Docker, off the host network, each with a bridge container for its live topics. Needs `FM_ROUTER_ENDPOINT` and, for live topics, fm-comms' `bridge-sim.json5`. With no managed agent, `--host local` runs the agent in-process with no router |
 | fm-ws-01 | fm-setup's `sim` workload: the image and agent at pinned versions, a systemd unit, and a machine card with `workload: sim` to select the sim bridge | `fm/sim/fm_ws_01/*` | MuJoCo, Gazebo, Isaac | The unit passes `--gpus` and a 32 GiB memory ceiling for Isaac Sim |
 | AWS | [`infra/aws/sim`](../infra/aws/sim/README.md), started by `fm sim host start aws`; the instance provisions itself with fm-setup's `sim-cloud` role | `fm/sim/sim_cloud/*` | MuJoCo, Gazebo, Isaac | Zero or one `g6e.xlarge`; a budget gate refuses starts; idle 15 minutes returns it to zero; a deadline terminates it |
 

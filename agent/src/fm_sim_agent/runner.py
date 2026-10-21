@@ -26,6 +26,7 @@ from typing import Protocol
 
 import yaml
 
+from fm_sim_agent import bridge
 from fm_sim_agent.logline import MAX_LINE_BYTES
 from fm_sim_agent.runs import BAG_NAME, RECORDING_NAME
 from fm_sim_agent.spec import DIMENSIONS, valid_run_id
@@ -69,7 +70,8 @@ DDS_RANGES = ("LOCALHOST", "SUBNET", "OFF", "SYSTEM_DEFAULT")
 DEFAULT_DDS_RANGE = "LOCALHOST"
 
 #: Labels that mark a container as this agent's, so a restarted agent can find
-#: and remove a run its predecessor left behind — and only that.
+#: and remove a run its predecessor left behind — and only that. A run's bridge
+#: carries both, so it is found and removed with its run.
 AGENT_LABEL = "fm.sim.agent"
 RUN_LABEL = "fm.sim.run_id"
 
@@ -316,6 +318,7 @@ class DockerRunner:
         dds_range: str = DEFAULT_DDS_RANGE,
         docker: str = "docker",
         label: str | None = None,
+        bridge_config: Path | None = None,
     ) -> None:
         if dds_range not in DDS_RANGES:
             raise ValueError(f"dds_range must be one of {DDS_RANGES}")
@@ -335,11 +338,19 @@ class DockerRunner:
         self.gpus = gpus
         self.docker_args = tuple(docker_args)
         self.docker = docker
+        #: With a run off the host network, the bridge config (its cyclonedds.xml
+        #: beside it) each run's bridge reads; None runs no bridge.
+        self.bridge_config = bridge_config
 
     def container(self, run_id: str) -> str:
         if not valid_run_id(run_id):
             raise RunnerError("not a run id")
         return f"fm-sim-run-{run_id}"
+
+    def bridge_container(self, run_id: str) -> str:
+        if not valid_run_id(run_id):
+            raise RunnerError("not a run id")
+        return f"fm-sim-bridge-{run_id}"
 
     def _run(self, args: list[str], timeout_s: float) -> subprocess.CompletedProcess:
         try:
@@ -436,9 +447,50 @@ class DockerRunner:
         argv += [*self.docker_args, self.image, ENTRYPOINT, *LAUNCH, *launch_args(spec)]
         return argv
 
+    def bridge_argv(self, run_id: str, config: Path) -> list[str]:
+        """The ``docker run`` arguments for a run's bridge. Public so the suite can read them.
+
+        It joins the run's network namespace and nothing wider: never the
+        host's network. It runs confined as a run does, discovers DDS as far as
+        the run does (``dds_range``), and reads only its two files, read-only.
+        ``--restart on-failure:5`` brings it back, a bounded number of times,
+        if the router is not reachable the moment it starts, which makes the
+        bridge exit.
+        """
+        argv = [
+            "run", "--detach", "--pull=never", "--restart", "on-failure:5",
+            "--name", self.bridge_container(run_id),
+            "--label", f"{AGENT_LABEL}={self.label}",
+            "--label", f"{RUN_LABEL}={run_id}",
+            "--network", f"container:{self.container(run_id)}",
+            "--user", f"{os.getuid()}:{os.getgid()}",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--pids-limit", str(bridge.PIDS_LIMIT),
+            "--memory", bridge.MEMORY,
+            "--mount", bridge.mount(config, bridge.CONFIG_MOUNT),
+            "--mount", bridge.mount(bridge.cyclone_path(config), bridge.CYCLONE_MOUNT),
+            "--env", f"ROS_DISTRO={bridge.ROS_DISTRO}",
+            "--env", f"CYCLONEDDS_URI=file://{bridge.CYCLONE_MOUNT}",
+            "--env", f"ROS_AUTOMATIC_DISCOVERY_RANGE={self.dds_range}",
+        ]  # fmt: skip
+        if os.environ.get("ROS_DOMAIN_ID"):
+            argv += ["--env", "ROS_DOMAIN_ID"]  # as the run gets it; the config's domain wins
+        return [*argv, bridge.IMAGE, "--config", bridge.CONFIG_MOUNT]
+
     def start(self, run_id: str, spec: dict) -> None:
         (self.runs_dir / run_id / BAG_NAME).mkdir(parents=True, exist_ok=True)
         self._run(self.run_argv(run_id, spec), RUN_TIMEOUT_S)
+        if self.bridge_config is None:
+            return
+        # A bridge that cannot start fails the run, which the agent then stops
+        # (bridge and run both): a run asked for live topics shows them or says why.
+        try:
+            self._run(self.bridge_argv(run_id, self.bridge_config), RUN_TIMEOUT_S)
+        except RunnerError as exc:
+            raise RunnerError(
+                f"the run's bridge did not start ({exc}); `fm sim host pull local` pulls {bridge.IMAGE}"
+            ) from None
 
     def _exec(self, run_id: str, command: list[str], timeout_s: float) -> subprocess.CompletedProcess:
         return self._run(["exec", self.container(run_id), *command], timeout_s)
@@ -545,10 +597,17 @@ class DockerRunner:
 
     def stop(self, run_id: str) -> None:
         name = self.container(run_id)
+        # Whether or not this agent bridges: a bridge an earlier agent started
+        # goes too. First, while the run's network namespace it lives in is there.
+        self._remove(self.bridge_container(run_id))
         try:
             self._run(["stop", "--time", str(STOP_TIMEOUT_S), name], STOP_TIMEOUT_S + 10)
         except RunnerError:
             pass  # already gone; the removal below says whether that is a problem
+        self._remove(name)
+
+    def _remove(self, name: str) -> None:
+        """Remove a container; one already gone is not an error."""
         try:
             self._run(["rm", "--force", name], COMMAND_TIMEOUT_S)
         except RunnerError as exc:
@@ -587,7 +646,8 @@ class DockerRunner:
             ],
             COMMAND_TIMEOUT_S,
         ).stdout.split()  # fmt: skip
-        return [run_id for run_id in listed if valid_run_id(run_id)]
+        # A run's bridge carries its run id too: each run is listed once.
+        return list(dict.fromkeys(run_id for run_id in listed if valid_run_id(run_id)))
 
     def stop_stale(self) -> list[str]:
         listed = self._run(

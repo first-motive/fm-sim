@@ -67,7 +67,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fm_sim_agent import cloud, logline, this_machine
+from fm_sim_agent import bridge, cloud, logline, this_machine
 from fm_sim_agent.agent import SimAgent, error_body
 from fm_sim_agent.card import CardError, host_segment, this_machine_host
 from fm_sim_agent.env import EndpointError, router_endpoint
@@ -245,9 +245,13 @@ class Local:
 
 
 def local_host(image: str, runs_dir: Path | None) -> Local:
-    """The in-process agent ``--host local`` drives. Never shares the host's network."""
+    """The in-process agent ``--host local`` drives. Never shares the host's network.
+
+    Its runs get a bridge when this machine has the bridge config, as the
+    managed agent's do (:mod:`fm_sim_agent.bridge`).
+    """
     root = (runs_dir or default_runs_dir()).expanduser().resolve()
-    runner = DockerRunner(image, root, LOCAL, host_network=False)
+    runner = DockerRunner(image, root, LOCAL, host_network=False, bridge_config=bridge.active_config())
     return Local(SimAgent(LOCAL, runner, RunStore(root)))
 
 
@@ -568,8 +572,9 @@ def clean(value):
 
 
 def local_lines(status: dict) -> str:
-    """A LocalStatus as three lines; every field is already clean."""
+    """A LocalStatus as four lines; every field is already clean."""
     runtime, image, agent = status["runtime"], status["image"], status["agent"]
+    live_topics = status["bridge"]
     available = "available" if runtime["available"] else "unavailable"
     digest = image["local_digest"] or "no registry digest"
     pin = image["pinned_digest"] or "none"
@@ -583,6 +588,8 @@ def local_lines(status: dict) -> str:
             f"runtime: {runtime['name'] or 'none'}, {available} ({runtime['message']})",
             f"image: {image['ref']} {'present' if image['present'] else 'missing'}, {digest}, pin {pin}{update}",
             agent_line,
+            f"bridge: {'ready' if live_topics['ready'] else 'not ready'}, "
+            f"config {live_topics['config'] or 'missing'}",
         ]
     )
 

@@ -178,7 +178,10 @@ agent in the background, with its pidfile and log under
 `$XDG_STATE_HOME/fm-sim/local-agent/`. The agent serves
 `fm/sim/<this machine>/*` (the machine card's name, else the hostname, `-` as
 `_`; `local` is only the CLI's alias) through the fleet router, so the Mac needs `FM_ROUTER_ENDPOINT` (from
-`/etc/fm-comms.env` or the environment). `--json` is what the app reads. See
+`/etc/fm-comms.env` or the environment). Each run gets a zenoh bridge
+container in its network namespace, so its live topics reach the router under
+this Mac's namespace, once fm-comms has rendered `~/.config/fm-comms/bridge-sim.json5`.
+`--json` is what the app reads. See
 [This Mac](agent/README.md#this-mac) in the agent's README.
 
 ## Architecture

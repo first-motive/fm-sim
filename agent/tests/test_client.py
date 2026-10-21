@@ -12,7 +12,7 @@ import threading
 
 import pytest
 
-from fm_sim_agent import client, trial
+from fm_sim_agent import bridge, client, trial
 from fm_sim_agent.agent import SimAgent
 from fm_sim_agent.client import Local, Remote, main, parse_args
 from fm_sim_agent.runner import DockerRunner
@@ -363,3 +363,13 @@ def test_local_up_does_not_end_on_another_episodes_outcome(local, runner, capsys
     summary = json.loads(out[out.index("{") :])["summary"]
     assert code == 0 and summary["outcome"] is None
     assert summary["metrics"]["wall_s"] >= 0.3  # ran out its duration
+
+
+@pytest.mark.parametrize("files", [("bridge-sim.json5", "cyclonedds.xml"), ("bridge-sim.json5",), ()])
+def test_local_host_bridges_only_with_both_bridge_files(files, tmp_path, monkeypatch):
+    for name in files:
+        (tmp_path / name).write_text("x")
+    monkeypatch.setenv(bridge.CONFIG_ENV, str(tmp_path / "bridge-sim.json5"))
+    runner = client.local_host("fm-sim:jazzy", tmp_path / "runs").agent.runner
+    expected = (tmp_path / "bridge-sim.json5").resolve() if len(files) == 2 else None
+    assert runner.bridge_config == expected and runner.host_network is False

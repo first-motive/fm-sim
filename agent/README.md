@@ -186,7 +186,8 @@ uv run fm-sim-agent --host local --no-host-network --image fm-sim:jazzy
 | `--image REF` | `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy` | image runs use; pin a digest on a host |
 | `--runs-dir DIR` | `$XDG_STATE_HOME/fm-sim/runs` | where summaries and bags go |
 | `--gpus` | off | `--gpus all` for Isaac |
-| `--no-host-network` | host network on | macOS, where the container cannot share the host's network |
+| `--no-host-network` | host network on | macOS, where the container cannot share the host's network; each run then gets a bridge (see [Live Topics](#live-topics)) |
+| `--bridge-config PATH` | `$FM_SIM_BRIDGE_CONFIG`, else `~/.config/fm-comms/bridge-sim.json5` | with `--no-host-network`: the config each run's bridge reads, `cyclonedds.xml` beside it |
 | `--docker-arg ARG` | none | extra `docker run` argument, repeatable |
 | `--dds-range R` | `LOCALHOST` | `ROS_AUTOMATIC_DISCOVERY_RANGE` for every container: `LOCALHOST`, `SUBNET`, `OFF` or `SYSTEM_DEFAULT` |
 | `--pids-limit N` | 4096 | process ceiling per run |
@@ -262,7 +263,8 @@ With no managed agent running (see [This Mac](#this-mac)), `--host local`
 builds the same `SimAgent` and `DockerRunner` the service does, in this
 process, under the host name `local`, against this machine's Docker
 (OrbStack on a Mac). No router, Zenoh session or systemd unit is involved.
-Runs do not share the host's network. The image is `--image`, else
+Runs do not share the host's network, and get a bridge as the managed
+agent's do (see [Live Topics](#live-topics)). The image is `--image`, else
 `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy`, and it must already
 be on the machine, since runs use `--pull=never`. Summaries go under
 `--runs-dir`, by default the agent's own runs directory.
@@ -344,8 +346,8 @@ there but names no valid segment is a usage error, not a fallback to the
 hostname.
 
 ```bash
-fm sim host status local [--json]   # runtime, image and agent; read-only
-fm sim host pull   local [--json]   # pull the pinned image, streaming progress
+fm sim host status local [--json]   # runtime, image, agent and bridge; read-only
+fm sim host pull   local [--json]   # pull the pinned image (and the bridge's), streaming progress
 fm sim host start  local [--json]   # start the agent detached; a no-op if it runs
 fm sim host stop   local [--json]   # SIGTERM, then SIGKILL after 60 s
 ```
@@ -371,10 +373,14 @@ fm sim host stop   local [--json]   # SIGTERM, then SIGKILL after 60 s
   becomes a progress event. The CLI has no terminal, so Docker prints a line
   per layer change rather than byte counts; `current` and `total`, in bytes,
   appear only on a line that carries `<n><unit>/<n><unit>` (`12.5MB/45MB`,
-  `512B/1.5kB`; decimal units, as Docker prints them).
+  `512B/1.5kB`; decimal units, as Docker prints them). With the bridge config
+  here and the bridge image not, it then pulls the bridge image the same way.
+  Only once: a pull asks the registry even for a digest already here, and the
+  bridge image never moves except with its pin.
 - **Start.** A no-op when the managed agent already runs, checked first.
   Otherwise refused, in this order, with `runtime_unavailable`,
-  `image_missing`, `already_running_elsewhere` (another sim agent for this
+  `image_missing` (the image, or the bridge image when the bridge config is
+  here), `already_running_elsewhere` (another sim agent for this
   machine that this command did not start: `<python> -m
   fm_sim_agent.service` or the `fm-sim-agent` entry point, run with `--host`
   as this machine's name or `local`, or with no `--host`; or a run container up under
@@ -391,6 +397,10 @@ fm sim host stop   local [--json]   # SIGTERM, then SIGKILL after 60 s
   `LOCALHOST`. It is a Zenoh client of the fleet router, as the app is: the
   app finds it there, and finds nothing if this machine has no router
   endpoint.
+- **Bridge.** `config` is the bridge config's path when the file is here,
+  else null; `ready` is true when it and `cyclonedds.xml` are here and the
+  bridge image is pulled. Then each run the agent starts has live topics (see
+  [Live Topics](#live-topics)).
 - **Stop.** SIGTERM, on which the agent brings its active run down through
   its own `down` and exits. One still up after 60 s is killed with its
   session, and the run containers that were up under the `local` label when
@@ -427,7 +437,8 @@ ends with a reply line whose code is `interrupted`.
 LocalStatus = {schema_version: 1,
   runtime: {available, name: "orbstack"|"docker"|null, message},
   image:   {ref, pinned_digest|null, present, local_digest|null, update_available},
-  agent:   {running, pid|null, since|null, host: <this machine's segment>, log_path}}
+  agent:   {running, pid|null, since|null, host: <this machine's segment>, log_path},
+  bridge:  {config: <path>|null, ready}}
 ```
 
 While the managed agent runs, every `fm sim … --host local` verb goes to it
@@ -442,6 +453,36 @@ differs from its host name (the managed one) also removes nothing at start-up
 while a run is up under that label, since another process may hold it; a run a
 dead agent left there is cleared by `fm sim down --host local` once no managed
 agent runs.
+
+### Live Topics
+
+On a Linux sim host a run shares the host's network, and the host's own sim
+bridge (fm-comms' `fm-zenoh-bridge-sim.service`) routes its topics to the
+router. On a Mac the agent runs with `--no-host-network`, so a run's DDS stays
+inside its container and no bridge on the Mac sees it. There the agent starts a
+bridge beside each run (`fm_sim_agent/bridge.py`):
+
+- **Config.** `--bridge-config`, else `$FM_SIM_BRIDGE_CONFIG`, else
+  `~/.config/fm-comms/bridge-sim.json5`, with `cyclonedds.xml` beside it. fm-comms
+  renders both for this machine (router endpoint, the `/fm_<host>` namespace,
+  domain, the sim topic allowlist). The `host … local` verbs read the variable;
+  the managed agent inherits it. Without either file the agent prints `live
+  topics are off: no <file>` at start and runs as before.
+- **Container.** `fm-sim-bridge-<run id>`, the pinned
+  `eclipse/zenoh-bridge-ros2dds` 1.9.0 image (`bridge.IMAGE`, by digest, with
+  `--pull=never`), in the run's network namespace (`--network
+  container:fm-sim-run-<run id>`), never the host's. It runs confined as a run
+  does, with its own process and memory ceilings, discovers DDS as far as
+  `--dds-range` lets the run, and bind-mounts only the two files, read-only
+  (`--mount`, so a `:` or `,` in their path is no problem). `--restart
+  on-failure:5` brings it back, at most five times, when the router was
+  unreachable the moment it started.
+- **Lifetime.** It starts right after its run. One that does not start fails
+  the run, which the agent then stops, naming `fm sim host pull local`. Every
+  stop removes `fm-sim-bridge-<run id>` first, whether or not this agent
+  bridges, so one an earlier agent started goes with its run. It carries its run's
+  `fm.sim.agent` and `fm.sim.run_id` labels, so an agent that starts after a
+  crash removes it with the run's other leftovers.
 
 ### As A Service
 
