@@ -4,7 +4,7 @@ The file (a robot entry's ``cameras_file``) maps ``cameras`` to roles::
 
     cameras:
       chest:
-        frame: openarm_cam_chest_optical   # optical frame in the description
+        frame: cam_chest_optical   # optical frame in the description
         rate_hz: 15
         intrinsics: {width, height, fx, fy, cx, cy, distortion_model, distortion}
         allow_large_image: true            # optional; needed above 1920x1080

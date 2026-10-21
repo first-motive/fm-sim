@@ -1,42 +1,42 @@
-# Catalog entry (fm_sim.robots): the bimanual OpenArm v2 in fm-robot's canonical
-# openarm_* names. Controller names follow the fm_openarm_v2 robot profile.
+# Catalog entry (fm_sim.robots): the bimanual OpenArm v2 on fm-rob-01 as Anvil
+# modelled it, under the loader's names (follower_l_*, follower_r_*). Controller and
+# frame names follow the loader_openarm_v2 robot profile.
+#
+# The description is fm-skills' openarm_v2_anvil_description, which is private: it
+# is installed in the private fm-sim-controllers image and never in the public
+# fm-sim one. Where it is missing the entry is listed as unavailable and refused.
 name: openarm
-description: OpenArm v2, bimanual with the loader's parallel-jaw hands and limits (fm-robot openarm_* names)
+description: OpenArm v2 as Anvil modelled fm-rob-01, under the loader's names (needs the private description)
 available: true
+requires_packages: [openarm_v2_anvil_description]
 description_file:
   package: fm_control
-  path: urdf/openarm.sim.urdf.xacro
-description_args:
-  robot_preset: default_bimanual
-  # The hand fm-rob-01's loader runs: prismatic fingers over 0..0.05 m and its joint
-  # limits. hand: pinch with mjcf: openarm_pinch gives openarm_description's stock
-  # v2.0 pinch gripper instead; the two must change together.
-  hand: loader
-  # The profile's TCP is the hand's grasp frame.
-  emit_grasp_frame: 'true'
-# fm_sim_models' v2 MJCF patched to the same hand and limits.
-mjcf: openarm
-# The vendored MJCF has the arm bases at its origin; the description mounts them
-# 0.698 m up on openarm_body_link0 (as openarm_mujoco's pedestal.xml does).
-mjcf_mount_xyz: [0.0, 0.0, 0.698]
+  path: urdf/openarm_loader.sim.urdf.xacro
+# The xacro finds the description itself and spawns in the bimanual ready pose.
+description_args: {}
+# fm_sim_models compiles the MJCF from the same installed description. Its origin
+# is the description's root (world), so it mounts at the default [0, 0, 0].
+mjcf: openarm_anvil
 controllers_file:
   package: fm_sim_bringup
-  path: config/openarm/default_bimanual.controllers.yaml
+  path: config/openarm/openarm.controllers.yaml
 # Camera frames and real intrinsics, for the backends that render cameras.
 cameras_file:
   package: fm_sim_bringup
   path: config/openarm/cameras.yaml
+# As on the loader, each arm's forward position controller commands its seven
+# joints and then the finger, so there is no gripper controller: the finger moves
+# only while the forward controller is active.
 controller_roles:
   broadcasters: [joint_state_broadcaster]
-  arm_trajectory: [openarm_left_arm_controller, openarm_right_arm_controller]
+  arm_trajectory: [follower_l_jtc, follower_r_jtc]
   arm_forward_position:
-    [openarm_left_forward_position_controller, openarm_right_forward_position_controller]
-  gripper: [openarm_left_gripper_controller, openarm_right_gripper_controller]
-robot_profile: fm_openarm_v2
+    [follower_l_forward_position_controller, follower_r_forward_position_controller]
+robot_profile: loader_openarm_v2
 supported_backends: [mujoco, gazebo, isaac]
 # Nodes a controller can activate by role; each starts once the active spawner has
-# exited cleanly. servo is fm-robot's sim-only MoveIt Servo on /servo_node, which
-# streams JointJog commands to the right arm's trajectory controller.
+# exited cleanly. servo is fm-robot's sim-only MoveIt Servo on /servo_node under the
+# loader's names, which streams JointJog commands to follower_r_jtc.
 launch_roles:
   servo:
     requires: [arm_trajectory]
@@ -46,3 +46,4 @@ launch_roles:
     launch_args:
       sim_only: 'true'
       command_type: joint_jog
+      names: loader

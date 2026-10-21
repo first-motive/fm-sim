@@ -1,8 +1,9 @@
 # The OpenArm v2 under First Motive's canonical names, as fm-robot builds it from
 # openarm_description v2.0 (default_bimanual preset, prefixes openarm_left_ and
 # openarm_right_). ee_frame is the grasp frame emitted when emit_grasp_frame is true;
-# camera frames are the ones fm-robot mounts. arm_controller is the forward position
-# controller fm-sim defines (fm_sim_bringup config/openarm/default_bimanual.controllers.yaml).
+# camera frames are the ones fm-robot mounts. arm_controller is the seven-joint forward
+# position controller fm-sim defined for it, before its openarm robot moved to the
+# loader's names (loader_openarm_v2.yaml).
 # The same names live in anvil_robot_profiles, openarm_v2_skills_config and
 # fm_teleop_policy; change every copy together until one shared profile package
 # replaces them: https://github.com/first-motive/fm-robot/issues/49

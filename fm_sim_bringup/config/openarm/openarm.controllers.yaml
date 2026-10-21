@@ -1,0 +1,83 @@
+# OpenArm controllers in sim, under the loader's names (the loader_openarm_v2 robot
+# profile). fm-robot ships no controllers file, so the sim catalog owns this one.
+#
+# follower_<side>_jtc is the profile's trajectory_controller (the seven arm joints);
+# follower_<side>_forward_position_controller is its arm_controller, which commands
+# the seven arm joints and then finger_joint1, in that order, as fm-skills' motion
+# node streams them. The two claim the same arm joints, so only one of the pair is
+# active. finger_joint2 mimics finger_joint1 in the description.
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz — software-GL MuJoCo on a headless Mac cannot hold 200
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    follower_l_jtc:
+      type: joint_trajectory_controller/JointTrajectoryController
+    follower_r_jtc:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    follower_l_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+    follower_r_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+
+follower_l_jtc:
+  ros__parameters:
+    joints:
+      - follower_l_joint1
+      - follower_l_joint2
+      - follower_l_joint3
+      - follower_l_joint4
+      - follower_l_joint5
+      - follower_l_joint6
+      - follower_l_joint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
+
+follower_r_jtc:
+  ros__parameters:
+    joints:
+      - follower_r_joint1
+      - follower_r_joint2
+      - follower_r_joint3
+      - follower_r_joint4
+      - follower_r_joint5
+      - follower_r_joint6
+      - follower_r_joint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
+
+# The finger is prismatic: metres, 0 closed to 0.05 open.
+follower_l_forward_position_controller:
+  ros__parameters:
+    joints:
+      - follower_l_joint1
+      - follower_l_joint2
+      - follower_l_joint3
+      - follower_l_joint4
+      - follower_l_joint5
+      - follower_l_joint6
+      - follower_l_joint7
+      - follower_l_finger_joint1
+
+follower_r_forward_position_controller:
+  ros__parameters:
+    joints:
+      - follower_r_joint1
+      - follower_r_joint2
+      - follower_r_joint3
+      - follower_r_joint4
+      - follower_r_joint5
+      - follower_r_joint6
+      - follower_r_joint7
+      - follower_r_finger_joint1

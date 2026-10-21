@@ -16,6 +16,14 @@ def test_shipped_profile_names_the_sim_controller():
     assert arm.command_topic == '/openarm_right_forward_position_controller/commands'
 
 
+def test_shipped_loader_profile_names_the_sim_controller():
+    arm = load_arm('loader_openarm_v2', 'right')
+    assert arm.base_frame == 'follower_body_link0'
+    assert arm.joints == tuple(f'follower_r_joint{i}' for i in range(1, 8))
+    assert arm.ee_frame == 'follower_r_hand_tcp'
+    assert arm.command_topic == '/follower_r_forward_position_controller/commands'
+
+
 # A yaml path is a name with separators: shipped names only.
 @pytest.mark.parametrize('name', [
     '../fm_openarm_v2', 'a/b', '', 'fm openarm', str(FIXTURES / 'arm3.yaml'),

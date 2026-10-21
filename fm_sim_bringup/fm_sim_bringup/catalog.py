@@ -6,6 +6,10 @@ Any package registers an entry by installing two files:
   entry yaml's path relative to ``share/`` (``<package>/catalog/<kind>/<name>.yaml``);
 - that entry yaml, shaped by ``schema/catalog.schema.json``.
 
+An entry that names ``requires_packages`` is listed as unavailable, and refused by
+``require_available``, while any of those packages is not installed: a robot whose
+description ships only in a private image, say.
+
 ``<kind>`` is one of ``KINDS``. The ``fm_sim.`` prefix keeps the resource types
 apart from any other package's. ``python -m fm_sim_bringup.catalog --json`` (or
 ``ros2 run fm_sim_bringup catalog --json``) prints every entry.
@@ -18,7 +22,7 @@ import re
 import sys
 
 from ament_index_python.packages import get_package_share_directory
-from ament_index_python.resources import get_resource, get_resources
+from ament_index_python.resources import get_resource, get_resources, has_resource
 from fm_sim_scenarios import scenario
 import jsonschema
 import yaml
@@ -110,15 +114,33 @@ def load(kind, name, schema=None, registered=None):
         raise CatalogError(
             f'{kind[:-1]} {name!r}: its yaml names itself {entry["name"]!r}'
         )
+    missing = [
+        package for package in entry.get('requires_packages', [])
+        if not has_resource('packages', package)
+    ]
+    if missing:
+        entry['available'] = False
+        entry['missing_packages'] = missing
     return entry
 
 
 def require_available(kind, name):
-    """Return ``load(kind, name)``, refusing an entry marked ``available: false``."""
+    """Return ``load(kind, name)``, refusing an entry that is not available.
+
+    That is one marked ``available: false``, or one whose ``requires_packages`` are
+    not all installed; the error names the missing packages.
+    """
     entry = load(kind, name)
     if not entry['available']:
-        raise CatalogError(f'{kind[:-1]} {name!r} is listed but not available yet')
+        raise CatalogError(f'{kind[:-1]} {name!r} is listed but {_unavailable(entry)}')
     return entry
+
+
+def _unavailable(entry):
+    """Say why an unavailable entry cannot run."""
+    if entry.get('missing_packages'):
+        return f'needs {", ".join(entry["missing_packages"])}, which is not installed'
+    return 'not available yet'
 
 
 def share_file(reference):
@@ -156,7 +178,7 @@ def main(argv=None):
     for kind in KINDS:
         print(f'{kind}:')
         for entry in entries[kind]:
-            flag = '' if entry['available'] else '  (not available)'
+            flag = '' if entry['available'] else f'  ({_unavailable(entry)})'
             print(f'  {entry["name"]:<12} {entry["description"]}{flag}')
     return 0
 

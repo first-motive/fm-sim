@@ -1,6 +1,8 @@
 # OpenArm sim cameras: per role, the optical frame it renders from, its rate and
 # its intrinsics. Roles give the contract's topics (/cam_<role>/image_raw/compressed,
-# /cam_<role>/camera_info). The frames are fm-robot's openarm_cameras.xacro links.
+# /cam_<role>/camera_info). The frames are the loader_openarm_v2 profile's, which
+# fm-robot's openarm_loader.sim.urdf.xacro puts on the description's chest_cam and
+# right_wrist_cam.
 #
 # Intrinsics are the real chest camera's, copied from fm-skills
 # openarm_v2_skills_config/config/camera_chest.yaml: a UVC fisheye at 1920x1080,
@@ -21,10 +23,10 @@ chest_intrinsics: &chest_intrinsics
 
 cameras:
   chest:
-    frame: openarm_cam_chest_optical
+    frame: cam_chest_optical
     rate_hz: 15
     intrinsics: *chest_intrinsics
   wrist_right:
-    frame: openarm_right_cam_wrist_optical
+    frame: cam_wrist_r_optical
     rate_hz: 15
     intrinsics: *chest_intrinsics

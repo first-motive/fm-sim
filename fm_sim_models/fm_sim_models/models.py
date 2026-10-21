@@ -13,16 +13,19 @@ workspace root at call time — ``/ws/external/...`` in the container,
 ``<checkout>/external/...`` on the Mac — instead of hardcoding the container mount.
 Axol is the exception: Almond Bot ships no upstream MJCF, so its model is authored
 and committed into this package's share (see ``models/axol/``), resolved from the
-share dir. Keys are the robot keys: ``openarm``, ``openarm_pinch``, ``so101``,
-``g1_d``, ``axol``.
+share dir. Keys are the robot keys: ``openarm_anvil``, ``openarm``,
+``openarm_pinch``, ``so101``, ``g1_d``, ``axol``.
 
-``openarm`` is the vendored OpenArm v2 model patched to the loader hand (see
-``openarm_loader``); ``openarm_pinch`` is the vendored model unchanged.
+``openarm_anvil`` is built at run time from the private Anvil description of the
+OpenArm, where it is installed (see ``openarm_anvil``); it is what the ``openarm``
+catalog robot runs. ``openarm`` is the vendored OpenArm v2 model patched to the
+loader hand (see ``openarm_loader``); ``openarm_pinch`` is the vendored model
+unchanged.
 """
 
 import os
 
-from fm_sim_models import openarm_loader
+from fm_sim_models import openarm_anvil, openarm_loader
 
 
 def _workspace_root():
@@ -79,6 +82,9 @@ def _axol_mjcf():
 # Callables (not strings) so the workspace root is resolved at call time — the same
 # registry works in the container (/ws) and natively (the checkout root).
 _MJCF = {
+    # Anvil's OpenArm v2 under the loader's names, compiled from the installed
+    # openarm_v2_anvil_description; raises naming the package where it is absent.
+    'openarm_anvil': openarm_anvil.mjcf_path,
     # OpenArm v2 with the loader hand and limits (the description's default hand).
     'openarm': lambda: openarm_loader.mjcf_path(_vendored('openarm_mujoco')),
     # The vendored OpenArm v2 model unchanged: the pinch gripper (hand:=pinch).

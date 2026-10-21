@@ -8,7 +8,8 @@ Both cameras publish JPEG images and a camera_info with the cameras file's
 intrinsics. ``timeout_s:=10`` keeps the episode short. After shutdown, no gz-sim
 server of this run survives and the generated world's directory is gone.
 Linux only (it reads /proc): Gazebo runs server-only with headless (EGL)
-rendering, on software GL in the image.
+rendering, on software GL in the image. Needs the private
+openarm_v2_anvil_description (the fm-sim-controllers image); skips without it.
 """
 
 import glob
@@ -19,6 +20,7 @@ import time
 import unittest
 
 from ament_index_python.packages import get_package_share_directory
+from description_model import needs_openarm
 from fm_sim_bringup import catalog
 from fm_sim_msgs.msg import ObjectStates, Outcome
 from fm_sim_msgs.srv import Reset
@@ -62,6 +64,9 @@ RUN_WORLDS = set()
 CAMERA_ROLES = ('chest', 'wrist_right')
 
 
+# A skip mark here, not a module-level pytest.skip: launch_testing imports this file to
+# collect it, and a skip raised then ends the whole session's collection.
+@needs_openarm
 @pytest.mark.launch_test
 def generate_test_description():
     run_launch = os.path.join(

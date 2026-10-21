@@ -221,8 +221,10 @@ fm sim runs    --host fm-ws-01 [--limit N]      # summaries, newest first
 fm sim trial   --host fm-ws-01 (--seeds 0..19 | --count 20 [--seed-start 0]) [--run-timeout S] [--report PATH]
 ```
 
-The spec flags default to `mujoco`, `openarm`, `empty`, `idle`, seed 0, no
-recording. `--json` prints the raw reply. Exit codes: 0 success, 1 the host
+The spec flags default to `mujoco`, `so101`, `empty`, `idle`, seed 0, no
+recording: so101's description is public, so every sim image runs it. Pass
+`--robot openarm` for the OpenArm, which only the private fm-sim-controllers image
+can run. `--json` prints the raw reply. Exit codes: 0 success, 1 the host
 refused, 2 usage, 3 no router endpoint or no answer, 130 interrupted.
 
 A remote host is one Zenoh query per verb through the fleet router, which is

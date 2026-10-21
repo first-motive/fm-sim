@@ -8,7 +8,8 @@ stamp, at no more than 10 Hz of sim time (and not stalled), plus /cam_<role>/cam
 real intrinsics. The can on /sim/objects, projected through TF and the real chest
 intrinsics with cv2.fisheye, lands on can-green pixels in the chest image: the
 mount, the render and the warp all agree with the description.
-Needs the openarm_mujoco external (vcs import fm-sim.repos) and Mesa's EGL.
+Needs the private openarm_v2_anvil_description (the fm-sim-controllers image) and
+Mesa's EGL; skips without the description.
 """
 
 import os
@@ -17,6 +18,7 @@ import unittest
 
 from ament_index_python.packages import get_package_share_directory
 import cv2
+from description_model import needs_openarm
 from fm_sim_msgs.msg import ObjectStates
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
@@ -33,10 +35,10 @@ from sensor_msgs.msg import CameraInfo, CompressedImage
 import tf2_ros
 
 STARTUP_TIMEOUT_S = 180.0
-# Contract §4: the fm_openarm_v2 profile's camera frames.
+# Contract §4: the loader_openarm_v2 profile's camera frames.
 FRAMES = {
-    'chest': 'openarm_cam_chest_optical',
-    'wrist_right': 'openarm_right_cam_wrist_optical',
+    'chest': 'cam_chest_optical',
+    'wrist_right': 'cam_wrist_r_optical',
 }
 # fm-skills src/openarm_v2_skills_config/config/camera_chest.yaml at aa91a3f; the
 # wrist camera stands in with the same numbers.
@@ -53,6 +55,9 @@ MAX_MEDIAN_GAP_S = 0.5
 LATEST = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
 
 
+# A skip mark here, not a module-level pytest.skip: launch_testing imports this file to
+# collect it, and a skip raised then ends the whole session's collection.
+@needs_openarm
 @pytest.mark.launch_test
 def generate_test_description():
     run_launch = os.path.join(

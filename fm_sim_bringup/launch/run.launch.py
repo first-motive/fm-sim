@@ -5,7 +5,7 @@ Every dimension is a catalog entry registered in the ament index (see
 starts, naming the registered ones. ``ros2 run fm_sim_bringup catalog`` lists them.
 
     ros2 launch fm_sim_bringup run.launch.py \
-        backend:=mujoco robot:=openarm scenario:=empty controller:=idle
+        backend:=mujoco robot:=so101 scenario:=empty controller:=idle
 
 What comes up:
 
@@ -201,7 +201,9 @@ def generate_launch_description():
                 description='Sim backend (catalog fm_sim.backends).',
             ),
             DeclareLaunchArgument(
-                'robot', default_value='openarm',
+                # so101, not openarm: the OpenArm's description is private, so only
+                # the fm-sim-controllers image runs it; every image runs so101.
+                'robot', default_value='so101',
                 description='Robot (catalog fm_sim.robots).',
             ),
             DeclareLaunchArgument(

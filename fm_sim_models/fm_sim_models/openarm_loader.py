@@ -10,15 +10,14 @@ ros2:1.2.16), with openarm_mujoco v1's meshes, which are the same hand in a glob
 millimetre frame (hence the large z offsets).
 
 ``mjcf_path`` re-derives the model on every call and writes it once per content
-hash under ``$XDG_CACHE_HOME/fm_sim_models`` (default ``~/.cache``). Old hashes are
-left in place, one file of about 40 kB per patch or upstream change, so a sim
-still running from one never loses its model.
+hash (``fm_sim_models.cache``), one file of about 40 kB per patch or upstream
+change.
 """
 
-import hashlib
 import os
-import tempfile
 import xml.etree.ElementTree as ET
+
+from fm_sim_models import cache
 
 # The loader's arm limits per side, (lower, upper) in rad, as fm-robot's loader
 # preset writes them (fm_description/config/openarm/loader_presets): joint1 and
@@ -261,43 +260,14 @@ def mjcf_text(openarm_mujoco):
     return ET.tostring(root, encoding='unicode') + '\n'
 
 
-def cache_dir():
-    """Return where the patched model is written."""
-    base = os.environ.get('XDG_CACHE_HOME') or os.path.join(os.path.expanduser('~'), '.cache')
-    return os.path.join(base, 'fm_sim_models')
-
-
 def mjcf_path(openarm_mujoco):
     """Write the loader-hand MJCF for the vendored ``openarm_mujoco`` and return its path.
 
-    The file is named by its content's hash and replaced atomically, so a caller
-    never reads a half-written or stale copy; one that differs from the derived
-    text (edited, truncated) is rewritten.
+    The file is cached by content hash (``cache.write``).
     """
     source = os.path.join(openarm_mujoco, *_SOURCE)
     if not os.path.isfile(source):
         raise RuntimeError(
             f'openarm_mujoco is not vendored: {source} is missing (vcs import fm-sim.repos)'
         )
-    text = mjcf_text(openarm_mujoco)
-    directory = cache_dir()
-    path = os.path.join(
-        directory, f'openarm_loader_{hashlib.sha256(text.encode()).hexdigest()[:16]}.xml'
-    )
-    try:
-        with open(path) as cached:
-            if cached.read() == text:
-                return path
-    except FileNotFoundError:
-        pass
-    os.makedirs(directory, exist_ok=True)
-    handle, partial = tempfile.mkstemp(dir=directory, prefix='.openarm_loader-', suffix='.tmp')
-    try:
-        with os.fdopen(handle, 'w') as model_file:
-            model_file.write(text)
-        os.chmod(partial, 0o644)
-        os.replace(partial, path)
-    except BaseException:
-        os.unlink(partial)
-        raise
-    return path
+    return cache.write(mjcf_text(openarm_mujoco), 'openarm_loader')

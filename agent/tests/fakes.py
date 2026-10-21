@@ -26,6 +26,12 @@ CATALOG = {
                 "right_arm": ["openarm_right_arm_controller"],
             },
         },
+        # The CLI's default robot.
+        {
+            **entry("so101"),
+            "robot_profile": None,
+            "controller_roles": {"broadcasters": ["joint_state_broadcaster"]},
+        },
         entry("bare"),
     ],
     "scenarios": [entry("empty"), entry("pick_cube")],

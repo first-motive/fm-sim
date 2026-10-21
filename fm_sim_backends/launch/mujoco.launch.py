@@ -9,12 +9,10 @@ spawns the controllers against the controller_manager it brings up.
 On Jazzy the controller_manager reads the description from the
 ``/robot_description`` topic, not a node parameter, so this launch runs the
 robot_state_publisher that publishes it. The description comes from fm-robot's
-``fm_control/urdf/openarm.sim.urdf.xacro`` with ``sim_backend:=mujoco`` and the
-``mujoco_model`` arg set to ``fm_sim_models.mjcf_path('openarm')``: the vendored
-openarm_mujoco v2 model patched to the loader hand, whose joint names
-(openarm_left_*, openarm_right_*) match the description exactly. The model is
-bimanual; pair it with the default_bimanual preset for a full joint map (a
-single-arm preset leaves the other arm passive).
+``fm_control/urdf/<robot>.sim.urdf.xacro`` with ``sim_backend:=mujoco`` and the
+``mujoco_model`` arg set to ``fm_sim_models.mjcf_path(<key>)``, a model whose
+joint names match the description's exactly (for OpenArm,
+``openarm_loader.sim.urdf.xacro`` and ``openarm_anvil``).
 
 ``config/mujoco_plugins.yaml`` loads mujoco_ros2_control's free-joint state
 publisher, so every loose object's pose is on ``/mujoco/free_joint_states``, and

@@ -15,6 +15,7 @@ import unittest
 
 from ament_index_python.packages import get_package_share_directory
 from controller_manager_msgs.srv import ListControllers, ListHardwareComponents
+from fm_sim_bringup import catalog
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -28,26 +29,28 @@ EXPECTED_ACTIVE = {'joint_state_broadcaster'}
 # Per robot: the controllers idle loads inactive.
 EXPECTED_INACTIVE = {
     'openarm': {
-        'openarm_left_arm_controller',
-        'openarm_right_arm_controller',
-        'openarm_left_forward_position_controller',
-        'openarm_right_forward_position_controller',
-        'openarm_left_gripper_controller',
-        'openarm_right_gripper_controller',
+        'follower_l_jtc',
+        'follower_r_jtc',
+        'follower_l_forward_position_controller',
+        'follower_r_forward_position_controller',
     },
     'so101': {'so101_arm_controller', 'so101_gripper_controller'},
     'axol': {'axol_left_arm_controller', 'axol_right_arm_controller'},
 }
 # Per robot: its hardware components on the simulators, and on Isaac.
 EXPECTED_COMPONENTS = {
-    'openarm': ({'openarm_system'}, {'openarm_left_system', 'openarm_right_system'}),
+    'openarm': ({'openarm_system'}, {'follower_l_system', 'follower_r_system'}),
     'so101': ({'so101_system'}, {'so101_system'}),
     'axol': ({'axol_system'}, {'axol_left_system', 'axol_right_system'}),
 }
+# A robot whose private description is not installed (openarm outside the
+# fm-sim-controllers image) is refused by run.launch.py, so it has no rows, and nor
+# does a backend missing from a robot's supported_backends.
 ROWS = [
     (robot, backend)
-    for robot in EXPECTED_INACTIVE
-    for backend in ('mujoco', 'gazebo', 'isaac')
+    for robot, entry in ((name, catalog.load('robots', name)) for name in EXPECTED_INACTIVE)
+    if entry['available']
+    for backend in entry['supported_backends']
 ]
 # Each row gets its own ROS domain and Gazebo partition from here, so an engine
 # still shutting down from an earlier row cannot answer this one.

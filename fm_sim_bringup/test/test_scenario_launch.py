@@ -1,11 +1,12 @@
-"""Live: OpenArm on MuJoCo with can_on_table and the idle controller.
+"""Live: SO-101 on MuJoCo with can_on_table and the idle controller.
 
 run.launch.py must build the scenario world and start the scenario node: the can
 shows on /sim/objects, /sim/reset with a seed moves it to that seed's spawn inside
 the scenario's ranges, and with nothing moving the can, /sim/outcome latches a
 timeout failure for the reset's episode. ``timeout_s:=10`` keeps the episode short.
-After shutdown, the generated world's temporary directory is gone.
-Needs the openarm_mujoco external (vcs import fm-sim.repos) and Mesa's EGL.
+After shutdown, the generated world's temporary directory is gone. The robot only
+has to stay out of the can's way; SO-101 is public, so this runs in every image.
+Needs the so_arm external (vcs import fm-sim.repos) and Mesa's EGL.
 """
 
 import glob
@@ -59,7 +60,7 @@ def generate_test_description():
             PythonLaunchDescriptionSource(run_launch),
             launch_arguments={
                 'backend': 'mujoco',
-                'robot': 'openarm',
+                'robot': 'so101',
                 'scenario': 'can_on_table',
                 'controller': 'idle',
                 'timeout_s': str(EPISODE_TIMEOUT_S),

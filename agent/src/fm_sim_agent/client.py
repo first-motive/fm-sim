@@ -92,9 +92,10 @@ LOCAL = "local"
 QUERY_TIMEOUT_S = 15.0
 VERB_TIMEOUT_S = {"catalog": 150.0, "up": 240.0, "down": 120.0}
 
-#: Every RunSpec field, with the default a flag left out takes. The robot and
-#: backend defaults are the ones fm-ros2's old ``sim`` verb used.
-SPEC_DEFAULTS = {"backend": "mujoco", "robot": "openarm", "scenario": "empty", "controller": "idle"}
+#: Every RunSpec field, with the default a flag left out takes. The robot is so101
+#: because its description is public, so every sim image runs it; the OpenArm's is
+#: private and runs only in the fm-sim-controllers image.
+SPEC_DEFAULTS = {"backend": "mujoco", "robot": "so101", "scenario": "empty", "controller": "idle"}
 
 EX_REFUSED = 1
 EX_USAGE = 2

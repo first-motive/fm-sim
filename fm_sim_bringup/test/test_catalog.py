@@ -75,6 +75,34 @@ def test_unavailable_entry_is_listed_but_refused(extra_prefix):
         catalog.require_available('controllers', 'wam')
 
 
+def test_entry_needing_a_missing_package_is_listed_but_refused(extra_prefix, capsys):
+    extra_prefix('wam', dict(PLACEHOLDER, available=True,
+                             requires_packages=['fm_sim_bringup', 'no_such_package']))
+    entry = catalog.load('controllers', 'wam')
+    assert entry['available'] is False
+    assert entry['missing_packages'] == ['no_such_package']
+    with pytest.raises(catalog.CatalogError, match='needs no_such_package, which is not inst'):
+        catalog.require_available('controllers', 'wam')
+    assert catalog.main([]) == 0
+    (listed,) = [line for line in capsys.readouterr().out.splitlines()
+                 if line.split()[0] == 'wam']
+    assert listed.endswith('(needs no_such_package, which is not installed)')
+    assert catalog.main(['--json']) == 0
+    jsonschema.validate(json.loads(capsys.readouterr().out), catalog.load_schema())
+
+
+def test_entry_whose_packages_are_installed_is_available(extra_prefix):
+    extra_prefix('wam', dict(PLACEHOLDER, available=True, requires_packages=['fm_sim_bringup']))
+    entry = catalog.require_available('controllers', 'wam')
+    assert 'missing_packages' not in entry
+
+
+def test_requires_packages_cannot_make_a_placeholder_available(extra_prefix):
+    extra_prefix('wam', dict(PLACEHOLDER, requires_packages=['fm_sim_bringup']))
+    with pytest.raises(catalog.CatalogError, match='not available yet'):
+        catalog.require_available('controllers', 'wam')
+
+
 def test_malformed_entry_is_rejected(extra_prefix):
     broken = dict(PLACEHOLDER, name='broken')
     del broken['activate']
@@ -132,8 +160,12 @@ def _validate_robot(robot):
     jsonschema.validate(robot, {**schema, '$ref': '#/definitions/robot'})
 
 
-def test_schema_accepts_the_openarm_servo_role():
-    _validate_robot(catalog.load('robots', 'openarm'))
+def test_schema_accepts_a_launch_role():
+    _validate_robot(_openarm_with_servo({
+        'requires': ['arm_trajectory'],
+        'launch': {'package': 'p', 'path': 'x.launch.py'},
+        'launch_args': {'sim_only': 'true'},
+    }))
 
 
 @pytest.mark.parametrize('servo', [

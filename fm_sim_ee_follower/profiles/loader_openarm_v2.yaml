@@ -1,0 +1,43 @@
+# The OpenArm v2 under anvil-loader's names, as fm-sim's openarm robot runs it
+# (fm-robot's openarm_loader.sim.urdf.xacro over fm-skills'
+# openarm_v2_anvil_description). arm_controller is the forward position controller
+# fm-sim defines (fm_sim_bringup config/openarm/openarm.controllers.yaml); as on the
+# loader, it commands the seven arm joints and then gripper_joint. Camera frames are
+# the ones the sim xacro puts on the description's camera links.
+# A copy of openarm_v2_skills_config's loader_openarm_v2 profile; change every copy
+# together until one shared profile package replaces them:
+# https://github.com/first-motive/fm-robot/issues/49
+name: loader_openarm_v2
+base_frame: follower_body_link0
+arms:
+  right:
+    joints:
+      - follower_r_joint1
+      - follower_r_joint2
+      - follower_r_joint3
+      - follower_r_joint4
+      - follower_r_joint5
+      - follower_r_joint6
+      - follower_r_joint7
+    gripper_joint: follower_r_finger_joint1
+    arm_controller: follower_r_forward_position_controller
+    trajectory_controller: follower_r_jtc
+    ee_frame: follower_r_hand_tcp
+    hand_frame: follower_r_hand
+  left:
+    joints:
+      - follower_l_joint1
+      - follower_l_joint2
+      - follower_l_joint3
+      - follower_l_joint4
+      - follower_l_joint5
+      - follower_l_joint6
+      - follower_l_joint7
+    gripper_joint: follower_l_finger_joint1
+    arm_controller: follower_l_forward_position_controller
+    trajectory_controller: follower_l_jtc
+    ee_frame: follower_l_hand_tcp
+    hand_frame: follower_l_hand
+cameras:
+  chest: cam_chest_optical
+  wrist_right: cam_wrist_r_optical

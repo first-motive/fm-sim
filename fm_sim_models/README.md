@@ -21,6 +21,7 @@ each robot's `*.sim.urdf.xacro`.
 ```python
 from fm_sim_models.models import mjcf_path
 
+mjcf_path("openarm_anvil")  # -> ~/.cache/fm_sim_models/openarm_anvil_<hash>.xml
 mjcf_path("openarm")   # -> ~/.cache/fm_sim_models/openarm_loader_<hash>.xml
 mjcf_path("openarm_pinch")  # -> /ws/external/openarm_mujoco/v2/openarm_bimanual.xml
 mjcf_path("unknown")   # -> RuntimeError listing the registered keys
@@ -30,7 +31,8 @@ mjcf_path("unknown")   # -> RuntimeError listing the registered keys
 
 | Key | MJCF | Status |
 |-----|------|--------|
-| `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml` patched to the loader hand (see below) | Matches fm-robot's default `hand:=loader` description |
+| `openarm_anvil` | Compiled at run time from the installed `openarm_v2_anvil_description` (see below) | The `openarm` catalog robot; matches fm-robot's `openarm_loader.sim.urdf.xacro`. Private: raises naming the package where it is not installed |
+| `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml` patched to the loader hand (see below) | Matches fm-robot's `hand:=loader` description; no catalog entry runs it now |
 | `openarm_pinch` | `openarm_mujoco/v2/openarm_bimanual.xml` | Stock v2.0 pinch gripper; matches `hand:=pinch` |
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match the system |
 | `g1_d` | `unitree_mujoco/unitree_robots/g1/g1_29dof.xml` | Bipedal model — right-arm joints match; legs differ from the wheeled G1-D, so mujoco is wired-not-yet-validated |
@@ -43,7 +45,47 @@ exception: it ships no upstream MJCF, so First Motive authored one (compiled fro
 (with its meshes). `models.py` resolves it from the package share, not
 `/ws/external`.
 
+## OpenArm Anvil Model
+
+fm-sim's `openarm` robot is the OpenArm v2 on fm-rob-01 as Anvil modelled it, under
+the loader's names (`follower_l_*`, `follower_r_*`). Its description,
+`openarm_v2_anvil_description`, is private: it is installed in the private
+fm-sim-controllers image and never in the public fm-sim image, and this package
+holds none of its geometry. `mjcf_path("openarm_anvil")`
+(`fm_sim_models/openarm_anvil.py`) builds the model where the description is
+installed:
+
+1. Reads `urdf/robot.urdf` from the package's share and points every
+   `package://` mesh at its installed file, refusing one that leaves its share or
+   does not exist.
+2. Lets MuJoCo compile the URDF, keeping every link a body (`fusestatic="false"`,
+   for the camera mounts and TF), the visual meshes and the full mesh paths.
+   MuJoCo turns each finger's `<mimic>` into the equality that drives
+   `finger_joint2` from `finger_joint1`; the patch checks it is there.
+3. Patches in what a URDF cannot say:
+
+| Part | Patched model |
+|------|---------------|
+| Arm servos | a position actuator on each of the 14 arm joints over the URDF range, force capped at the URDF effort, with openarm_mujoco v2's gains |
+| Arm joints | openarm_mujoco v2's damping, armature and friction loss per motor class |
+| Finger servo | a position actuator on each `finger_joint1`, 0..0.05 m, with the loader hand's gains and 30 N cap (`openarm_loader`) |
+| Finger mimic | the `finger_joint2` equality made stiff (`solref 0.005 1`, `solimp 0.95 0.99 0.001`, as openarm_mujoco v2's), so the follower finger does not give way when the hand squeezes an object |
+| Contacts | excluded between each hand's two fingers and between `link5` and `link7` |
+| Option | `noslip_iterations="5"`, as for the loader hand |
+
+MuJoCo writes the compiled model to six significant digits, so the joint ranges are
+set again from the URDF at full precision. The result is cached like the loader
+hand below, as `openarm_anvil_<hash>.xml`. Without the description, `mjcf_path`
+raises naming the package. Closed on the `can_on_table` can, the fingers close on
+it at the pads and hold it, still and through a lift. A can pushed deep into the
+hand, against the palm end of the fingers, stops them before they reach the pads,
+so a grasp must take it at the pads.
+
 ## OpenArm Loader Hand
+
+No catalog entry runs this model now. It stays, with fm_sim_bringup's
+`test_openarm_hand.py`, until the Anvil model passes a live pick in sim; then the `openarm` and `openarm_pinch` keys, `openarm_loader.py` and that
+test are retired together.
 
 fm-robot's `openarm.sim.urdf.xacro` builds the OpenArm fm-rob-01's loader runs by
 default (`hand:=loader`): the v2.0 arm with the loader's joint limits and Enactic's
@@ -66,7 +108,8 @@ Body names are the URDF link names, so camera mounts and TF line up. Closed on t
 about 0.0185 m on the same can, so its jaw geometry differs from the URDF's.
 
 The patched model is re-derived from the vendored file on every call and written
-once per content hash to `$XDG_CACHE_HOME/fm_sim_models/openarm_loader_<hash>.xml`
+once per content hash (`fm_sim_models/cache.py`) to
+`$XDG_CACHE_HOME/fm_sim_models/openarm_loader_<hash>.xml`
 (default `~/.cache`), with absolute mesh paths; a cached file that differs is
 rewritten. Old hashes stay, about 40 kB per patch or upstream change, so a running
 sim never loses its model. An upstream model the patch does not fit (a missing
