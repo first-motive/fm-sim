@@ -11,7 +11,7 @@
 #   fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills_gt --seeds 0..19
 #   fm sim up      --host local                  this Mac, in the foreground, on OrbStack
 #   fm sim host start|stop|status aws --stack fm-sim-cloud-host   the AWS sim host
-#   fm sim host status|pull|start|stop local    this Mac's image and managed agent
+#   fm sim host status|pull|start|stop|restart local [--controllers]   this Mac's image and managed agent
 #
 # fm-tools forwards every argument verbatim; the work lives in
 # fm_sim_agent.client (agent/), so the CLI and the agent share one verb set and

@@ -346,21 +346,35 @@ there but names no valid segment is a usage error, not a fallback to the
 hostname.
 
 ```bash
-fm sim host status local [--json]   # runtime, image, agent and bridge; read-only
-fm sim host pull   local [--json]   # pull the pinned image (and the bridge's), streaming progress
-fm sim host start  local [--json]   # start the agent detached; a no-op if it runs
-fm sim host stop   local [--json]   # SIGTERM, then SIGKILL after 60 s
+fm sim host status  local [--controllers] [--json]   # runtime, image, agent and bridge; read-only
+fm sim host pull    local [--controllers] [--json]   # pull the pinned image (and the bridge's), streaming progress
+fm sim host start   local [--controllers] [--json]   # start the agent detached; a no-op if it runs
+fm sim host stop    local [--controllers] [--json]   # SIGTERM, then SIGKILL after 60 s
+fm sim host restart local [--controllers] [--json]   # stop, then start; a refused start leaves it stopped
 ```
+
+`--controllers`, or `FM_SIM_CONTROLLERS=1` in the environment, chooses the
+private controllers image for that command (`0` or unset leaves it off; any
+other value is a usage error). Pass the same choice to every verb: `status`
+reports on, `pull` pulls and `start` runs the image chosen for it.
 
 - **Runtime.** `docker context show` and `docker info` say whether a runtime
   answers and which one: `orbstack` when the context or the daemon's
   operating system names OrbStack, else `docker` (Docker Desktop and the
   rest), or none when there is no `docker` on `PATH`.
-- **Image.** The ref is `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy`,
-  the one `--host local` and the service use. Its pin is
-  `DEFAULT_IMAGE_DIGEST` in `fm_sim_agent/service.py`, the one place it
-  lives, or `$FM_SIM_IMAGE_DIGEST` to try another. A ref other than the
-  default has no pin unless that variable names one. `local_digest` is the
+- **Image.** Chosen in this order:
+  1. `--controllers` or `FM_SIM_CONTROLLERS=1`: `ghcr.io/first-motive/fm-sim-controllers:jazzy`
+     at `CONTROLLERS_IMAGE_DIGEST`. This outranks `$FM_SIM_IMAGE` and
+     `$FM_SIM_IMAGE_DIGEST`, and a warning on stderr names the one it
+     overrode. The image is private: `docker login ghcr.io` first.
+  2. `$FM_SIM_IMAGE`, pinned to `$FM_SIM_IMAGE_DIGEST` when set, else to
+     its shipped pin if it is one of the two images above, else unpinned.
+  3. `ghcr.io/first-motive/fm-sim:jazzy` at `DEFAULT_IMAGE_DIGEST`, the
+     image `--host local` and the service use.
+
+  Both pins live in `fm_sim_agent/service.py` and nowhere else; a ref other
+  than those two has no pin unless `$FM_SIM_IMAGE_DIGEST` names one. `kind` is
+  `controllers` for any tag of the controllers repository, else `public`. `local_digest` is the
   image's registry digest for that repository, or null for an image built on
   this machine. `update_available` is true only when the image is here and
   its digest is not the pin; with no pin it is always false, and `status`
@@ -397,6 +411,11 @@ fm sim host stop   local [--json]   # SIGTERM, then SIGKILL after 60 s
   `LOCALHOST`. It is a Zenoh client of the fleet router, as the app is: the
   app finds it there, and finds nothing if this machine has no router
   endpoint.
+- **Restart.** `stop`, then `start`, with the same flags: how a new image
+  choice takes effect, since `start` leaves a running agent be. `agent.image`
+  is the ref the running agent serves, read from the `--image` its pidfile
+  records (null when it is not running): when it differs from `image.ref`,
+  a restart is what applies the choice.
 - **Bridge.** `config` is the bridge config's path when the file is here,
   else null; `ready` is true when it and `cyclonedds.xml` are here and the
   bridge image is pulled. Then each run the agent starts has live topics (see
@@ -430,14 +449,15 @@ update. Every string is cleaned of control and bidi characters. Exit codes:
 `already_running_elsewhere`, `router_unavailable`, `start_failed`,
 `pull_failed`, `digest_mismatch`, `stop_failed`, `state_unavailable`), 2 usage
 (`--stack`, `--region` or `--profile`, a malformed `$FM_SIM_IMAGE` or pin,
-or a machine card that names no key segment), 130 interrupted, which still
+`$FM_SIM_CONTROLLERS` other than `1` or `0`, or a machine card that names no
+key segment; `--controllers` and `restart` with `aws`), 130 interrupted, which still
 ends with a reply line whose code is `interrupted`.
 
 ```
 LocalStatus = {schema_version: 1,
   runtime: {available, name: "orbstack"|"docker"|null, message},
-  image:   {ref, pinned_digest|null, present, local_digest|null, update_available},
-  agent:   {running, pid|null, since|null, host: <this machine's segment>, log_path},
+  image:   {ref, kind: "public"|"controllers", pinned_digest|null, present, local_digest|null, update_available},
+  agent:   {running, pid|null, since|null, host: <this machine's segment>, image: <ref>|null, log_path},
   bridge:  {config: <path>|null, ready}}
 ```
 

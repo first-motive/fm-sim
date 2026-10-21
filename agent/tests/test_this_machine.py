@@ -122,7 +122,7 @@ def docker(tmp_path, monkeypatch):
     card = tmp_path / "machine.json"
     card.write_text(json.dumps({"schema_version": 1, "name": "nish-mbp"}))
     monkeypatch.setenv("FM_MACHINE_FILE", str(card))
-    for name in (service.IMAGE_ENV, service.IMAGE_DIGEST_ENV):
+    for name in (service.IMAGE_ENV, service.IMAGE_DIGEST_ENV, service.CONTROLLERS_ENV):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(service, "DEFAULT_IMAGE_DIGEST", None)  # each test names its pin
     # Never this machine's own: no bridge config unless a test writes one.
@@ -189,8 +189,16 @@ def assert_local_status(status: dict) -> None:
     assert status["schema_version"] == 1
     assert set(status["runtime"]) == {"available", "name", "message"}
     assert status["runtime"]["name"] in ("orbstack", "docker", None)
-    assert set(status["image"]) == {"ref", "pinned_digest", "present", "local_digest", "update_available"}
-    assert set(status["agent"]) == {"running", "pid", "since", "host", "log_path"}
+    assert set(status["image"]) == {
+        "ref",
+        "kind",
+        "pinned_digest",
+        "present",
+        "local_digest",
+        "update_available",
+    }
+    assert status["image"]["kind"] in ("public", "controllers")
+    assert set(status["agent"]) == {"running", "pid", "since", "host", "image", "log_path"}
     assert status["agent"]["host"] == MACHINE
     assert set(status["bridge"]) == {"config", "ready"}
     assert isinstance(status["bridge"]["ready"], bool)
@@ -256,6 +264,63 @@ def test_the_shipped_pin_is_a_digest_of_the_default_image(monkeypatch):
     )
 
 
+def test_the_shipped_controllers_pin_is_a_digest_of_the_controllers_image(monkeypatch):
+    monkeypatch.delenv(service.IMAGE_DIGEST_ENV, raising=False)
+    assert service.image_pin(service.CONTROLLERS_IMAGE) == service.CONTROLLERS_IMAGE_DIGEST
+    assert service.DIGEST_PATTERN.fullmatch(service.CONTROLLERS_IMAGE_DIGEST)
+    assert service.image_kind(service.CONTROLLERS_IMAGE) == "controllers"
+    assert service.image_kind(service.DEFAULT_IMAGE) == "public"
+    assert service.image_kind("fm-sim:jazzy") == "public"
+
+
+@pytest.mark.parametrize("argv", [["--controllers"], []])
+def test_controllers_chooses_the_private_image_at_its_pin(argv, monkeypatch):
+    if not argv:
+        monkeypatch.setenv(service.CONTROLLERS_ENV, "1")
+    args = parse_args(["host", "status", "local", *argv])
+    assert (args.image, args.pin) == (service.CONTROLLERS_IMAGE, service.CONTROLLERS_IMAGE_DIGEST)
+
+
+def test_without_controllers_the_public_image_is_chosen(monkeypatch):
+    monkeypatch.setenv(service.CONTROLLERS_ENV, "0")
+    monkeypatch.setattr(service, "DEFAULT_IMAGE_DIGEST", PIN)
+    args = parse_args(["host", "status", "local"])
+    assert (args.image, args.pin) == (REF, PIN)
+
+
+def test_the_controllers_choice_outranks_the_image_overrides_and_says_so(monkeypatch, capsys):
+    monkeypatch.setenv(service.IMAGE_ENV, "fm-sim:dev")
+    monkeypatch.setenv(service.IMAGE_DIGEST_ENV, OLD)
+    args = parse_args(["host", "status", "local", "--controllers"])
+    assert (args.image, args.pin) == (service.CONTROLLERS_IMAGE, service.CONTROLLERS_IMAGE_DIGEST)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "overrides $FM_SIM_IMAGE and $FM_SIM_IMAGE_DIGEST" in captured.err
+
+
+def test_the_overrides_still_apply_without_the_controllers_choice(monkeypatch):
+    monkeypatch.setenv(service.IMAGE_ENV, service.CONTROLLERS_IMAGE)
+    monkeypatch.setenv(service.IMAGE_DIGEST_ENV, OLD)
+    assert parse_args(["host", "status", "local"]).pin == OLD
+    monkeypatch.delenv(service.IMAGE_DIGEST_ENV)
+    assert parse_args(["host", "status", "local"]).pin == service.CONTROLLERS_IMAGE_DIGEST
+
+
+@pytest.mark.parametrize(
+    ("argv", "env"),
+    [
+        (["host", "status", "aws", "--stack", "s", "--controllers"], ""),
+        (["host", "status", "local"], "yes"),
+        (["host", "restart", "aws", "--stack", "s"], ""),
+    ],
+)
+def test_controllers_and_restart_are_local_and_the_env_is_1_or_0(argv, env, monkeypatch):
+    monkeypatch.setenv(service.CONTROLLERS_ENV, env)
+    with pytest.raises(SystemExit) as caught:
+        parse_args(argv)
+    assert caught.value.code == 2
+
+
 def test_the_managed_agent_is_the_service_as_host_local_off_the_host_network():
     argv = this_machine.agent_command(REF, MACHINE)
     assert argv[:3] == [sys.executable, "-m", "fm_sim_agent.service"]
@@ -303,6 +368,7 @@ def test_status_json_is_a_local_status(docker, capsys, monkeypatch):
     }
     assert status["image"] == {
         "ref": REF,
+        "kind": "public",
         "pinned_digest": PIN,
         "present": True,
         "local_digest": OLD,
@@ -313,6 +379,7 @@ def test_status_json_is_a_local_status(docker, capsys, monkeypatch):
         "pid": None,
         "since": None,
         "host": MACHINE,
+        "image": None,
         "log_path": str(state_dir() / "agent.log"),
     }
     assert status["bridge"] == {"config": None, "ready": False}
@@ -380,7 +447,7 @@ def test_status_lines(docker, capsys, monkeypatch):
     assert main(["host", "status", "local"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "runtime: orbstack, available (OrbStack (context orbstack))"
-    assert out[1] == f"image: {REF} present, {OLD}, pin {PIN}, update available"
+    assert out[1] == f"image: {REF} (public) present, {OLD}, pin {PIN}, update available"
     assert out[2].startswith("agent: not running, log ")
     assert out[3] == "bridge: not ready, config missing"
 
@@ -561,6 +628,55 @@ def test_start_runs_the_agent_detached_and_status_finds_it(docker, agent, capsys
     assert status["status"]["agent"] == running
 
 
+def test_status_names_the_controllers_image_kind(docker, capsys):
+    _, [reply] = run_json(["status", "--controllers"], capsys)
+    image = reply["status"]["image"]
+    assert (image["ref"], image["kind"]) == (service.CONTROLLERS_IMAGE, "controllers")
+    assert image["pinned_digest"] == service.CONTROLLERS_IMAGE_DIGEST
+
+
+def test_restart_stops_the_agent_then_starts_it_on_the_chosen_image(docker, agent, capsys):
+    _, [started] = run_json(["start"], capsys)
+    first = started["status"]["agent"]["pid"]
+    code, [reply] = run_json(["restart", "--controllers"], capsys)
+    assert code == 0 and reply["ok"] is True
+    assert_local_status(reply["status"])
+    assert started["status"]["agent"]["image"] == REF
+    second = reply["status"]["agent"]["pid"]
+    assert reply["status"]["agent"]["image"] == service.CONTROLLERS_IMAGE
+    assert reply["status"]["agent"]["running"] is True and second != first
+    assert "fake-agent: down on stop" in (state_dir() / "agent.log").read_text()
+    with pytest.raises(ProcessLookupError):
+        os.kill(first, 0)
+    record = json.loads((state_dir() / "agent.pid").read_text())
+    assert record["argv"][record["argv"].index("--image") + 1] == service.CONTROLLERS_IMAGE
+    assert reply["status"]["image"]["kind"] == "controllers"
+
+
+def test_status_reports_the_image_the_running_agent_serves_not_the_one_asked(docker, agent, capsys):
+    run_json(["start"], capsys)
+    _, [reply] = run_json(["status", "--controllers"], capsys)
+    assert reply["status"]["image"]["ref"] == service.CONTROLLERS_IMAGE
+    assert reply["status"]["agent"]["image"] == REF  # Restart would change it
+
+
+@pytest.mark.parametrize(
+    "argv, image",
+    [
+        (("fm-sim-agent", "--image", REF, "--host", "h"), REF),
+        (("fm-sim-agent", "--host", "h"), None),
+        (("fm-sim-agent", "--host", "h", "--image"), None),
+    ],
+)
+def test_the_pidfile_names_the_image_only_when_its_command_line_does(argv, image):
+    assert this_machine.Pidfile(pid=1, since="", argv=argv, host="h").image == image
+
+
+def test_restart_with_nothing_running_starts(docker, agent, capsys):
+    code, [reply] = run_json(["restart"], capsys)
+    assert code == 0 and reply["status"]["agent"]["running"] is True
+
+
 def test_stop_terms_the_agent_which_downs_its_run(docker, agent, capsys):
     _, [started] = run_json(["start"], capsys)
     pid = started["status"]["agent"]["pid"]
@@ -571,6 +687,7 @@ def test_stop_terms_the_agent_which_downs_its_run(docker, agent, capsys):
         "running": False,
         "pid": None,
         "since": None,
+        "image": None,
     }
     assert "fake-agent: down on stop" in (state_dir() / "agent.log").read_text()
     assert not (state_dir() / "agent.pid").exists()
@@ -635,6 +752,7 @@ def test_a_reused_pid_is_not_the_agent_and_is_never_signalled(docker, agent, cap
         "pid": None,
         "since": None,
         "host": MACHINE,
+        "image": None,
         "log_path": str(state_dir() / "agent.log"),
     }
     run_json(["stop"], capsys)
@@ -692,7 +810,7 @@ def test_a_refusal_without_json_goes_to_stderr(docker, agent, capsys):
     assert main(["host", "start", "local"]) == 1
     captured = capsys.readouterr()
     assert captured.err.splitlines()[-1].startswith("refused (image_missing): ")
-    assert captured.out.splitlines()[1].startswith(f"image: {REF} missing")
+    assert captured.out.splitlines()[1].startswith(f"image: {REF} (public) missing")
 
 
 def test_a_state_dir_that_is_a_symlink_is_refused(docker, agent, tmp_path, capsys):

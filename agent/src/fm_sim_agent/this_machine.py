@@ -1,7 +1,7 @@
 """This machine as a sim host: its container runtime, the pinned image, and a
 managed sim agent serving under this machine's name (contracts §8).
 
-``fm sim host status|pull|start|stop local`` comes here, as the ``aws`` verbs
+``fm sim host status|pull|start|stop|restart local`` comes here, as the ``aws`` verbs
 go to :mod:`fm_sim_agent.cloud`. ``local`` is the CLI's word for this machine;
 on the router the agent serves ``fm/sim/<this machine>/*``, the segment
 :func:`fm_sim_agent.card.this_machine_host` derives, so two Macs never collide.
@@ -28,6 +28,11 @@ runs Docker itself.
   each refuses a run while the other holds one.
 - ``stop`` sends that agent SIGTERM, on which it brings its active run down
   through its own ``down`` before it exits, and SIGKILLs it after a grace.
+- ``restart`` is ``stop`` then ``start``: how a new image choice takes effect,
+  since ``start`` leaves a running agent be.
+
+``--controllers`` (or ``FM_SIM_CONTROLLERS=1``) picks the private controllers
+image for every action; ``image.kind`` in the status says which one is in use.
 
 Every command is an argv list; nothing here goes through a shell. Text that
 comes from Docker or ``ps`` is returned raw; the CLI cleans every string it
@@ -55,11 +60,11 @@ from fm_sim_agent import bridge
 from fm_sim_agent.env import EndpointError, router_endpoint
 from fm_sim_agent.runner import DockerRunner, RunnerError, capped_lines
 from fm_sim_agent.runs import default_runs_dir
-from fm_sim_agent.service import DIGEST_PATTERN
+from fm_sim_agent.service import DIGEST_PATTERN, image_kind, repository_of
 from fm_sim_agent.spec import iso, valid_name
 
 PROVIDER = "local"
-ACTIONS = ("status", "pull", "start", "stop")
+ACTIONS = ("status", "pull", "start", "stop", "restart")
 #: What the CLI calls this machine. Never a key segment on the router: the
 #: agent serves under the machine's own name (contracts §8 amendments).
 ALIAS = "local"
@@ -106,12 +111,6 @@ class LocalError(Exception):
 def default_state_dir() -> Path:
     """``$XDG_STATE_HOME/fm-sim/local-agent``, beside the runs directory."""
     return default_runs_dir().parent / "local-agent"
-
-
-def repository_of(ref: str) -> str:
-    """``ref`` without its tag: ``ghcr.io/first-motive/fm-sim:jazzy`` → ``ghcr.io/first-motive/fm-sim``."""
-    head, sep, tail = ref.rpartition(":")
-    return head if sep and "/" not in tail else ref
 
 
 #: What a registry says when the pull needs credentials it was not given (a private
@@ -193,6 +192,14 @@ class Pidfile:
     argv: tuple[str, ...]
     host: str
 
+    @property
+    def image(self) -> str | None:
+        """The ``--image`` the agent was started with, which its runs use; None if unnamed."""
+        for flag, value in zip(self.argv, self.argv[1:]):
+            if flag == "--image":
+                return value
+        return None
+
 
 def _capture(argv: list[str], timeout_s: float) -> subprocess.CompletedProcess:
     """One short command's output, as text. A timeout reads as exit 124.
@@ -268,6 +275,7 @@ class LocalHost:
     def image_state(self, runtime_available: bool) -> dict:
         state = {
             "ref": self.image,
+            "kind": image_kind(self.image),
             "pinned_digest": self.pin,
             "present": False,
             "local_digest": None,
@@ -374,6 +382,9 @@ class LocalHost:
             "pid": record.pid if record else None,
             "since": record.since if record else None,
             "host": record.host if record else self.host,
+            # What it serves, which may not be the image this command chose:
+            # a running agent keeps its image until it is restarted.
+            "image": record.image if record else None,
             "log_path": str(self.log_path),
         }
 
@@ -643,6 +654,13 @@ class LocalHost:
                 except RunnerError:
                     pass
         return self.status()
+
+    def restart(self) -> dict:
+        """Stop the managed agent, then start it on this host's image. Returns its LocalStatus."""
+        # tradeoff: no precheck, so a start refused after the stop (no runtime, no
+        # image) leaves the agent down; the refusal says why and Start recovers.
+        self.stop()
+        return self.start()
 
     def pull(self, on_progress: Callable[[dict], None]) -> dict:
         """Pull the image (by its pin when it has one), reporting each line. Returns LocalStatus."""
