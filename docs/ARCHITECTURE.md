@@ -295,7 +295,7 @@ fm sim down    --host fm-ws-01
 fm sim runs    --host fm-ws-01
 fm sim trial   --host fm-ws-01 --seeds 0..19 [--run-timeout 300] [--report PATH]
 fm sim host status|start|stop aws   --stack fm-sim-cloud-host
-fm sim host status|pull|start|stop local
+fm sim host status|pull|start|stop|restart local [--controllers]
 ```
 
 `trial` runs one spec once per seed, scores each run on its `/sim/outcome`, and
@@ -315,7 +315,9 @@ interrupted. Every verb and flag:
 
 The image is `ghcr.io/first-motive/fm-sim:jazzy`. Its digest is pinned in
 `agent/src/fm_sim_agent/service.py` (`DEFAULT_IMAGE_DIGEST`), which must match
-fm-setup's `FM_SIM_IMAGE_DIGEST_DEFAULT`. A run uses `--pull=never`, so the image must be on the host first.
+fm-setup's `FM_SIM_IMAGE_DIGEST_DEFAULT`. This Mac can run the private
+`ghcr.io/first-motive/fm-sim-controllers:jazzy` instead, pinned beside it
+(`CONTROLLERS_IMAGE_DIGEST`), with `--controllers`. A run uses `--pull=never`, so the image must be on the host first.
 
 On AWS, an instance in service is not yet a ready sim host: it is ready once its
 agent answers `fm sim status --host sim-cloud`.

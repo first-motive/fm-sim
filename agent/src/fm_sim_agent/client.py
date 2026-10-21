@@ -45,10 +45,11 @@ through the ``aws`` CLI (see :mod:`fm_sim_agent.cloud`). ``running`` there means
 the instance is in service, not that its agent answers: ``fm sim status --host
 <HostName>`` says that.
 
-``host status|pull|start|stop local`` reads this machine's container runtime
-and image, pulls the pinned image, and runs this machine's agent as a managed
-background process that serves ``fm/sim/<this machine>/*`` through the router
-(see :mod:`fm_sim_agent.this_machine`). While it runs, every ``--host local``
+``host status|pull|start|stop|restart local [--controllers]`` reads this
+machine's container runtime and image, pulls the pinned image (the private
+controllers image with ``--controllers``), and runs this machine's agent as a
+managed background process that serves ``fm/sim/<this machine>/*`` through the
+router (see :mod:`fm_sim_agent.this_machine`). While it runs, every ``--host local``
 verb goes to it over the fabric instead of running the agent in-process.
 
 Exit codes: 0 success, 1 the host refused, 2 usage, 3 precondition (no router
@@ -73,7 +74,17 @@ from fm_sim_agent.card import CardError, host_segment, this_machine_host
 from fm_sim_agent.env import EndpointError, router_endpoint
 from fm_sim_agent.runner import DockerRunner, RunnerError
 from fm_sim_agent.runs import RunStore, default_runs_dir
-from fm_sim_agent.service import DEFAULT_IMAGE, ImageError, image_pin, image_ref, key_of
+from fm_sim_agent.service import (
+    CONTROLLERS_ENV,
+    DEFAULT_IMAGE,
+    IMAGE_DIGEST_ENV,
+    IMAGE_ENV,
+    ImageError,
+    controllers_chosen,
+    image_choice,
+    image_ref,
+    key_of,
+)
 from fm_sim_agent.spec import DIMENSIONS, NAME_PATTERN, SpecError, valid_name, valid_run_id
 from fm_sim_agent.trial import (
     DEFAULT_RUN_TIMEOUT_S,
@@ -345,7 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     trial.add_argument("--report", type=Path, default=None, help="where the JSON report goes")
     host = verbs.add_parser("host", help="start, stop or read a cloud sim host, or this machine's")
-    host.add_argument("action", choices=this_machine.ACTIONS, help="pull is local only")
+    host.add_argument("action", choices=this_machine.ACTIONS, help="pull and restart are local only")
     host.add_argument("provider", choices=(*cloud.PROVIDERS, this_machine.PROVIDER))
     host.add_argument("--stack", default=None, help=f"CloudFormation stack (env {cloud.STACK_ENV})")
     host.add_argument(
@@ -353,6 +364,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     host.add_argument("--profile", default=None, help="AWS CLI profile (default: the aws default)")
     host.add_argument("--json", action="store_true", dest="as_json", help="print the checked reply")
+    host.add_argument(
+        "--controllers",
+        action="store_true",
+        help=f"local only: run the private controllers image (env {CONTROLLERS_ENV}=1)",
+    )
     return parser
 
 
@@ -375,12 +391,23 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         except CardError as exc:
             parser.error(str(exc))
         try:
-            args.image = image_ref()
-            args.pin = image_pin(args.image)
+            args.controllers = controllers_chosen(args.controllers)
+            args.image, args.pin = image_choice(args.controllers)
         except ImageError as exc:
             parser.error(str(exc))
+        overridden = [
+            f"${name}" for name in (IMAGE_ENV, IMAGE_DIGEST_ENV) if os.environ.get(name, "").strip()
+        ]
+        if args.controllers and overridden:
+            # stderr, so the --json lines on stdout stay what the app parses.
+            print(
+                f"fm sim: warning: the controllers image overrides {' and '.join(overridden)}",
+                file=sys.stderr,
+            )
         return args
     if args.verb == "host":
+        if args.controllers:
+            parser.error("--controllers applies only to local")
         if args.action not in cloud.ACTIONS:
             parser.error(f"{args.action} applies only to local")
         args.target = cloud_target(args)
@@ -586,7 +613,8 @@ def local_lines(status: dict) -> str:
     return "\n".join(
         [
             f"runtime: {runtime['name'] or 'none'}, {available} ({runtime['message']})",
-            f"image: {image['ref']} {'present' if image['present'] else 'missing'}, {digest}, pin {pin}{update}",
+            f"image: {image['ref']} ({image['kind']}) {'present' if image['present'] else 'missing'}, "
+            f"{digest}, pin {pin}{update}",
             agent_line,
             f"bridge: {'ready' if live_topics['ready'] else 'not ready'}, "
             f"config {live_topics['config'] or 'missing'}",
@@ -606,7 +634,7 @@ def cmd_this_machine(args: argparse.Namespace) -> int:
             layer = f"{event['layer']}: " if "layer" in event else ""
             print(f"{layer}{event['message']}", flush=True)
 
-    if args.action in ("status", "start") and args.pin is None:
+    if args.action in ("status", "start", "restart") and args.pin is None:
         # stderr, so the --json lines on stdout stay what the app parses.
         print(f"fm sim: warning: {safe(args.image)} is not pinned to a digest; pull follows the tag",
               file=sys.stderr)  # fmt: skip
@@ -618,6 +646,8 @@ def cmd_this_machine(args: argparse.Namespace) -> int:
             status = host.start()
         elif args.action == "stop":
             status = host.stop()
+        elif args.action == "restart":
+            status = host.restart()
         else:
             status = host.status()
         reply = {"ok": True, "status": status}

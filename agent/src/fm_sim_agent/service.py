@@ -67,7 +67,16 @@ DEFAULT_IMAGE = "ghcr.io/first-motive/fm-sim:jazzy"
 #: amd64 and arm64), or None to follow the tag. CI pushes the tag on every main
 #: push; this pin moves only when it is bumped here. Read the tag's current one
 #: with ``docker buildx imagetools inspect <DEFAULT_IMAGE>``.
-DEFAULT_IMAGE_DIGEST: str | None = "sha256:e91d0cedbbfeb345d0e992db3ee09cac7f96d8427098d7fcb250e3ddaba7488c"
+DEFAULT_IMAGE_DIGEST: str | None = "sha256:4b25cf45b890ed1783d3126681c79cddd87a9fd74606996652cb4f37c47a3f97"
+#: The private image with First Motive's controllers, which ``fm sim host …
+#: local --controllers`` (or ``FM_SIM_CONTROLLERS=1``) runs instead, and its
+#: pin, moved as ``DEFAULT_IMAGE_DIGEST`` is. Pulling it needs ``docker login
+#: ghcr.io`` with access to it.
+CONTROLLERS_IMAGE = "ghcr.io/first-motive/fm-sim-controllers:jazzy"
+CONTROLLERS_IMAGE_DIGEST: str | None = (
+    "sha256:d62c863eabe790b56798829e93f858838d3dc5df1e1c14b0b84ad73c6c2db5d2"
+)
+CONTROLLERS_ENV = "FM_SIM_CONTROLLERS"
 IMAGE_ENV = "FM_SIM_IMAGE"
 DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 #: ``[registry[:port]/]path[:tag][@sha256:<64 hex>]``, lower case, never starting
@@ -143,21 +152,53 @@ def image_ref(flag: str = "") -> str:
 
 
 def image_pin(ref: str) -> str | None:
-    """The digest ``ref`` is pinned to: ``$FM_SIM_IMAGE_DIGEST``, else the default's pin.
+    """The digest ``ref`` is pinned to: ``$FM_SIM_IMAGE_DIGEST``, else its shipped pin.
 
-    A ref other than ``DEFAULT_IMAGE`` (a local dev build such as
-    ``fm-sim:jazzy``) has no pin unless the environment names one. A ref that
-    already carries a digest is refused: here the pin is added to the ref, so
-    the digest belongs in ``$FM_SIM_IMAGE_DIGEST``.
+    ``DEFAULT_IMAGE`` and ``CONTROLLERS_IMAGE`` have one; any other ref (a
+    local dev build such as ``fm-sim:jazzy``) has no pin unless the
+    environment names one. A ref that already carries a digest is refused:
+    here the pin is added to the ref, so the digest belongs in
+    ``$FM_SIM_IMAGE_DIGEST``.
     """
     if "@" in ref:
         raise ImageError(f"name the digest in ${IMAGE_DIGEST_ENV}, not in the image reference")
-    pin = os.environ.get(IMAGE_DIGEST_ENV, "").strip() or (
-        DEFAULT_IMAGE_DIGEST if ref == DEFAULT_IMAGE else None
-    )
+    shipped = {DEFAULT_IMAGE: DEFAULT_IMAGE_DIGEST, CONTROLLERS_IMAGE: CONTROLLERS_IMAGE_DIGEST}
+    pin = os.environ.get(IMAGE_DIGEST_ENV, "").strip() or shipped.get(ref)
     if pin is not None and not DIGEST_PATTERN.fullmatch(pin):
         raise ImageError(f"the image pin must be sha256:<64 hex> (${IMAGE_DIGEST_ENV})")
     return pin
+
+
+def controllers_chosen(flag: bool = False) -> bool:
+    """Whether ``--controllers`` or ``$FM_SIM_CONTROLLERS=1`` chose the controllers image."""
+    value = os.environ.get(CONTROLLERS_ENV, "").strip()
+    if value not in ("", "0", "1"):
+        raise ImageError(f"${CONTROLLERS_ENV} must be 1 or 0, not {value!r}")
+    return flag or value == "1"
+
+
+def image_choice(controllers: bool) -> tuple[str, str | None]:
+    """The image and pin ``fm sim host … local`` runs: ``CONTROLLERS_IMAGE`` at its
+    pin when chosen, else :func:`image_ref` at :func:`image_pin`.
+
+    The choice is the operator's, made for this command, so it outranks
+    ``$FM_SIM_IMAGE`` and ``$FM_SIM_IMAGE_DIGEST``, which the CLI warns of.
+    """
+    if controllers:
+        return CONTROLLERS_IMAGE, CONTROLLERS_IMAGE_DIGEST
+    ref = image_ref()
+    return ref, image_pin(ref)
+
+
+def repository_of(ref: str) -> str:
+    """``ref`` without its tag: ``ghcr.io/first-motive/fm-sim:jazzy`` → ``ghcr.io/first-motive/fm-sim``."""
+    head, sep, tail = ref.rpartition(":")
+    return head if sep and "/" not in tail else ref
+
+
+def image_kind(ref: str) -> str:
+    """``controllers`` for the controllers image's repository, whatever its tag; else ``public``."""
+    return "controllers" if repository_of(ref) == repository_of(CONTROLLERS_IMAGE) else "public"
 
 
 def key_of(host: str, verb: str) -> str:
