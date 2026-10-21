@@ -123,9 +123,28 @@ def _resolve_meshes(urdf, urdf_dir, share_directory):
         mesh.set('filename', path)
 
 
+def _mujoco():
+    """The mujoco module, imported without a GL backend.
+
+    Importing mujoco loads the rendering backend MUJOCO_GL names, and a run may set one
+    its process cannot load (osmesa with no OSMesa library), which fails the import.
+    Compiling renders nothing, so the import goes ahead with GL disabled.
+    """
+    gl = os.environ.get('MUJOCO_GL')
+    os.environ['MUJOCO_GL'] = 'disable'
+    try:
+        import mujoco
+    finally:
+        if gl is None:
+            del os.environ['MUJOCO_GL']
+        else:
+            os.environ['MUJOCO_GL'] = gl
+    return mujoco
+
+
 def _compile(urdf):
     """Return the MJCF MuJoCo compiles from ``urdf`` (an ElementTree root)."""
-    import mujoco
+    mujoco = _mujoco()
 
     block = urdf.find('mujoco')
     if block is None:

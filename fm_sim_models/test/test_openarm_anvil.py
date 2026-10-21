@@ -7,6 +7,8 @@ description need the private openarm_v2_anvil_description and skip without it.
 """
 
 import os
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 from fm_sim_models import cache, openarm_anvil
@@ -232,3 +234,10 @@ def test_joints_and_finger_units_match_the_description(monkeypatch, tmp_path):
             assert list(actuator.ctrlrange) == expected, name
         else:
             assert actuator is None, name
+
+
+def test_compiles_whatever_gl_backend_the_run_names():
+    # A run under MUJOCO_GL=osmesa without the OSMesa library failed at `import mujoco`.
+    code = 'from fm_sim_models import openarm_anvil; openarm_anvil._mujoco().MjSpec()'
+    env = {**os.environ, 'MUJOCO_GL': 'osmesa'}
+    subprocess.run([sys.executable, '-c', code], env=env, check=True)
