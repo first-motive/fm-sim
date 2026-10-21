@@ -75,8 +75,11 @@ scenario node. The seven steps, in order, are in
 Source: [`diagrams/run.d2`](diagrams/run.d2). Entry fields, the `catalog --json`
 output and its schema: [`fm_sim_bringup`](../fm_sim_bringup/README.md#catalog).
 An unknown name fails before anything starts and lists the registered ones; an
-entry marked `available: false` is listed but refused, and so is a robot on a
-backend missing from its `supported_backends`.
+entry marked `available: false` is listed but refused, as is one whose
+`requires_packages` are not all installed, and so is a robot on a backend missing
+from its `supported_backends`. The `openarm` robot requires the private
+`openarm_v2_anvil_description`, so it runs in the private fm-sim-controllers image
+and is listed as unavailable in the public fm-sim image.
 
 ### The Four Dimensions
 
@@ -186,7 +189,8 @@ fm-robot's sim xacro passes the looked-up path as its `mujoco_model` argument.
 
 | Robot key | MJCF | Status |
 |-----------|------|--------|
-| `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml`, patched to the loader hand | Matches fm-robot's default `hand:=loader` description |
+| `openarm_anvil` | Compiled at run time from the installed `openarm_v2_anvil_description` URDF, with actuators, joint damping, contact excludes and noslip patched in | The `openarm` catalog robot; matches fm-robot's `openarm_loader.sim.urdf.xacro`. Private: only where the description is installed |
+| `openarm` | `openarm_mujoco/v2/openarm_bimanual.xml`, patched to the loader hand | Matches fm-robot's `openarm.sim.urdf.xacro` with `hand:=loader`; no catalog entry runs it now |
 | `openarm_pinch` | `openarm_mujoco/v2/openarm_bimanual.xml` | Stock v2.0 pinch gripper; matches `hand:=pinch` |
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match system |
 | `g1_d` | `unitree_mujoco/.../g1_29dof.xml` | Wired, not yet validated — bipedal legs differ from wheeled G1-D |

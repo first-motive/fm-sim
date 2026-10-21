@@ -1,10 +1,11 @@
 """The rules run.launch.py applies to the four catalog entries."""
 
 import json
-import math
 import os
+import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory
+from description_model import fk, needs_openarm
 from fm_sim_bringup import catalog, run
 from fm_sim_cameras import cameras_file
 from fm_sim_models.models import mjcf_path
@@ -106,26 +107,29 @@ def test_role_named_twice_fails():
         run.controller_sets(robot, _controller())
 
 
-def test_openarm_servo_role_starts_fm_control_servo():
+@needs_openarm
+def test_openarm_servo_role_starts_fm_control_servo_under_the_loader_names():
     robot = run.resolve('mujoco', 'openarm', 'empty', 'idle')['robot']
     active, _ = run.controller_sets(robot, _controller('servo'))
-    assert active == [
-        'joint_state_broadcaster', 'openarm_left_arm_controller', 'openarm_right_arm_controller',
-    ]
+    assert active == ['joint_state_broadcaster', 'follower_l_jtc', 'follower_r_jtc']
     (servo,) = run.role_launches(robot, _controller('servo'))
     assert servo['launch'] == {
         'package': 'fm_control', 'path': 'launch/openarm_sim_servo.launch.py',
     }
-    assert servo['launch_args']['sim_only'] == 'true'
+    assert servo['launch_args'] == {
+        'sim_only': 'true', 'command_type': 'joint_jog', 'names': 'loader',
+    }
     assert os.path.isfile(catalog.share_file(servo['launch']))
 
 
 def test_resolve_refuses_an_unknown_backend():
     with pytest.raises(catalog.CatalogError, match="unknown backend 'bullet'"):
-        run.resolve('bullet', 'openarm', 'empty', 'idle')
+        run.resolve('bullet', 'so101', 'empty', 'idle')
 
 
-@pytest.mark.parametrize('robot,controllers', [('openarm', 6), ('so101', 2), ('axol', 2)])
+@pytest.mark.parametrize('robot,controllers', [
+    pytest.param('openarm', 4, marks=needs_openarm), ('so101', 2), ('axol', 2),
+])
 def test_idle_loads_every_controller_once(robot, controllers):
     entries = run.resolve('mujoco', robot, 'empty', 'idle')
     active, inactive = run.controller_sets(entries['robot'], entries['controller'])
@@ -134,7 +138,7 @@ def test_idle_loads_every_controller_once(robot, controllers):
 
 
 @pytest.mark.parametrize('robot,arm_controllers', [
-    ('openarm', ['openarm_left_arm_controller', 'openarm_right_arm_controller']),
+    pytest.param('openarm', ['follower_l_jtc', 'follower_r_jtc'], marks=needs_openarm),
     ('so101', ['so101_arm_controller']),
     ('axol', ['axol_left_arm_controller', 'axol_right_arm_controller']),
 ])
@@ -159,7 +163,7 @@ def test_resolve_refuses_a_launch_controller_on_a_robot_without_profile(monkeypa
         catalog.CatalogError, match="'idle' needs a robot profile; robot 'so101' has none"
     ):
         run.resolve('mujoco', 'so101', 'empty', 'idle')
-    assert run.resolve('mujoco', 'openarm', 'empty', 'idle')['robot']['robot_profile']
+    assert catalog.load('robots', 'openarm')['robot_profile'] == 'loader_openarm_v2'
 
 
 def test_resolve_refuses_a_backend_the_robot_does_not_support(monkeypatch):
@@ -175,7 +179,7 @@ def test_resolve_refuses_a_backend_the_robot_does_not_support(monkeypatch):
     with pytest.raises(
         catalog.CatalogError, match="not supported on backend 'gazebo' yet; supported: mujoco$"
     ):
-        run.resolve('gazebo', 'openarm', 'empty', 'idle')
+        run.resolve('gazebo', 'so101', 'empty', 'idle')
 
 
 @pytest.mark.parametrize('text, seed', [('0', 0), ('42', 42), ('4294967295', 2 ** 32 - 1)])
@@ -200,8 +204,8 @@ def test_timeout_refuses_non_positive(text):
         run.parse_timeout(text)
 
 
-def _entries(backend, scenario):
-    return run.resolve(backend, 'openarm', scenario, 'idle')
+def _entries(backend, scenario, robot='so101'):
+    return run.resolve(backend, robot, scenario, 'idle')
 
 
 def test_backend_without_generator_runs_the_robot_model_for_empty(monkeypatch):
@@ -233,20 +237,20 @@ def test_gazebo_writes_the_scenario_world(tmp_path):
         assert gazebo_world.free_objects(world_file.read()) == ['can']
 
 
-@pytest.mark.skipif(
-    not os.path.isfile(mjcf_path('openarm_pinch')), reason='openarm_mujoco external (vcs import)'
-)
+@needs_openarm
 def test_mujoco_builds_the_openarm_world(tmp_path):
-    entries = _entries('mujoco', 'can_on_table')
+    entries = _entries('mujoco', 'can_on_table', 'openarm')
+    robot_mjcf = mjcf_path(entries['robot']['mjcf'])
     world = run.world_model(
-        entries['backend'], entries['robot'], entries['scenario'], 3, mjcf_path('openarm'),
+        entries['backend'], entries['robot'], entries['scenario'], 3, robot_mjcf,
         str(tmp_path),
     )
     assert world == str(tmp_path / 'can_on_table_3.xml')
     with open(world) as world_file:
         text = world_file.read()
-    assert f'file="{mjcf_path("openarm")}"' in text
-    assert '<frame name="robot_mount" pos="0 0 0.698">' in text
+    assert f'file="{robot_mjcf}"' in text
+    # The model's origin is the description's root, so the mount is the default.
+    assert '<frame name="robot_mount" pos="0 0 0">' in text
     (x, y, z), _ = sc.spawn_poses(entries['scenario'], 3)['can']
     assert f'<body name="can" pos="{x:.9g} {y:.9g} {z:.9g}"' in text
 
@@ -280,13 +284,15 @@ def test_mujoco_gets_only_its_own_launch_arguments():
 @pytest.mark.parametrize('backend', ['gazebo', 'isaac'])
 def test_stage_backends_get_the_world_and_the_robot_cameras(backend):
     entries = _entries(backend, 'can_on_table')
+    cameras = catalog.load('robots', 'openarm')['cameras_file']
+    robot = dict(entries['robot'], cameras_file=cameras)
     arguments = run.backend_launch_arguments(
-        entries['backend'], entries['robot'], '<robot/>', '/c.yaml', '/w/stage.isaac.json'
+        entries['backend'], robot, '<robot/>', '/c.yaml', '/w/stage.isaac.json'
     )
     assert arguments['world'] == '/w/stage.isaac.json'
-    assert arguments['cameras_file'] == catalog.share_file(entries['robot']['cameras_file'])
-    assert arguments['mesh_roots'] == '[]'
-    assert arguments['robot'] == 'openarm'
+    assert arguments['cameras_file'] == catalog.share_file(cameras)
+    assert json.loads(arguments['mesh_roots']) == run.mesh_roots(robot)
+    assert arguments['robot'] == 'so101'
     assert run.backend_launch_arguments(
         entries['backend'], {'name': 'bare'}, '<robot/>', '/c.yaml', None
     )['world'] == ''
@@ -361,23 +367,18 @@ def _openarm_description(entries, world):
     ).toxml()
 
 
-needs_openarm = pytest.mark.skipif(
-    not os.path.isfile(mjcf_path('openarm_pinch')), reason='openarm_mujoco external (vcs import)'
-)
-
-
 @needs_openarm
-def test_openarm_cameras_mount_on_the_world_and_the_right_hand(tmp_path):
-    entries = _entries('mujoco', 'can_on_table')
+def test_openarm_cameras_mount_on_the_description_camera_links(tmp_path):
+    entries = _entries('mujoco', 'can_on_table', 'openarm')
     world = run.world_file(entries['backend'], entries['scenario'], 0, str(tmp_path))
+    robot_mjcf = mjcf_path(entries['robot']['mjcf'])
     cameras = run.sim_cameras(
-        entries['backend'], entries['robot'], _openarm_description(entries, world),
-        mjcf_path('openarm'),
+        entries['backend'], entries['robot'], _openarm_description(entries, world), robot_mjcf,
     )
     by_role = {camera.role: camera for camera in cameras}
     assert sorted(by_role) == ['chest', 'wrist_right']
-    assert by_role['chest'].model.body is None
-    assert by_role['wrist_right'].model.body == 'openarm_right_hand'
+    assert by_role['chest'].model.body == 'chest_cam'
+    assert by_role['wrist_right'].model.body == 'right_wrist_cam'
     assert by_role['chest'].render_topic == '/mujoco_cameras/cam_chest/color'
     parameters = run.camera_node_parameters(by_role['wrist_right'])
     assert parameters == {
@@ -387,7 +388,7 @@ def test_openarm_cameras_mount_on_the_world_and_the_right_hand(tmp_path):
         'use_sim_time': True,
     }
     path = run.world_model(
-        entries['backend'], entries['robot'], entries['scenario'], 0, mjcf_path('openarm'),
+        entries['backend'], entries['robot'], entries['scenario'], 0, robot_mjcf,
         str(tmp_path), cameras,
     )
     assert path == world
@@ -395,35 +396,11 @@ def test_openarm_cameras_mount_on_the_world_and_the_right_hand(tmp_path):
 
 @needs_openarm
 def test_openarm_camera_refused_off_a_shared_body(monkeypatch, tmp_path):
-    entries = _entries('mujoco', 'empty')
+    entries = _entries('mujoco', 'empty', 'openarm')
     description = _openarm_description(entries, '/unused.xml')
     monkeypatch.setattr(run.mujoco_world, 'body_names', lambda robot_mjcf: set())
     with pytest.raises(catalog.CatalogError, match='moves with joint'):
-        run.sim_cameras(entries['backend'], entries['robot'], description, mjcf_path('openarm'))
-
-
-def _fk(urdf, link, positions):
-    """Return the pose of ``link`` in the URDF root at joint ``positions`` (revolute only)."""
-    import xml.etree.ElementTree as ET
-    from fm_sim_cameras import mount
-    root = ET.fromstring(urdf)
-    parent_joint = {j.find('child').get('link'): j for j in root.findall('joint')}
-    transform = np.eye(4)
-    while link in parent_joint:
-        joint = parent_joint[link]
-        step = mount._origin(joint)
-        if joint.get('type') in ('revolute', 'continuous'):
-            axis = np.array([float(v) for v in joint.find('axis').get('xyz').split()])
-            angle = positions.get(joint.get('name'), 0.0)
-            k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
-            turn = np.eye(4)
-            turn[:3, :3] = np.eye(3) + math.sin(angle) * k + (1 - math.cos(angle)) * k @ k
-            step = step @ turn
-        elif joint.get('type') != 'fixed':
-            raise AssertionError(f'unexpected joint type {joint.get("type")}')
-        transform = step @ transform
-        link = joint.find('parent').get('link')
-    return transform
+        run.sim_cameras(entries['backend'], entries['robot'], description, '/unused.xml')
 
 
 @needs_openarm
@@ -431,14 +408,13 @@ def test_openarm_mujoco_cameras_sit_on_the_description_frames(tmp_path):
     # The real wiring: description -> mounts -> generated world -> MuJoCo, compared
     # with the description's own forward kinematics at an arbitrary arm pose.
     mujoco = pytest.importorskip('mujoco', reason='mujoco Python binding (requirements-sim.txt)')
-    entries = _entries('mujoco', 'can_on_table')
+    entries = _entries('mujoco', 'can_on_table', 'openarm')
     world = run.world_file(entries['backend'], entries['scenario'], 4, str(tmp_path))
     description = _openarm_description(entries, world)
-    cameras = run.sim_cameras(
-        entries['backend'], entries['robot'], description, mjcf_path('openarm')
-    )
+    robot_mjcf = mjcf_path(entries['robot']['mjcf'])
+    cameras = run.sim_cameras(entries['backend'], entries['robot'], description, robot_mjcf)
     run.world_model(
-        entries['backend'], entries['robot'], entries['scenario'], 4, mjcf_path('openarm'),
+        entries['backend'], entries['robot'], entries['scenario'], 4, robot_mjcf,
         str(tmp_path), cameras,
     )
     model = mujoco.MjModel.from_xml_path(world)
@@ -446,18 +422,19 @@ def test_openarm_mujoco_cameras_sit_on_the_description_frames(tmp_path):
     rng = np.random.default_rng(8)
     positions = {}
     for index in range(1, 8):
-        name = f'openarm_right_joint{index}'
+        name = f'follower_r_joint{index}'
         low, high = model.joint(name).range
         positions[name] = float(rng.uniform(low, high))
         data.qpos[model.joint(name).qposadr[0]] = positions[name]
     mujoco.mj_forward(model, data)
     specs = cameras_file.load(catalog.share_file(entries['robot']['cameras_file']))
     for camera in cameras:
-        expected = _fk(description, specs[camera.role]['frame'], positions)
+        expected = fk(ET.fromstring(description), specs[camera.role]['frame'], positions)
         rotation = data.cam(camera.model.name).xmat.reshape(3, 3)
-        assert data.cam(camera.model.name).xpos == pytest.approx(expected[:3, 3], abs=1e-6)
+        # The compiled model is written to six significant digits, hence the tolerance.
+        assert data.cam(camera.model.name).xpos == pytest.approx(expected[:3, 3], abs=1e-5)
         # MuJoCo's camera x is optical x; its y and z are optical -y and -z.
-        assert rotation @ np.diag([1.0, -1.0, -1.0]) == pytest.approx(expected[:3, :3], abs=1e-6)
+        assert rotation @ np.diag([1.0, -1.0, -1.0]) == pytest.approx(expected[:3, :3], abs=1e-5)
         assert model.cam(camera.model.name).fovy[0] == pytest.approx(camera.model.fovy_deg)
 
 
@@ -489,7 +466,7 @@ def _openarm_cameras(change=None):
 @pytest.fixture
 def mujoco_verdict(monkeypatch, tmp_path):
     """Return MuJoCo's verdict on a cameras file: ``run.sim_cameras`` on the real OpenArm."""
-    entries = _entries('mujoco', 'empty')
+    entries = _entries('mujoco', 'empty', 'openarm')
     description = _openarm_description(entries, '/unused.xml')
     share_file = catalog.share_file
 
@@ -501,7 +478,8 @@ def mujoco_verdict(monkeypatch, tmp_path):
             lambda ref: str(path) if ref == entries['robot']['cameras_file'] else share_file(ref),
         )
         cameras = run.sim_cameras(
-            entries['backend'], entries['robot'], description, mjcf_path('openarm')
+            entries['backend'], entries['robot'], description,
+            mjcf_path(entries['robot']['mjcf']),
         )
         assert sorted(camera.role for camera in cameras) == sorted(data['cameras'])
         return True

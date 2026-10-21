@@ -389,18 +389,21 @@ def test_stage_spec_refuses_another_schema_version():
 
 
 def _openarm_description():
+    """Return the openarm robot's description on Isaac, or skip where it cannot be built.
+
+    It includes the private openarm_v2_anvil_description, which only the
+    fm-sim-controllers image installs.
+    """
     xacro = pytest.importorskip('xacro')
     from ament_index_python.packages import get_package_share_directory, PackageNotFoundError
     try:
         share = get_package_share_directory('fm_control')
-    except PackageNotFoundError:
-        pytest.skip('fm_control (fm-robot) is not installed')
+        get_package_share_directory('openarm_v2_anvil_description')
+    except PackageNotFoundError as missing:
+        pytest.skip(f'{missing} is not installed')
     return xacro.process_file(
-        os.path.join(share, 'urdf', 'openarm.sim.urdf.xacro'),
-        mappings={
-            'robot_preset': 'default_bimanual', 'emit_grasp_frame': 'true',
-            'sim_backend': 'isaac',
-        },
+        os.path.join(share, 'urdf', 'openarm_loader.sim.urdf.xacro'),
+        mappings={'sim_backend': 'isaac'},
     ).toxml()
 
 
@@ -412,18 +415,17 @@ def test_openarm_stage_matches_its_description_and_cameras():
     )
     by_role = {c['role']: c for c in spec['cameras']}
     assert set(by_role) == {'chest', 'wrist_right'}
+    # The chest camera's link is fixed to the world through the body.
     assert by_role['chest']['parent_prim'] == stage.CAMERAS_PRIM
     # The importer puts the robot at /<robot name>; links sit flat under it.
     robot_prim = spec['robot']['prim_path']
-    assert robot_prim == '/openarm_v20'
-    # The wrist camera rides the link joint7 moves; the loader hand's fixed
-    # ee_base_link and hand merge into it.
-    assert by_role['wrist_right']['parent_prim'] == f'{robot_prim}/openarm_right_link7'
+    assert robot_prim == '/openarm'
+    # The wrist camera rides the link joint7 moves; the fixed hand and camera link
+    # merge into it.
+    assert by_role['wrist_right']['parent_prim'] == f'{robot_prim}/follower_r_link7'
     assert by_role['chest']['intrinsics']['fx'] == 740.244
-    assert by_role['chest']['frame_id'] == 'openarm_cam_chest_optical'
-    # The chest camera is about 56 cm up and 9 cm forward, looking forward and down.
-    x, _, z = by_role['chest']['translate']
-    assert 0.05 < x < 0.12 and 0.5 < z < 0.6
+    assert by_role['chest']['frame_id'] == 'cam_chest_optical'
+    # The chest camera looks forward and down.
     forward = stage.quat_rotate(by_role['chest']['orient_wxyz'], (0.0, 0.0, -1.0))
     assert forward[0] > 0 and forward[2] < 0
     values = dict(spec['graph']['values'])

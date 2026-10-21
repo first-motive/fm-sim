@@ -2,7 +2,7 @@
 
 import os
 
-from fm_sim_models import openarm_loader
+from fm_sim_models import cache, openarm_loader
 from fm_sim_models.models import mjcf_path
 import pytest
 
@@ -55,7 +55,7 @@ def test_a_damaged_cache_file_is_rewritten(monkeypatch, tmp_path):
 def test_cache_defaults_to_home(monkeypatch, tmp_path):
     monkeypatch.delenv('XDG_CACHE_HOME', raising=False)
     monkeypatch.setenv('HOME', str(tmp_path))
-    assert openarm_loader.cache_dir() == str(tmp_path / '.cache' / 'fm_sim_models')
+    assert cache.cache_dir() == str(tmp_path / '.cache' / 'fm_sim_models')
 
 
 @needs_openarm

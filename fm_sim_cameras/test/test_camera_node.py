@@ -89,7 +89,7 @@ def test_publishes_the_fisheye_jpeg_and_real_camera_info(ros):
         assert rig.spin_until(lambda: rig.infos)
         image, info = rig.images[0], rig.infos[0]
         assert image.format == 'jpeg'
-        assert image.header.frame_id == 'openarm_cam_chest_optical'
+        assert image.header.frame_id == 'cam_chest_optical'
         assert (image.header.stamp.sec, image.header.stamp.nanosec) == (12, 500)
         assert bytes(image.data[:2]) == b'\xff\xd8'
         decoded = cv2.imdecode(np.frombuffer(bytes(image.data), np.uint8), cv2.IMREAD_COLOR)

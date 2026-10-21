@@ -34,7 +34,7 @@ repositories:
   external/fm-robot:
     type: git
     url: https://github.com/first-motive/fm-robot.git
-    version: 4dd3b0ae249b87ccc5ad149be7721887a5bd6218
+    version: 3f45c8261a9250165dcadc8a511a714dd4229188
   external/openarm_description:
     type: git
     url: https://github.com/enactic/openarm_description.git

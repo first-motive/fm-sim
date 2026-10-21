@@ -70,7 +70,19 @@
         "name": {"$ref": "#/definitions/name"},
         "package": {"type": "string", "description": "The package that registered the entry."},
         "description": {"type": "string", "minLength": 1},
-        "available": {"type": "boolean", "description": "False for a listed placeholder that run.launch.py refuses."}
+        "available": {"type": "boolean", "description": "False for a listed placeholder that run.launch.py refuses. The loader also sets it false while a requires_packages package is not installed."},
+        "requires_packages": {
+          "description": "Optional packages the entry needs installed, such as a description that ships only in a private image. While any is missing the entry is listed with available false and missing_packages, and run.launch.py refuses it.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+        },
+        "missing_packages": {
+          "description": "Set by the loader, never in an entry yaml: the requires_packages that are not installed.",
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string"}
+        }
       }
     },
     "backend": {

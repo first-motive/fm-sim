@@ -151,9 +151,13 @@ marks supported; each value is an entry registered through the ament index:
 
 ```bash
 ros2 launch fm_sim_bringup run.launch.py \
-  backend:=mujoco robot:=openarm scenario:=can_on_table controller:=idle seed:=3
+  backend:=mujoco robot:=so101 scenario:=can_on_table controller:=idle seed:=3
 ros2 run fm_sim_bringup catalog --json   # every registered entry
 ```
+
+`so101` is the default robot because every image runs it. `robot:=openarm` needs
+the OpenArm's private description, which only the fm-sim-controllers image
+installs; the public image lists it as unavailable.
 
 See [`fm_sim_bringup`](fm_sim_bringup/README.md) for the contract, the catalog
 convention and the JSON schema.

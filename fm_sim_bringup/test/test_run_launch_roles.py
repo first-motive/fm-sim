@@ -1,9 +1,11 @@
 """run.launch.py's launch roles, through its own setup function, without an engine.
 
-Resolves the real OpenArm entry with a controller that activates ``servo`` and
-checks what the launch would start: Servo waits on the active spawner, gets the
-run's robot description and ``sim_only:=true``, and a failed spawner shuts the
-run down instead.
+Resolves the real SO-101 entry, given OpenArm's ``servo`` launch role, with a
+controller that activates it, and checks what the launch would start: Servo waits on
+the active spawner, gets the run's robot description and its launch args, and a
+failed spawner shuts the run down instead. SO-101 stands in for the OpenArm, whose
+description is private, so this runs in every image; the setup only has to find
+fm-robot's sim Servo launch, not start it.
 """
 
 import importlib.util
@@ -20,6 +22,7 @@ from launch.utilities import normalize_to_list_of_substitutions, perform_substit
 from launch_ros.actions import Node
 import pytest
 
+SERVO_ROLE = catalog.load('robots', 'openarm')['launch_roles']['servo']
 SERVO_CONTROLLER = {
     'name': 'servo_probe',
     'description': 'Test controller that activates the servo role',
@@ -41,19 +44,20 @@ def _run_launch():
 
 @pytest.fixture
 def setup_actions(monkeypatch):
-    """Return run.launch.py's actions for openarm on mujoco with ``controller``."""
+    """Return run.launch.py's actions for so101 with ``SERVO_ROLE`` and ``controller``."""
     resolve = run.resolve
     shutdown_handlers = []
 
     def with_controller(controller):
         def resolve_with(**choice):
             entries = resolve(**dict(choice, controller='idle'))
+            entries['robot']['launch_roles'] = {'servo': SERVO_ROLE}
             entries['controller'] = controller
             return entries
         monkeypatch.setattr(run, 'resolve', resolve_with)
         context = LaunchContext()
         context.launch_configurations.update({
-            'backend': 'mujoco', 'robot': 'openarm', 'scenario': 'empty',
+            'backend': 'mujoco', 'robot': 'so101', 'scenario': 'empty',
             'controller': controller['name'], 'use_sim': 'true',
             'seed': '0', 'timeout_s': '',
         })
@@ -109,12 +113,11 @@ def test_servo_starts_after_the_active_spawner(setup_actions):
     assert isinstance(servo, IncludeLaunchDescription)
     source = servo.launch_description_source
     source.get_launch_description(LaunchContext())
-    assert source.location == catalog.share_file(
-        {'package': 'fm_control', 'path': 'launch/openarm_sim_servo.launch.py'}
-    )
+    assert source.location == catalog.share_file(SERVO_ROLE['launch'])
     args = _launch_args(servo)
     assert args['sim_only'] == 'true'
     assert args['command_type'] == 'joint_jog'
+    assert args['names'] == 'loader'
     assert args['robot_description'] == _launch_args(backend)['robot_description']
 
 

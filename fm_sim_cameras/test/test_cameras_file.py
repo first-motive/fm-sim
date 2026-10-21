@@ -23,8 +23,8 @@ def _write(tmp_path, data):
 def test_openarm_cameras_carry_the_real_chest_intrinsics():
     cameras = cameras_file.load(OPENARM_CAMERAS)
     assert sorted(cameras) == ['chest', 'wrist_right']
-    assert cameras['chest']['frame'] == 'openarm_cam_chest_optical'
-    assert cameras['wrist_right']['frame'] == 'openarm_right_cam_wrist_optical'
+    assert cameras['chest']['frame'] == 'cam_chest_optical'
+    assert cameras['wrist_right']['frame'] == 'cam_wrist_r_optical'
     for camera in cameras.values():
         info = camera_info(camera['intrinsics'])
         assert list(info.k) == CHEST_K

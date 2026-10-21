@@ -10,13 +10,13 @@ with no change here.
 
 ```bash
 ros2 launch fm_sim_bringup run.launch.py \
-  backend:=mujoco robot:=openarm scenario:=empty controller:=idle
+  backend:=mujoco robot:=so101 scenario:=empty controller:=idle
 ```
 
 | Argument | Default | Catalog type | Description |
 |----------|---------|--------------|-------------|
 | `backend` | `mujoco` | `fm_sim.backends` | Engine host from `fm_sim_backends` |
-| `robot` | `openarm` | `fm_sim.robots` | Robot description, MJCF and controllers |
+| `robot` | `so101` | `fm_sim.robots` | Robot description, MJCF and controllers |
 | `scenario` | `empty` | `fm_sim.scenarios` | Scene contents |
 | `controller` | `idle` | `fm_sim.controllers` | Controller under test |
 | `use_sim` | `true` | — | Passed to the controller's launch |
@@ -24,8 +24,9 @@ ros2 launch fm_sim_bringup run.launch.py \
 | `timeout_s` | empty | — | Episode timeout in seconds; empty keeps the scenario's |
 
 An unknown value fails before anything starts and lists the registered ones; an
-entry marked `available: false` is listed but refused, and so is a robot on a
-backend missing from its `supported_backends`.
+entry marked `available: false` is listed but refused, as is one whose
+`requires_packages` are not all installed (the error names the missing ones), and
+so is a robot on a backend missing from its `supported_backends`.
 `use_sim` takes only `true` or `false`; `seed` and `timeout_s` refuse anything
 outside their ranges.
 
@@ -78,7 +79,7 @@ What `run.launch.py` does, in order:
 
 A scenario entry is backend-neutral: objects, regions and a success predicate,
 with poses in the robot description's world frame (for OpenArm, the
-`fm_openarm_v2` profile's `base_frame`, `openarm_body_link0`). Each backend has a
+`loader_openarm_v2` profile's `base_frame`, `follower_body_link0`, which sits on it). Each backend has a
 generator that turns robot model + scenario + seed into the world its engine
 loads; MuJoCo's is `fm_sim_scenarios.mujoco_world`, Gazebo's
 `fm_sim_scenarios.gazebo_world` (see the [Gazebo backend](../fm_sim_backends/README.md#gazebo-world)), Isaac Sim's
@@ -114,8 +115,8 @@ regions; the success references and spawn ranges are checked on every load.
 The MuJoCo world attaches the robot model unchanged (`<model>` asset and
 `<attach>`), so its own compiler settings and relative mesh paths still resolve,
 inside a frame at the robot entry's `mjcf_mount_xyz`. That puts the MuJoCo world
-on the description's root frame (OpenArm's arm bases sit 0.698 m up, as in
-openarm_mujoco's `pedestal.xml`). Contact parameters: an object geom's friction
+on the description's root frame (OpenArm's model is compiled from its description,
+so the two origins already coincide and the mount is the default). Contact parameters: an object geom's friction
 is its sliding coefficient with MuJoCo's default torsional and rolling terms; its
 priority (2) is above the robot's collision geoms (1), so the object's friction
 governs finger contacts; a free object uses `condim` 4 (torsional friction). The
@@ -159,9 +160,9 @@ images and the cameras are fisheyes, so each MJCF camera is a pinhole wide
 enough for its fisheye's edge midpoints (`fisheye.render_camera`), mounted where
 the description puts the optical frame: `fm_sim_cameras.mount` walks the frame's
 fixed joints up to the nearest link the MJCF also has as a body (the right
-wrist camera rides `openarm_right_hand`), or to the description's root
-(the chest camera is a world camera). The engine's CameraPlugin renders each at
-10 Hz of sim time (mujoco_ros2_control 0.1.2's behaviour; `test_camera_launch.py`
+wrist camera rides the description's `right_wrist_cam` and the chest camera its
+`chest_cam`), or to the description's root (a world camera). The engine's
+CameraPlugin renders each at 10 Hz of sim time (mujoco_ros2_control 0.1.2's behaviour; `test_camera_launch.py`
 checks it live); `sim_camera` warps the render into the real fisheye image,
 JPEG-compresses it, and publishes:
 
@@ -200,24 +201,32 @@ file back to its source). An
 `ament_python` package installs both through `data_files`; see this package's
 `setup.py`.
 
-| Kind | Registered here | Fields beyond `name`, `description`, `available` |
+| Kind | Registered here | Fields beyond `name`, `description`, `available`, optional `requires_packages` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
 | `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
 | `controllers` | `idle`, `teleop` | `activate`, `launch` |
 
-The OpenArm entry expands fm-robot's `fm_control/urdf/openarm.sim.urdf.xacro`
-(`default_bimanual`, `emit_grasp_frame:=true`) and owns the sim controllers file,
-[`config/openarm/default_bimanual.controllers.yaml`](config/openarm/default_bimanual.controllers.yaml),
-since fm-robot ships none. Its roles follow the `fm_openarm_v2` robot profile:
+The OpenArm entry runs the OpenArm v2 on fm-rob-01 as Anvil modelled it, under the
+loader's names: fm-robot's `fm_control/urdf/openarm_loader.sim.urdf.xacro` over
+fm-skills' `openarm_v2_anvil_description`, with `fm_sim_models`' `openarm_anvil`
+MJCF compiled from the same description. That description is private, so the entry
+names it in `requires_packages`: it runs in the private fm-sim-controllers image,
+which installs it, and the public fm-sim image lists it as unavailable. The entry
+owns the sim controllers file,
+[`config/openarm/openarm.controllers.yaml`](config/openarm/openarm.controllers.yaml),
+since fm-robot ships none. Its roles follow the `loader_openarm_v2` robot profile:
 
 | Role | Controllers |
 |------|-------------|
 | `broadcasters` | `joint_state_broadcaster` |
-| `arm_trajectory` | `openarm_{left,right}_arm_controller` (JTC) |
-| `arm_forward_position` | `openarm_{left,right}_forward_position_controller` |
-| `gripper` | `openarm_{left,right}_gripper_controller` (JTC) |
+| `arm_trajectory` | `follower_{l,r}_jtc` (JTC, the seven arm joints) |
+| `arm_forward_position` | `follower_{l,r}_forward_position_controller` (the seven arm joints, then `finger_joint1`) |
+
+As on the loader, the forward position controller carries the finger, so there is
+no `gripper` role. The finger is prismatic, 0 closed to 0.05 m open, and
+`finger_joint2` mimics it.
 
 A controller entry's `activate` names controller roles or launch roles; any other
 name fails the run. The schema checks each launch role's shape on load; whether its
@@ -226,7 +235,7 @@ when a run resolves the robot. OpenArm has one launch role:
 
 | Launch role | Requires | Starts |
 |-------------|----------|--------|
-| `servo` | `arm_trajectory` | fm-robot's `fm_control/launch/openarm_sim_servo.launch.py` with `sim_only:=true`, `command_type:=joint_jog`: sim-only MoveIt Servo on `/servo_node`, streaming to `openarm_right_arm_controller`. That launch refuses to start unless ROS discovery is host-local (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, as the fm-sim agent sets) |
+| `servo` | `arm_trajectory` | fm-robot's `fm_control/launch/openarm_sim_servo.launch.py` with `sim_only:=true`, `command_type:=joint_jog`, `names:=loader`: sim-only MoveIt Servo on `/servo_node`, streaming to `follower_r_jtc`. That launch refuses to start unless ROS discovery is host-local (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, as the fm-sim agent sets) |
 
 The SO-101 and Axol entries expand fm-robot's `so101.sim.urdf.xacro` and
 `axol.sim.urdf.xacro` with no extra args, and own their controllers files under
@@ -264,17 +273,19 @@ is the contract for that output.
 
 | Test | Checks |
 |------|--------|
-| `test_catalog.py` | Lookup, unknown and unavailable entries, schema validation (`robot_profile` a name or `null`, launch role shape), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
-| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose |
-| `test_run_launch_roles.py` | `run.launch.py`'s setup with a controller that activates `servo`: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down; a missing launch file fails at setup |
-| `test_scenario_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`, its bound judged in sim time. Needs the `openarm_mujoco` external and Mesa's EGL |
-| `test_camera_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` — both roles publish 1920x1080 JPEGs with the profile frames, sim-time stamps no more than 10 Hz apart, the real K and distortion on `camera_info`, and the can, projected through TF and the real chest intrinsics, lands on can-green pixels. Needs the `openarm_mujoco` external and Mesa's EGL |
-| `test_gazebo_scenario_launch.py` | Live: `openarm` on `gazebo` with `can_on_table` and `idle` — the same object, reset and outcome checks as on MuJoCo; both cameras publishing JPEG on `/cam_<role>/image_raw/compressed` and a `camera_info` with the cameras file's intrinsics, its frame and zero distortion; after shutdown, no gz-sim server of the run left. Gazebo renders on software GL there, well below real time, so the episode's bound is judged in sim time and each reset is waited out before another. Linux only (skipped elsewhere) |
-| `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition. Needs the MJCF and description externals, `topic_based_ros2_control` and Mesa's EGL |
+| `test_catalog.py` | Lookup, unknown and unavailable entries, `requires_packages` (a missing package lists the entry as unavailable and is named when it is refused), schema validation (`robot_profile` a name or `null`, launch role shape), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose. The OpenArm rows skip without its private description |
+| `test_openarm_entry.py` | The OpenArm entry's description against its MJCF, built as `run.launch.py` builds them: joints, limits, prismatic fingers and actuators; a position servo on every `ros2_control` joint; the hand and camera frames at random poses; a clean spawn; the fingers' travel; the right hand closing on the `can_on_table` can between its pads and holding it, still and while the elbow lifts the hand. Skips without the private description |
+| `test_openarm_hand.py` | fm-robot's `openarm.sim.urdf.xacro` (loader hand) against `fm_sim_models`' `openarm` model, which the entry ran before it moved to the Anvil description; both are retired once the Anvil model passes a live pick in sim |
+| `test_run_launch_roles.py` | `run.launch.py`'s setup with SO-101 given OpenArm's `servo` role (SO-101 is public, so this runs in every image) and a controller that activates it: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down; a missing launch file fails at setup |
+| `test_scenario_launch.py` | Live: `so101` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`, its bound judged in sim time. Needs the `so_arm` external and Mesa's EGL |
+| `test_camera_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` — both roles publish 1920x1080 JPEGs with the profile frames, sim-time stamps no more than 10 Hz apart, the real K and distortion on `camera_info`, and the can, projected through TF and the real chest intrinsics, lands on can-green pixels. Needs the private OpenArm description (skips without it) and Mesa's EGL |
+| `test_gazebo_scenario_launch.py` | Live: `openarm` on `gazebo` with `can_on_table` and `idle` — the same object, reset and outcome checks as on MuJoCo; both cameras publishing JPEG on `/cam_<role>/image_raw/compressed` and a `camera_info` with the cameras file's intrinsics, its frame and zero distortion; after shutdown, no gz-sim server of the run left. Gazebo renders on software GL there, well below real time, so the episode's bound is judged in sim time and each reset is waited out before another. Linux only, and needs the private OpenArm description (skipped otherwise) |
+| `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition; OpenArm's rows exist only where its private description is installed. Needs the MJCF and description externals, `topic_based_ros2_control` and Mesa's EGL |
 
 ## Build Type
 
 `ament_python`. One console script, `catalog`. fm-robot's `fm_control` is an exec
-dependency (the robot xacros and OpenArm's sim Servo launch); `fm-sim.repos` builds it
+dependency (the robot xacros); `fm-sim.repos` builds it
 from source. `fm_sim_scenarios` is one too: the catalog checks scenarios with it and
 `run.launch.py` generates worlds and starts its node.

@@ -61,10 +61,10 @@ def test_bad_flags_are_usage_errors(argv):
     assert caught.value.code == 2
 
 
-def test_spec_flags_default_to_the_old_sim_verbs_robot_and_backend():
+def test_spec_flags_default_to_a_robot_every_image_runs():
     args = parse_args(["up", "--host", "local"])
     assert client.spec_of(args, args.seed) == {
-        "backend": "mujoco", "robot": "openarm", "scenario": "empty", "controller": "idle",
+        "backend": "mujoco", "robot": "so101", "scenario": "empty", "controller": "idle",
         "seed": 0, "record": False,
     }  # fmt: skip
 
@@ -126,7 +126,7 @@ def test_remote_up_status_down_go_through_the_agents_verbs(remote, capsys):
     code, out, _ = run(["up", "--host", "fm-ws-01", "--seed", "7"], host, capsys)
     assert code == 0 and out.startswith("started ")
     run_id = out.split()[1]
-    assert runner.calls[0] == ("start", run_id, SPEC)
+    assert runner.calls[0] == ("start", run_id, {**SPEC, "robot": "so101"})
     wait_for(lambda: agent.status()["state"] == "running")
 
     code, out, _ = run(["status", "--host", "fm-ws-01", "--json"], host, capsys)

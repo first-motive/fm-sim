@@ -126,7 +126,12 @@ twin claims the same joints, so that one must be inactive.
 ## Robot Profile
 
 `profiles/fm_openarm_v2.yaml` copies the profile that `anvil_robot_profiles`,
-`openarm_v2_skills_config` and `fm_teleop_policy` also ship. `anvil_robot_profiles`,
+`openarm_v2_skills_config` and `fm_teleop_policy` also ship, and
+`profiles/loader_openarm_v2.yaml` copies the `openarm_v2_skills_config` profile under
+the loader's names, which fm-sim's `openarm` robot runs. The default stays
+`fm_openarm_v2`: the loader's forward position controller takes the seven arm joints
+and then the finger, and the follower publishes the arm joints alone, so it cannot
+drive that controller yet. `anvil_robot_profiles`,
 `fm_skills_task` and `fm_teleop_policy` each carry a loader for it, and `profile.py` is
 one more. Both stay local for now; one shared profile package should replace every copy
 and every loader ([fm-robot#49](https://github.com/first-motive/fm-robot/issues/49)).
