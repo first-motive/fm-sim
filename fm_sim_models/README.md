@@ -72,6 +72,7 @@ installed:
 | Finger mimic | the `finger_joint2` equality made stiff (`solref 0.005 1`, `solimp 0.95 0.99 0.001`, as openarm_mujoco v2's), so the follower finger does not give way when the hand squeezes an object |
 | Contacts | excluded between each hand's two fingers and between `link5` and `link7` |
 | Option | `noslip_iterations="5"`, as for the loader hand |
+| Gravity | Every robot body `gravcomp="1"`: the PD servos would otherwise hold the arm below its command, and a controller that commands the measured pose would let it sink. Tracking under load is then not representative of the hardware |
 
 MuJoCo writes the compiled model to six significant digits, so the joint ranges are
 set again from the URDF at full precision. The result is cached like the loader
