@@ -12,9 +12,11 @@ import json
 import stat
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 
+from fm_sim_agent import bridge
 from fm_sim_agent.logline import MAX_LINE_BYTES
 from fm_sim_agent.runner import (
     CATALOG,
@@ -40,8 +42,8 @@ FAKE_DOCKER = textwrap.dedent(
     args = sys.argv[1:]
     with open(os.environ["FAKE_DOCKER_LOG"], "a") as log:
         log.write(json.dumps(args) + "\\n")
-    if os.environ.get("FAKE_DOCKER_FAIL") == args[0]:
-        print("Error response from daemon: boom", file=sys.stderr)
+    if os.environ.get("FAKE_DOCKER_FAIL") == args[0] or os.environ.get("FAKE_DOCKER_FAIL_ARG", "-") in args:
+        print(os.environ.get("FAKE_DOCKER_FAIL_MESSAGE", "Error response from daemon: boom"), file=sys.stderr)
         sys.exit(1)
     if args[:2] == ["image", "inspect"]:
         print("sha256:abc")
@@ -75,6 +77,8 @@ def docker(tmp_path, monkeypatch):
     log = tmp_path / "docker.log"
     monkeypatch.setenv("FAKE_DOCKER_LOG", str(log))
     monkeypatch.setenv("FAKE_CATALOG", json.dumps(CATALOG_DOC))
+    monkeypatch.delenv("FAKE_DOCKER_FAIL_ARG", raising=False)
+    monkeypatch.delenv("FAKE_DOCKER_FAIL_MESSAGE", raising=False)
     for name in (
         "ROS_DOMAIN_ID",
         "RMW_IMPLEMENTATION",
@@ -255,7 +259,16 @@ def test_a_catalog_that_times_out_is_removed(docker, monkeypatch):
 
 def test_stop_stops_then_removes(docker):
     docker.stop(RUN_ID)
-    assert [argv[0] for argv in docker.calls()] == ["stop", "rm"]
+    # The run's bridge first, if any, whatever this runner's own bridge config.
+    assert docker.calls()[0] == ["rm", "--force", f"fm-sim-bridge-{RUN_ID}"]
+    assert [argv[0] for argv in docker.calls()[1:]] == ["stop", "rm"]
+
+
+def test_stop_tolerates_a_run_with_no_bridge(docker, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_FAIL_ARG", f"fm-sim-bridge-{RUN_ID}")
+    monkeypatch.setenv("FAKE_DOCKER_FAIL_MESSAGE", "Error: No such container: x")
+    docker.stop(RUN_ID)
+    assert docker.calls()[-1] == ["rm", "--force", f"fm-sim-run-{RUN_ID}"]
 
 
 def test_logs_stream_the_container_output(docker):
@@ -377,3 +390,82 @@ def test_parse_description_is_the_echoed_urdf_without_its_separator():
 def test_parse_description_with_nothing_echoed_raises():
     with pytest.raises(RunnerError):
         parse_description("")
+
+
+# -- a run's bridge, off the host network --------------------------------------
+
+
+@pytest.fixture
+def bridged(docker, tmp_path):
+    """The runner as a Mac's agent builds it: off the host network, with a bridge config."""
+    config = tmp_path / "fm-comms" / "bridge-sim.json5"
+    docker.host_network = False
+    docker.bridge_config = config
+    return docker
+
+
+def test_a_run_off_the_host_network_starts_its_bridge_in_its_network(bridged, tmp_path):
+    bridged.start(RUN_ID, SPEC)
+    run, bridge_run = bridged.calls()
+    assert run[run.index("--name") + 1] == f"fm-sim-run-{RUN_ID}"
+    argv = bridge_run
+    assert argv[:2] == ["run", "--detach"] and "--pull=never" in argv
+    assert argv[argv.index("--name") + 1] == f"fm-sim-bridge-{RUN_ID}"
+    # Its run's namespace, never the host's.
+    assert argv[argv.index("--network") + 1] == f"container:fm-sim-run-{RUN_ID}"
+    assert argv.count("--network") == 1 and "host" not in argv
+    # Labelled as its run's, so stop_stale and active_runs find it.
+    assert "fm.sim.agent=fm_ws_01" in argv and f"fm.sim.run_id={RUN_ID}" in argv
+    # Exactly the two files, read-only; never the directory.
+    config = tmp_path / "fm-comms" / "bridge-sim.json5"
+    assert "--volume" not in argv
+    mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "--mount"]
+    assert mounts == [
+        f"type=bind,source={config},target=/fm-bridge/bridge-sim.json5,readonly",
+        f"type=bind,source={config.parent / 'cyclonedds.xml'},target=/fm-bridge/cyclonedds.xml,readonly",
+    ]
+    # Bounded: a bridge that can never reach the router stops trying.
+    assert argv[argv.index("--restart") + 1] == "on-failure:5"
+    assert "ROS_DOMAIN_ID" not in argv
+    assert argv[argv.index("--cap-drop") + 1] == "ALL" and argv[argv.index("--user") + 1] != "0:0"
+    assert "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST" in argv and "ROS_DISTRO=jazzy" in argv
+    assert argv[-3:] == [bridge.IMAGE, "--config", "/fm-bridge/bridge-sim.json5"]
+    assert "@sha256:" in bridge.IMAGE
+
+
+def test_a_mount_path_with_a_comma_or_colon_stays_one_field():
+    value = bridge.mount(Path("/a,b:c/bridge-sim.json5"), "/fm-bridge/bridge-sim.json5")
+    assert value == 'type=bind,"source=/a,b:c/bridge-sim.json5",target=/fm-bridge/bridge-sim.json5,readonly'
+
+
+def test_the_bridge_gets_the_domain_by_name_as_the_run_does(bridged, monkeypatch):
+    monkeypatch.setenv("ROS_DOMAIN_ID", "7")
+    argv = bridged.bridge_argv(RUN_ID, bridged.bridge_config)
+    assert argv[argv.index("ROS_DOMAIN_ID") - 1] == "--env"
+    assert not any(a.startswith("ROS_DOMAIN_ID=") for a in argv)
+
+
+def test_a_run_without_a_bridge_config_starts_alone(docker):
+    docker.host_network = False
+    docker.start(RUN_ID, SPEC)
+    assert len(docker.calls()) == 1
+
+
+def test_a_bridge_that_does_not_start_fails_the_run_and_says_how_to_get_it(bridged, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_FAIL_ARG", bridge.IMAGE)
+    with pytest.raises(RunnerError, match="fm sim host pull local"):
+        bridged.start(RUN_ID, SPEC)
+
+
+def test_stop_removes_the_bridge_before_its_run(bridged):
+    bridged.stop(RUN_ID)
+    assert bridged.calls() == [
+        ["rm", "--force", f"fm-sim-bridge-{RUN_ID}"],
+        ["stop", "--time", "20", f"fm-sim-run-{RUN_ID}"],
+        ["rm", "--force", f"fm-sim-run-{RUN_ID}"],
+    ]
+
+
+def test_a_run_and_its_bridge_are_one_active_run(bridged, monkeypatch):
+    monkeypatch.setenv("FAKE_PS_RUNS", f"{RUN_ID}\n{RUN_ID}")
+    assert bridged.active_runs() == [RUN_ID]

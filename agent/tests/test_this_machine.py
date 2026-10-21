@@ -20,11 +20,12 @@ import sys
 import textwrap
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
+from fm_sim_agent import bridge, client, service, this_machine
 from fm_sim_agent import card as card_module
-from fm_sim_agent import client, service, this_machine
 from fm_sim_agent.client import main, parse_args
 
 REF = "ghcr.io/first-motive/fm-sim:jazzy"
@@ -43,6 +44,8 @@ FAKE_DOCKER = textwrap.dedent(
         log.write(json.dumps(args) + "\\n")
     scenario = json.loads(os.environ["FAKE_DOCKER"])
     pulled = os.environ["FAKE_DOCKER_LOG"] + ".pulled"
+    bridge_pulled = os.environ["FAKE_DOCKER_LOG"] + ".bridge"
+    is_bridge = args[-1].startswith("eclipse/zenoh-bridge-ros2dds@")
     if args[:2] == ["context", "show"]:
         print(scenario.get("context", "orbstack"))
     elif args[0] == "info":
@@ -50,6 +53,15 @@ FAKE_DOCKER = textwrap.dedent(
             print(scenario["info_error"], file=sys.stderr)
             sys.exit(1)
         print(scenario.get("os", "OrbStack"))
+    elif args[:2] == ["image", "inspect"] and is_bridge:
+        if not (scenario.get("bridge_present") or os.path.exists(bridge_pulled)):
+            print("Error: No such image: " + args[-1], file=sys.stderr)
+            sys.exit(1)
+        print("sha256:bridge")
+    elif args[0] == "pull" and is_bridge:
+        if scenario.get("bridge_pull_rc", 0) == 0:
+            open(bridge_pulled, "w").close()
+        sys.exit(scenario.get("bridge_pull_rc", 0))
     elif args[:2] == ["image", "inspect"]:
         digests = json.load(open(pulled)) if os.path.exists(pulled) else scenario.get("digests")
         if digests is None:
@@ -113,6 +125,8 @@ def docker(tmp_path, monkeypatch):
     for name in (service.IMAGE_ENV, service.IMAGE_DIGEST_ENV):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(service, "DEFAULT_IMAGE_DIGEST", None)  # each test names its pin
+    # Never this machine's own: no bridge config unless a test writes one.
+    monkeypatch.setenv(bridge.CONFIG_ENV, str(tmp_path / "fm-comms" / "bridge-sim.json5"))
 
     class Fake:
         bin = bin_dir
@@ -122,6 +136,14 @@ def docker(tmp_path, monkeypatch):
 
         def calls(self) -> list[list[str]]:
             return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+        def bridge_config(self) -> Path:
+            """Write this machine's bridge config and its cyclonedds.xml; return the config."""
+            config = tmp_path / "fm-comms" / "bridge-sim.json5"
+            config.parent.mkdir(exist_ok=True)
+            config.write_text("{}")
+            (config.parent / "cyclonedds.xml").write_text("<CycloneDDS/>")
+            return config
 
     fake = Fake()
     fake.scenario(digests=[f"{REPO}@{OLD}"])
@@ -163,13 +185,15 @@ def state_dir():
 
 def assert_local_status(status: dict) -> None:
     """The LocalStatus shape of contracts §8, key for key."""
-    assert set(status) == {"schema_version", "runtime", "image", "agent"}
+    assert set(status) == {"schema_version", "runtime", "image", "agent", "bridge"}
     assert status["schema_version"] == 1
     assert set(status["runtime"]) == {"available", "name", "message"}
     assert status["runtime"]["name"] in ("orbstack", "docker", None)
     assert set(status["image"]) == {"ref", "pinned_digest", "present", "local_digest", "update_available"}
     assert set(status["agent"]) == {"running", "pid", "since", "host", "log_path"}
     assert status["agent"]["host"] == MACHINE
+    assert set(status["bridge"]) == {"config", "ready"}
+    assert isinstance(status["bridge"]["ready"], bool)
     for key in ("available",):
         assert isinstance(status["runtime"][key], bool)
     for key in ("present", "update_available"):
@@ -291,6 +315,7 @@ def test_status_json_is_a_local_status(docker, capsys, monkeypatch):
         "host": MACHINE,
         "log_path": str(state_dir() / "agent.log"),
     }
+    assert status["bridge"] == {"config": None, "ready": False}
     assert not state_dir().exists()  # status only reads
 
 
@@ -357,6 +382,58 @@ def test_status_lines(docker, capsys, monkeypatch):
     assert out[0] == "runtime: orbstack, available (OrbStack (context orbstack))"
     assert out[1] == f"image: {REF} present, {OLD}, pin {PIN}, update available"
     assert out[2].startswith("agent: not running, log ")
+    assert out[3] == "bridge: not ready, config missing"
+
+
+# -- the bridge ---------------------------------------------------------------
+
+
+def test_the_bridge_is_ready_once_its_config_and_image_are_here(docker, capsys):
+    config = docker.bridge_config()
+    _, [reply] = run_json(["status"], capsys)
+    assert reply["status"]["bridge"] == {"config": str(config), "ready": False}  # no image yet
+    docker.scenario(digests=[f"{REPO}@{OLD}"], bridge_present=True)
+    _, [reply] = run_json(["status"], capsys)
+    assert reply["status"]["bridge"] == {"config": str(config), "ready": True}
+    (config.parent / "cyclonedds.xml").unlink()
+    _, [reply] = run_json(["status"], capsys)
+    assert reply["status"]["bridge"] == {"config": str(config), "ready": False}
+
+
+def test_pull_takes_the_bridge_image_too_when_the_config_is_here(docker, capsys):
+    docker.bridge_config()
+    docker.scenario(digests=None, pulled_digests=[f"{REPO}@{OLD}"])
+    code, lines = run_json(["pull"], capsys)
+    assert code == 0 and lines[-1]["status"]["bridge"]["ready"] is True
+    pulls = [c for c in docker.calls() if c[0] == "pull"]
+    assert pulls == [["pull", REF], ["pull", bridge.IMAGE]]
+
+
+def test_pull_leaves_a_bridge_image_that_is_here(docker, capsys):
+    docker.bridge_config()
+    docker.scenario(digests=None, pulled_digests=[f"{REPO}@{OLD}"], bridge_present=True)
+    run_json(["pull"], capsys)
+    assert [c for c in docker.calls() if c[0] == "pull"] == [["pull", REF]]
+
+
+def test_pull_takes_no_bridge_image_without_its_config(docker, capsys):
+    docker.scenario(digests=None, pulled_digests=[f"{REPO}@{OLD}"])
+    run_json(["pull"], capsys)
+    assert [c for c in docker.calls() if c[0] == "pull"] == [["pull", REF]]
+
+
+def test_a_failed_bridge_pull_is_refused(docker, capsys):
+    docker.bridge_config()
+    docker.scenario(digests=None, pulled_digests=[f"{REPO}@{OLD}"], bridge_pull_rc=1)
+    code, lines = run_json(["pull"], capsys)
+    assert code == 1 and lines[-1]["error"]["code"] == "pull_failed"
+
+
+def test_start_needs_the_bridge_image_when_the_config_is_here(docker, agent, capsys):
+    docker.bridge_config()
+    code, [reply] = run_json(["start"], capsys)
+    assert code == 1 and reply["error"]["code"] == "image_missing"
+    assert bridge.IMAGE in reply["error"]["message"]
 
 
 # -- pull ---------------------------------------------------------------------

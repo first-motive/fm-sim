@@ -11,10 +11,13 @@ runs Docker itself.
 - ``status`` only reads: ``docker context show`` and ``docker info`` say
   whether a runtime answers and which one (OrbStack or Docker), ``docker image
   inspect`` whether the image is here and at which registry digest, and the
-  pidfile plus ``ps`` whether the managed agent is up.
+  pidfile plus ``ps`` whether the managed agent is up; ``bridge`` whether
+  runs get live topics (:mod:`fm_sim_agent.bridge`): its config is here and its
+  image is pulled.
 - ``pull`` pulls the image by its pinned digest and tags it as the ref, so the
   ``--pull=never`` runs of :class:`~fm_sim_agent.runner.DockerRunner` find it.
-  With no pin it pulls the tag.
+  With no pin it pulls the tag. With the bridge config here it also pulls the
+  pinned bridge image, once, so a run started offline still bridges.
 - ``start`` runs the service (``python -m fm_sim_agent.service --host <this
   machine> --label local --no-host-network``) detached, in a session and
   process group of its own, so it outlives whatever ran the command, with a
@@ -48,6 +51,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fm_sim_agent import bridge
 from fm_sim_agent.env import EndpointError, router_endpoint
 from fm_sim_agent.runner import DockerRunner, RunnerError, capped_lines
 from fm_sim_agent.runs import default_runs_dir
@@ -214,13 +218,23 @@ class LocalHost:
     """This machine's runtime, image and managed agent."""
 
     def __init__(
-        self, image: str, pin: str | None, state_dir: Path, host: str, *, docker: str = "docker"
+        self,
+        image: str,
+        pin: str | None,
+        state_dir: Path,
+        host: str,
+        *,
+        docker: str = "docker",
+        bridge_config: Path | None = None,
     ) -> None:
         self.image = image
         self.host = host
         self.pin = pin
         self.state_dir = state_dir
         self.docker = docker
+        #: Where the managed agent reads the bridge config: it inherits the
+        #: environment that names it.
+        self.bridge_config = bridge.config_path(bridge_config)
 
     @property
     def log_path(self) -> Path:
@@ -283,6 +297,23 @@ class LocalHost:
         state["local_digest"] = local
         state["update_available"] = self.pin is not None and local != self.pin
         return state
+
+    def bridge_image_present(self) -> bool:
+        try:
+            return self._docker("image", "inspect", "--format", "{{.Id}}", bridge.IMAGE).returncode == 0
+        except OSError:
+            return False
+
+    def bridge_state(self, runtime_available: bool) -> dict:
+        """Whether runs get live topics: ``config`` when the file is here, ``ready`` once all is."""
+        return {
+            "config": str(self.bridge_config) if self.bridge_config.is_file() else None,
+            "ready": self.bridges() and runtime_available and self.bridge_image_present(),
+        }
+
+    def bridges(self) -> bool:
+        """Whether the agent's runs get a bridge: both its files are here."""
+        return bridge.active_config(self.bridge_config) is not None
 
     def _read_pidfile(self) -> Pidfile | None:
         try:
@@ -353,6 +384,7 @@ class LocalHost:
             "runtime": runtime,
             "image": self.image_state(runtime["available"]),
             "agent": self.agent_state(),
+            "bridge": self.bridge_state(runtime["available"]),
         }
 
     def other_agents(self) -> list[int]:
@@ -473,6 +505,10 @@ class LocalHost:
         if not self.image_state(True)["present"]:
             raise LocalError(
                 "image_missing", f"{self.image} is not on this machine; `fm sim host pull local` gets it"
+            )
+        if self.bridges() and not self.bridge_image_present():
+            raise LocalError(
+                "image_missing", f"{bridge.IMAGE} is not on this machine; `fm sim host pull local` gets it"
             )
         others = self.other_agents()
         if others:
@@ -614,6 +650,24 @@ class LocalHost:
         if not runtime["available"]:
             raise LocalError("runtime_unavailable", runtime["message"])
         source = f"{repository_of(self.image)}@{self.pin}" if self.pin else self.image
+        self._pull(source, self.image, on_progress)
+        if self.pin:
+            tagged = self._docker("tag", source, self.image)
+            if tagged.returncode != 0:
+                lines = (tagged.stderr or tagged.stdout).strip().splitlines()
+                raise LocalError("pull_failed", lines[-1][:300] if lines else "docker tag failed")
+            image = self.image_state(True)
+            if image["local_digest"] != self.pin:
+                raise LocalError(
+                    "digest_mismatch", f"{self.image} is not at its pin {self.pin} after the pull"
+                )
+        # Pulled only when missing: a pull asks the registry even for a digest already here.
+        if self.bridges() and not self.bridge_image_present():
+            self._pull(bridge.IMAGE, bridge.IMAGE, on_progress)
+        return self.status()
+
+    def _pull(self, source: str, image: str, on_progress: Callable[[dict], None]) -> None:
+        """``docker pull source``, reporting each line; ``image`` names it in a refusal."""
         try:
             process = subprocess.Popen(
                 [self.docker, "pull", source],
@@ -639,20 +693,7 @@ class LocalHost:
                 process.kill()
                 process.wait()
         if code != 0:
-            raise LocalError(
-                "pull_failed", pull_failure(last, self.image) or f"docker pull exited with {code}"
-            )
-        if self.pin:
-            tagged = self._docker("tag", source, self.image)
-            if tagged.returncode != 0:
-                lines = (tagged.stderr or tagged.stdout).strip().splitlines()
-                raise LocalError("pull_failed", lines[-1][:300] if lines else "docker tag failed")
-            image = self.image_state(True)
-            if image["local_digest"] != self.pin:
-                raise LocalError(
-                    "digest_mismatch", f"{self.image} is not at its pin {self.pin} after the pull"
-                )
-        return self.status()
+            raise LocalError("pull_failed", pull_failure(last, image) or f"docker pull exited with {code}")
 
 
 def this_machine(image: str, pin: str | None, host: str) -> LocalHost:

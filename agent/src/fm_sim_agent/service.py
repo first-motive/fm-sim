@@ -31,6 +31,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from fm_sim_agent import bridge
 from fm_sim_agent.agent import (
     BINARY_VERBS,
     MAX_BODY_BYTES,
@@ -282,6 +283,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-host-network", action="store_true", help="Do not share the host's network (macOS)."
     )
     parser.add_argument(
+        "--bridge-config",
+        type=Path,
+        default=None,
+        help=f"With --no-host-network: the bridge config each run's bridge reads, its {bridge.CYCLONE_NAME} "
+        f"beside it (env {bridge.CONFIG_ENV}, default {bridge.DEFAULT_CONFIG}).",
+    )
+    parser.add_argument(
         "--docker-arg",
         action="append",
         default=[],
@@ -320,6 +328,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Start a new MCAP file past this size.",
     )
     return parser
+
+
+def bridge_of(args: argparse.Namespace) -> Path | None:
+    """The bridge config each run's bridge reads, or None for no bridge; prints why not.
+
+    Only a run off the host network needs one: on the host network the host's
+    own sim bridge sees it.
+    """
+    if not args.no_host_network:
+        return None
+    config = bridge.active_config(args.bridge_config)
+    if config is None:
+        absent = bridge.missing(bridge.config_path(args.bridge_config))
+        names = ", ".join(str(path) for path in absent)
+        print(f"fm-sim-agent: live topics are off: no {names} (fm-comms renders them)", flush=True)
+        return None
+    print(f"fm-sim-agent: each run's topics are bridged with {config}", flush=True)
+    return config
 
 
 def serve(agent: SimAgent, host: str, endpoint: str, wait) -> None:
@@ -376,6 +402,7 @@ def main(argv: list[str] | None = None) -> int:
         bag_split_bytes=args.bag_split_mb * 2**20,
         dds_range=args.dds_range,
         label=label,
+        bridge_config=bridge_of(args),
     )
     agent = SimAgent(host, runner, RunStore(runs_dir))
     agent.keep_foreign_runs = label != host  # a label shared with other processes
