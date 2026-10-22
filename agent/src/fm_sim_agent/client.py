@@ -2,11 +2,11 @@
 
     fm sim catalog --host fm-ws-01
     fm sim status  --host fm-ws-01
-    fm sim up      --host fm-ws-01 --scenario can_on_table --controller fm_skills_gt --seed 3
+    fm sim up      --host fm-ws-01 --scenario can_on_table --controller fm_skills --seed 3
     fm sim logs    --host fm-ws-01
     fm sim down    --host fm-ws-01
     fm sim runs    --host fm-ws-01 --limit 5
-    fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills_gt --seeds 0..19
+    fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills --seeds 0..19
     fm sim host start aws --stack fm-sim-cloud-host --region eu-west-1
     fm sim host start local
 
@@ -76,6 +76,7 @@ from fm_sim_agent.runner import DockerRunner, RunnerError
 from fm_sim_agent.runs import RunStore, default_runs_dir
 from fm_sim_agent.service import (
     CONTROLLERS_ENV,
+    CONTROLLERS_IMAGE,
     DEFAULT_IMAGE,
     IMAGE_DIGEST_ENV,
     IMAGE_ENV,
@@ -290,7 +291,11 @@ def connect(args: argparse.Namespace) -> Local | Remote:
     if args.host == LOCAL:
         managed = this_machine.managed_host()
         if managed is None:
-            return local_host(image_ref(args.image), args.runs_dir)
+            # --image names a ref outright; otherwise the controllers choice outranks
+            # $FM_SIM_IMAGE, as it does for `fm sim host … local`. Runs here use
+            # --pull=never, so the ref is all they need, not its pin.
+            image = image_ref(args.image) if args.image or not controllers_chosen() else CONTROLLERS_IMAGE
+            return local_host(image, args.runs_dir)
         if args.image or args.runs_dir or getattr(args, "duration", None) is not None:
             raise UsageError(
                 f"this machine's sim agent is serving as {managed}; --image, --runs-dir and --duration"
@@ -312,7 +317,8 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--image",
         default="",
-        help=f"local only: the image runs use (env FM_SIM_IMAGE, default {DEFAULT_IMAGE})",
+        help=f"local only: the image runs use (outranks env {CONTROLLERS_ENV}=1, which outranks"
+        f" env FM_SIM_IMAGE; default {DEFAULT_IMAGE})",
     )
     common.add_argument("--runs-dir", type=Path, default=None, help="local only: where runs are filed")
 
@@ -427,6 +433,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     if args.host == LOCAL:
         try:
             image_ref(args.image)
+            controllers_chosen()
         except ImageError as exc:
             parser.error(str(exc))
     if getattr(args, "run_id", None) is not None and not valid_run_id(args.run_id):
