@@ -3,12 +3,12 @@
 # sim — drive a First Motive sim host.
 #
 #   fm sim catalog --host fm-ws-01
-#   fm sim up      --host fm-ws-01 --scenario can_on_table --controller fm_skills_gt --seed 3
+#   fm sim up      --host fm-ws-01 --scenario can_on_table --controller fm_skills --seed 3
 #   fm sim status  --host fm-ws-01
 #   fm sim logs    --host fm-ws-01
 #   fm sim down    --host fm-ws-01
 #   fm sim runs    --host fm-ws-01
-#   fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills_gt --seeds 0..19
+#   fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills --seeds 0..19
 #   fm sim up      --host local                  this Mac, in the foreground, on OrbStack
 #   fm sim host start|stop|status aws --stack fm-sim-cloud-host   the AWS sim host
 #   fm sim host status|pull|start|stop|restart local [--controllers]   this Mac's image and managed agent

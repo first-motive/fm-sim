@@ -89,7 +89,7 @@ and is listed as unavailable in the public fm-sim image.
 | Robot | `fm_sim.robots` | `openarm`, `so101`, `axol` | `fm_sim_bringup` |
 | Scenario | `fm_sim.scenarios` | `empty`, `can_on_table` | `fm_sim_bringup` |
 | Controller | `fm_sim.controllers` | `idle`, `teleop` | `fm_sim_bringup` |
-| | | `fm_skills` (unavailable) | fm-skills `fm_skills_sim` |
+| | | `fm_skills` | fm-skills `fm_skills_sim` |
 | | | `classical` (unavailable) | anvil-embodied-ai `classical_control` |
 | | | `act`, `smolvla`, `pi0` (unavailable) | anvil-embodied-ai `lerobot_control` |
 | | | `policy_serve`; `fastwam` (placeholder, unavailable) | fm-teleop `fm_teleop_policy` |
@@ -378,9 +378,9 @@ runs only controllers without a launch. Add the robot to
 
 | Work | State |
 |------|-------|
-| `fm_skills` in sim | Built into the controllers image, but `available: false` until a live pick in sim passes on the loader hand |
+| `fm_skills` in sim | Available in the controllers image, planning on the same Anvil description the sim openarm runs; a live pick trial on the loader hand is still to pass |
 | VLA controllers | `act`, `smolvla` and `pi0` need torch, so no image builds them; they wait for a GPU variant of the controllers image |
-| Controllers image on a host | The image is private, so a host needs a ghcr login to pull it, and no host selects it by default |
+| Controllers image on a host | The image is private, so a host needs a ghcr login to pull it; a host runs it only when `--controllers` or `FM_SIM_CONTROLLERS=1` chooses it |
 
 ## Design Notes
 

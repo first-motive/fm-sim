@@ -265,7 +265,8 @@ process, under the host name `local`, against this machine's Docker
 (OrbStack on a Mac). No router, Zenoh session or systemd unit is involved.
 Runs do not share the host's network, and get a bridge as the managed
 agent's do (see [Live Topics](#live-topics)). The image is `--image`, else
-`$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy`, and it must already
+the controllers image when `FM_SIM_CONTROLLERS=1`, else `$FM_SIM_IMAGE`, else
+`ghcr.io/first-motive/fm-sim:jazzy`, and it must already
 be on the machine, since runs use `--pull=never`. Summaries go under
 `--runs-dir`, by default the agent's own runs directory.
 

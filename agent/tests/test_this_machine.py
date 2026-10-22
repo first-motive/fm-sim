@@ -855,6 +855,23 @@ def test_host_local_reaches_the_managed_agent_by_this_machines_name(docker, agen
     assert isinstance(client.connect(parse_args(["status", "--host", "local"])), client.Local)
 
 
+def test_in_process_host_local_runs_the_controllers_image_when_chosen(docker, monkeypatch):
+    def image_of(argv):
+        return client.connect(parse_args(argv)).runner.image
+
+    monkeypatch.setenv(service.IMAGE_ENV, "fm-sim:dev")
+    assert image_of(["catalog", "--host", "local"]) == "fm-sim:dev"
+    monkeypatch.setenv(service.CONTROLLERS_ENV, "1")
+    assert image_of(["catalog", "--host", "local"]) == service.CONTROLLERS_IMAGE
+    assert image_of(["catalog", "--host", "local", "--image", "fm-sim:jazzy"]) == "fm-sim:jazzy"
+    # In-process runs never pull, so a pin they do not use cannot stop them.
+    monkeypatch.setenv(service.IMAGE_DIGEST_ENV, "not-a-digest")
+    assert image_of(["catalog", "--host", "local"]) == service.CONTROLLERS_IMAGE
+    monkeypatch.setenv(service.CONTROLLERS_ENV, "yes")
+    with pytest.raises(SystemExit):
+        parse_args(["catalog", "--host", "local"])
+
+
 START_AS_A_CHILD = textwrap.dedent(
     """\
     import sys
