@@ -14,6 +14,9 @@ Metadata:
           - FmSimRepoUrl
           - FmSimCommit
           - SimImageDigest
+          - GhcrTokenParameterName
+          - GhcrUsername
+          - ControllersImageDigest
           - RouterEndpoint
           - TailscaleAuthKeyParameterName
       - Label: {default: Lifecycle}
@@ -74,6 +77,21 @@ Parameters:
     Type: String
     AllowedPattern: "^sha256:[0-9a-f]{64}$"
     Description: Digest of the fm-sim image runs use, as fm-setup's FM_SIM_IMAGE_DIGEST takes it.
+  GhcrTokenParameterName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(|(/[A-Za-z0-9_.-]+)+)$"
+    Description: Name of a SecureString SSM parameter holding a GitHub token with read:packages for first-motive. Only the name is passed. Empty runs the public image.
+  GhcrUsername:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))$"
+    Description: GitHub login the token belongs to. Required when GhcrTokenParameterName is set.
+  ControllersImageDigest:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(|sha256:[0-9a-f]{64})$"
+    Description: Digest of ghcr.io/first-motive/fm-sim-controllers to pull. Empty uses fm-setup's own pinned digest.
   RouterEndpoint:
     Type: String
     AllowedPattern: "^tcp/[A-Za-z0-9.-]+:7447$"
@@ -129,6 +147,16 @@ Parameters:
 Conditions:
   UseImageOverride: !Not [!Equals [!Ref ImageIdOverride, ""]]
   HasBudgetEmail: !Not [!Equals [!Ref BudgetNotificationEmail, ""]]
+  UseControllersImage: !Not [!Equals [!Ref GhcrTokenParameterName, ""]]
+
+# docker login needs both halves; refuse the deploy rather than fail the
+# bootstrap and bill a host that cannot pull.
+Rules:
+  GhcrTokenNeedsUsername:
+    RuleCondition: !Not [!Equals [!Ref GhcrTokenParameterName, ""]]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref GhcrUsername, ""]]
+        AssertDescription: GhcrUsername is required when GhcrTokenParameterName is set.
 
 Resources:
   Vpc:
@@ -244,6 +272,26 @@ Resources:
                   StringEquals:
                     kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
                     "kms:EncryptionContext:PARAMETER_ARN": !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TailscaleAuthKeyParameterName}"
+              # The GHCR token gets the same two grants, and only on a stack
+              # that names one; a public-image host can read no token at all.
+              - !If
+                - UseControllersImage
+                - Sid: ReadGhcrToken
+                  Effect: Allow
+                  Action: ssm:GetParameter
+                  Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GhcrTokenParameterName}"
+                - !Ref AWS::NoValue
+              - !If
+                - UseControllersImage
+                - Sid: DecryptGhcrTokenThroughSsm
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: "*"
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+                      "kms:EncryptionContext:PARAMETER_ARN": !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GhcrTokenParameterName}"
+                - !Ref AWS::NoValue
               # Terminate-with-decrement can only lower capacity. Raising it
               # stays with the controller and its budget gate.
               - Sid: LeaveOwnGroup
@@ -299,105 +347,115 @@ Resources:
             Tags:
               - {Key: Name, Value: !Ref HostName}
               - {Key: !Ref CostTagKey, Value: !Ref CostTagValue}
-        # Only names and pinned identities go here; the auth key stays in SSM
-        # and is read by the fm-setup role from the parameter named below.
+        # Only names and pinned identities go here; the auth key and the GHCR
+        # token stay in SSM and are read by the fm-setup role from the
+        # parameters named below.
         UserData:
-          Fn::Base64: !Sub |
-            #!/bin/bash
-            set -Eeuo pipefail
-            # This log and cloud-init's output log both capture what the bootstrap
-            # and the role print. Nothing here prints the auth key; the role must not.
-            install -m 0600 /dev/null /var/log/fm-sim-cloud-bootstrap.log
-            exec > >(tee -a /var/log/fm-sim-cloud-bootstrap.log) 2>&1
+          Fn::Base64: !Sub
+            - |
+              #!/bin/bash
+              set -Eeuo pipefail
+              # This log and cloud-init's output log both capture what the bootstrap
+              # and the role print. Nothing here prints the auth key or the GHCR
+              # token; the role must not.
+              install -m 0600 /dev/null /var/log/fm-sim-cloud-bootstrap.log
+              exec > >(tee -a /var/log/fm-sim-cloud-bootstrap.log) 2>&1
 
-            # Any failure leaves the group at once, so a broken host does not
-            # bill until the deadline. Needs only curl and the AWS CLI.
-            leave() {
-              echo "bootstrap failed at line $1; leaving the group"
-              imds=http://169.254.169.254/latest
-              token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$imds/api/token")" &&
-                id="$(curl -fsS -H "X-aws-ec2-metadata-token: $token" "$imds/meta-data/instance-id")" &&
-                aws --region '${AWS::Region}' autoscaling terminate-instance-in-auto-scaling-group \
-                  --instance-id "$id" --should-decrement-desired-capacity ||
-                echo "could not leave the group; the controller deadline will end this host"
-            }
-            trap 'leave "$LINENO"' ERR
+              # Any failure leaves the group at once, so a broken host does not
+              # bill until the deadline. Needs only curl and the AWS CLI.
+              leave() {
+                echo "bootstrap failed at line $1; leaving the group"
+                imds=http://169.254.169.254/latest
+                token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$imds/api/token")" &&
+                  id="$(curl -fsS -H "X-aws-ec2-metadata-token: $token" "$imds/meta-data/instance-id")" &&
+                  aws --region '${AWS::Region}' autoscaling terminate-instance-in-auto-scaling-group \
+                    --instance-id "$id" --should-decrement-desired-capacity ||
+                  echo "could not leave the group; the controller deadline will end this host"
+              }
+              trap 'leave "$LINENO"' ERR
 
-            install -d -m 0755 /etc/fm-sim-cloud
-            cat > /etc/fm-sim-cloud/host.env <<'EOF'
-            FM_SIM_CLOUD_REGION=${AWS::Region}
-            FM_SIM_IDLE_MINUTES=${IdleMinutes}
-            FM_SIM_MAX_LIFETIME_MINUTES=${MaxLifetimeMinutes}
-            FM_MACHINE_NAME=${HostName}
-            FM_SETUP_SHA=${FmSetupCommit}
-            FM_SIM_COMMIT=${FmSimCommit}
-            FM_SIM_IMAGE_DIGEST=${SimImageDigest}
-            FM_ROUTER_ENDPOINT=${RouterEndpoint}
-            FM_TS_AUTHKEY_SSM_PARAMETER=${TailscaleAuthKeyParameterName}
-            FM_TS_TAG=tag:sim-cloud
-            EOF
-            chmod 0444 /etc/fm-sim-cloud/host.env
+              install -d -m 0755 /etc/fm-sim-cloud
+              cat > /etc/fm-sim-cloud/host.env <<'EOF'
+              FM_SIM_CLOUD_REGION=${AWS::Region}
+              FM_SIM_IDLE_MINUTES=${IdleMinutes}
+              FM_SIM_MAX_LIFETIME_MINUTES=${MaxLifetimeMinutes}
+              FM_MACHINE_NAME=${HostName}
+              FM_SETUP_SHA=${FmSetupCommit}
+              FM_SIM_COMMIT=${FmSimCommit}
+              FM_SIM_IMAGE_DIGEST=${SimImageDigest}
+              FM_ROUTER_ENDPOINT=${RouterEndpoint}
+              FM_TS_AUTHKEY_SSM_PARAMETER=${TailscaleAuthKeyParameterName}
+              FM_TS_TAG=tag:sim-cloud
+              FM_SIM_CONTROLLERS=${ControllersFlag}
+              FM_SIM_CONTROLLERS_IMAGE_DIGEST=${ControllersImageDigest}
+              FM_GHCR_TOKEN_SSM_PARAMETER=${GhcrTokenParameterName}
+              FM_GHCR_USERNAME=${GhcrUsername}
+              EOF
+              chmod 0444 /etc/fm-sim-cloud/host.env
 
-            for tool in curl git aws python3 iptables timeout ip; do
-              command -v "$tool" >/dev/null || { echo "missing $tool on the AMI"; false; }
-            done
+              for tool in curl git aws python3 iptables timeout ip; do
+                command -v "$tool" >/dev/null || { echo "missing $tool on the AMI"; false; }
+              done
 
-            # Fetch one exact commit and refuse anything else.
-            fetch_commit() {
-              install -d -m 0755 "$1"
-              git -C "$1" init -q
-              # A hung fetch fails like any other error, so the trap ends the host.
-              timeout 5m git -C "$1" fetch -q --depth 1 "$2" "$3"
-              git -C "$1" checkout -q --detach FETCH_HEAD
-              [ "$(git -C "$1" rev-parse HEAD)" = "$3" ]
-            }
-            fetch_commit /opt/fm-sim-cloud/fm-sim '${FmSimRepoUrl}' '${FmSimCommit}'
+              # Fetch one exact commit and refuse anything else.
+              fetch_commit() {
+                install -d -m 0755 "$1"
+                git -C "$1" init -q
+                # A hung fetch fails like any other error, so the trap ends the host.
+                timeout 5m git -C "$1" fetch -q --depth 1 "$2" "$3"
+                git -C "$1" checkout -q --detach FETCH_HEAD
+                [ "$(git -C "$1" rev-parse HEAD)" = "$3" ]
+              }
+              fetch_commit /opt/fm-sim-cloud/fm-sim '${FmSimRepoUrl}' '${FmSimCommit}'
 
-            # What root runs from here on is copied out of the checkout into
-            # root-owned files that no other account can rewrite.
-            src=/opt/fm-sim-cloud/fm-sim/infra/aws/sim
-            lib=/usr/local/lib/fm-sim-cloud
-            install -d -o root -g root -m 0755 "$lib"
-            install -o root -g root -m 0644 "$src/idle_to_zero.py" "$lib/idle_to_zero.py"
-            for unit in fm-sim-idle.service fm-sim-idle.timer fm-sim-imds-block.service; do
-              install -o root -g root -m 0644 "$src/$unit" "/etc/systemd/system/$unit"
-            done
-            owned() {
-              [ "$(stat -c '%U:%G %a' "$2")" = "root:root $1" ] || { echo "$2 is not root:root $1"; false; }
-            }
-            owned 755 "$lib"
-            owned 644 "$lib/idle_to_zero.py"
-            for unit in fm-sim-idle.service fm-sim-idle.timer fm-sim-imds-block.service; do
-              owned 644 "/etc/systemd/system/$unit"
-            done
+              # What root runs from here on is copied out of the checkout into
+              # root-owned files that no other account can rewrite.
+              src=/opt/fm-sim-cloud/fm-sim/infra/aws/sim
+              lib=/usr/local/lib/fm-sim-cloud
+              install -d -o root -g root -m 0755 "$lib"
+              install -o root -g root -m 0644 "$src/idle_to_zero.py" "$lib/idle_to_zero.py"
+              for unit in fm-sim-idle.service fm-sim-idle.timer fm-sim-imds-block.service; do
+                install -o root -g root -m 0644 "$src/$unit" "/etc/systemd/system/$unit"
+              done
+              owned() {
+                [ "$(stat -c '%U:%G %a' "$2")" = "root:root $1" ] || { echo "$2 is not root:root $1"; false; }
+              }
+              owned 755 "$lib"
+              owned 644 "$lib/idle_to_zero.py"
+              for unit in fm-sim-idle.service fm-sim-idle.timer fm-sim-imds-block.service; do
+                owned 644 "/etc/systemd/system/$unit"
+              done
 
-            # The agent's account (fm-setup's FM_SIM_USER, created the way its
-            # sim step creates it) exists before the role runs, so the IMDS
-            # block is in place before any run can start.
-            if ! getent passwd fm-sim >/dev/null; then
-              useradd --system --user-group --create-home --home-dir /var/lib/fm-sim \
-                --shell /usr/sbin/nologin fm-sim
-            fi
-            systemctl daemon-reload
-            systemctl enable --now fm-sim-imds-block.service
-            iptables -C OUTPUT -d 169.254.169.254/32 -m owner --uid-owner fm-sim -j DROP
-            # The block is IPv4 only. The VPC has no IPv6 range and the template
-            # disables the IPv6 metadata endpoint; refuse a host that has IPv6 anyway.
-            if ip -6 addr show scope global | grep inet6 >/dev/null; then
-              echo "host has a global IPv6 address; the IMDS block does not cover it"
-              false
-            fi
+              # The agent's account (fm-setup's FM_SIM_USER, created the way its
+              # sim step creates it) exists before the role runs, so the IMDS
+              # block is in place before any run can start.
+              if ! getent passwd fm-sim >/dev/null; then
+                useradd --system --user-group --create-home --home-dir /var/lib/fm-sim \
+                  --shell /usr/sbin/nologin fm-sim
+              fi
+              systemctl daemon-reload
+              systemctl enable --now fm-sim-imds-block.service
+              iptables -C OUTPUT -d 169.254.169.254/32 -m owner --uid-owner fm-sim -j DROP
+              # The block is IPv4 only. The VPC has no IPv6 range and the template
+              # disables the IPv6 metadata endpoint; refuse a host that has IPv6 anyway.
+              if ip -6 addr show scope global | grep inet6 >/dev/null; then
+                echo "host has a global IPv6 address; the IMDS block does not cover it"
+                false
+              fi
 
-            fetch_commit /opt/fm/fm-setup '${FmSetupRepoUrl}' '${FmSetupCommit}'
-            set -a
-            # shellcheck source=/dev/null
-            . /etc/fm-sim-cloud/host.env
-            set +a
-            # A hang fails like any other error, so the trap ends the host.
-            NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh '--${FmSetupRole}'
+              fetch_commit /opt/fm/fm-setup '${FmSetupRepoUrl}' '${FmSetupCommit}'
+              set -a
+              # shellcheck source=/dev/null
+              . /etc/fm-sim-cloud/host.env
+              set +a
+              # A hang fails like any other error, so the trap ends the host.
+              NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh '--${FmSetupRole}'
 
-            systemctl enable --now fm-sim-idle.timer
-            echo "bootstrap complete"
+              systemctl enable --now fm-sim-idle.timer
+              echo "bootstrap complete"
+            # FM_SIM_CONTROLLERS is an explicit 0 or 1, so the role does not
+            # infer the image from whether a token name happens to be empty.
+            - ControllersFlag: !If [UseControllersImage, "1", "0"]
 
   HostAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
