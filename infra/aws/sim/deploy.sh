@@ -20,7 +20,7 @@
 #   FM_SIM_BUILD_DIR    where package writes the ZIP          (default: a temp dir)
 #
 # The params file stays on the operator's machine; host.params.example lists the
-# keys. It never holds a secret: the Tailscale key is named, not included.
+# keys. It never holds a secret: the Tailscale key and GHCR token are named, not included.
 
 set -euo pipefail
 

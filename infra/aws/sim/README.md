@@ -98,7 +98,52 @@ metadata block keeps it from runs.
 
 The bootstrap's output goes to `/var/log/fm-sim-cloud-bootstrap.log` (root,
 0600) and also to cloud-init's own output log, which other system accounts may
-read. The bootstrap never prints the key, and the role must not either.
+read. The bootstrap never prints the key or the GHCR token, and the role must
+not either.
+
+### Controllers Image
+
+By default the host runs the public `ghcr.io/first-motive/fm-sim` image and
+holds no GitHub credential. Set `GhcrTokenParameterName` to run the private
+`ghcr.io/first-motive/fm-sim-controllers` image instead, which carries the
+private OpenArm description and the `fm_skills` controller.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `GhcrTokenParameterName` | empty | name of a SecureString SSM parameter holding a GitHub token with `read:packages` for `first-motive`; empty runs the public image |
+| `GhcrUsername` | empty | GitHub login the token belongs to; required when the token name is set, and the deploy is refused without it |
+| `ControllersImageDigest` | empty | `sha256:<hex>` of the controllers image to pull; empty uses fm-setup's own pinned digest |
+
+The token is handled exactly like the Tailscale key. Only its name reaches the
+user data. With a name set, the host role may also read that one parameter and
+decrypt it through SSM, under the same encryption-context condition; without
+one, the role gets neither grant. The host role can read the token for the
+host's life. That is the same accepted risk as the auth key. Runs cannot reach
+the metadata service: each runs as the agent's account with every capability
+dropped, `no-new-privileges`, and no Docker socket, so its packets match the
+IMDS block's owner rule even on host networking. The boundary is the agent's
+account itself: it is in the docker group, which is root-equivalent, so a
+compromised agent could start a root container and read the role. The agent
+runs from a pinned commit for that reason. Give the token Packages read only,
+since it can pull every private package in `first-motive`.
+
+fm-setup's `sim-cloud` role reads the token, logs in to `ghcr.io`, pulls the
+controllers image at the pinned digest, and removes the login, so no
+credential stays in Docker's config after provisioning.
+
+Create a fine-grained personal access token on GitHub with resource owner
+`first-motive`, the Packages permission set to read only and nothing else,
+and an expiry. Store it without echoing it or leaving it in shell history:
+
+```bash
+read -rs GHCR_TOKEN   # paste the token; nothing is shown
+printf '%s' "$GHCR_TOKEN" | aws ssm put-parameter --profile <profile> --region <region> \
+  --name /fm-sim/cloud-host/ghcr-token --type SecureString --overwrite --value file:///dev/stdin
+unset GHCR_TOKEN
+```
+
+Renew the token before it expires and overwrite the parameter; the next start
+reads the new value.
 
 ### Idle To Zero
 
@@ -172,6 +217,10 @@ NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh --sim-cloud
 | `FM_SIM_COMMIT` | fm-sim commit the agent is installed from (the override fm-setup's sim step already reads) |
 | `FM_SIM_IMAGE_DIGEST` | `sha256:<hex>` of the fm-sim image (the override fm-setup's sim step already reads) |
 | `FM_SETUP_SHA` | fm-setup's own commit check |
+| `FM_SIM_CONTROLLERS` | `1` to run the controllers image, `0` for the public image; always written |
+| `FM_SIM_CONTROLLERS_IMAGE_DIGEST` | `sha256:<hex>` of the controllers image, or empty for fm-setup's pinned digest |
+| `FM_GHCR_TOKEN_SSM_PARAMETER` | name of the SecureString holding the GitHub token, or empty; read it like the auth key |
+| `FM_GHCR_USERNAME` | GitHub login for `docker login ghcr.io`, or empty |
 | `FM_SIM_CLOUD_REGION`, `FM_SIM_IDLE_MINUTES`, `FM_SIM_MAX_LIFETIME_MINUTES` | used by the idle check |
 
 The role must succeed unattended under `NONINTERACTIVE=1`, on the AMI that
@@ -249,7 +298,8 @@ infra/aws/sim/deploy.sh start             # or stop; exits 1 when refused
 Before the first deploy, create the auth key parameter yourself (a single-use,
 ephemeral, pre-authorised key tagged `tag:sim-cloud`, with a short expiry, and
 a fresh one before each start), enable versioning on the code bucket, and
-activate the cost tag in Billing. The controller ZIP is content-addressed: its key ends in the ZIP's
+activate the cost tag in Billing. To run the controllers image, also create the
+GitHub token parameter (see [Controllers Image](#controllers-image)). The controller ZIP is content-addressed: its key ends in the ZIP's
 SHA-256, and `package` builds the same bytes from the same `controller.py`.
 
 Stop the host before a stack update. An update that changes the group can

@@ -51,25 +51,51 @@ SAMPLE = {
     "SimImageDigest": "sha256:" + "c" * 64,
     "RouterEndpoint": "tcp/router.example:7447",
     "TailscaleAuthKeyParameterName": "/fm-sim/cloud-host/tailscale-auth-key",
+    "GhcrTokenParameterName": "",
+    "GhcrUsername": "",
+    "ControllersImageDigest": "",
+}
+CONTROLLERS = {
+    "GhcrTokenParameterName": "/fm-sim/cloud-host/ghcr-token",
+    "GhcrUsername": "fm-operator",
+    "ControllersImageDigest": "sha256:" + "d" * 64,
 }
 
 
-def user_data() -> str:
-    """The bootstrap as the instance receives it, with sample parameter values."""
-    template = RESOURCES["HostLaunchTemplate"]["Properties"]["LaunchTemplateData"]["UserData"]["Fn::Base64"][
-        "Sub"
-    ]
+def user_data(**overrides: str) -> str:
+    """The bootstrap as the instance receives it, with sample parameter values.
+
+    Variables in the Sub map resolve their Fn::If against UseControllersImage,
+    which the sample decides the way the template does: a non-empty token name.
+    """
+    template, variables = RESOURCES["HostLaunchTemplate"]["Properties"]["LaunchTemplateData"]["UserData"][
+        "Fn::Base64"
+    ]["Sub"]
+    values = {**SAMPLE, **overrides}
+    conditions = {"UseControllersImage": values["GhcrTokenParameterName"] != ""}
+    for name, value in variables.items():
+        condition, when_true, when_false = value["If"]
+        values[name] = when_true if conditions[condition] else when_false
 
     def substitute(match: re.Match) -> str:
         name = match.group(1)
-        return "${" + name[1:] + "}" if name.startswith("!") else SAMPLE[name]
+        return "${" + name[1:] + "}" if name.startswith("!") else values[name]
 
     return re.sub(r"\$\{([^}]+)\}", substitute, template)
 
 
-def statements(resource: str) -> list[dict]:
+def statements(resource: str, conditions: frozenset[str] = frozenset({"UseControllersImage"})) -> list[dict]:
+    """The role's statements with each Fn::If resolved; by default every condition holds."""
     policies = RESOURCES[resource]["Properties"]["Policies"]
-    return [s for p in policies for s in p["PolicyDocument"]["Statement"]]
+    resolved = []
+    for statement in (s for p in policies for s in p["PolicyDocument"]["Statement"]):
+        if "If" in statement:
+            condition, when_true, when_false = statement["If"]
+            statement = when_true if condition in conditions else when_false
+            if statement == {"Ref": "AWS::NoValue"}:
+                continue
+        resolved.append(statement)
+    return resolved
 
 
 def actions(statement: dict) -> list[str]:
@@ -413,3 +439,52 @@ def test_operator_and_viewer_can_read_only_this_stack_outputs(policy):
         for s in document
         for a in actions(s)
     )
+
+
+def test_controllers_parameters_default_to_the_public_image():
+    for name in ("GhcrTokenParameterName", "GhcrUsername", "ControllersImageDigest"):
+        assert PARAMETERS[name]["Default"] == ""
+        assert re.fullmatch(PARAMETERS[name]["AllowedPattern"], "")
+        assert re.fullmatch(PARAMETERS[name]["AllowedPattern"], CONTROLLERS[name])
+    assert not re.fullmatch(PARAMETERS["ControllersImageDigest"]["AllowedPattern"], "ghcr.io/x:latest")
+    assert not re.fullmatch(PARAMETERS["GhcrTokenParameterName"]["AllowedPattern"], "ghcr-token")
+    assert not re.fullmatch(PARAMETERS["GhcrUsername"]["AllowedPattern"], "-leading-dash")
+    condition = TEMPLATE["Conditions"]["UseControllersImage"]
+    assert condition == {"Not": [{"Equals": [{"Ref": "GhcrTokenParameterName"}, ""]}]}
+
+
+def test_a_token_name_requires_a_username():
+    rule = TEMPLATE["Rules"]["GhcrTokenNeedsUsername"]
+    assert rule["RuleCondition"] == {"Not": [{"Equals": [{"Ref": "GhcrTokenParameterName"}, ""]}]}
+    assert rule["Assertions"][0]["Assert"] == {"Not": [{"Equals": [{"Ref": "GhcrUsername"}, ""]}]}
+
+
+def test_host_env_always_names_the_controllers_choice():
+    public = user_data()
+    for line in (
+        "FM_SIM_CONTROLLERS=0\n",
+        "FM_SIM_CONTROLLERS_IMAGE_DIGEST=\n",
+        "FM_GHCR_TOKEN_SSM_PARAMETER=\n",
+        "FM_GHCR_USERNAME=\n",
+    ):
+        assert f"\n{line}" in public
+    private = user_data(**CONTROLLERS)
+    assert "\nFM_SIM_CONTROLLERS=1\n" in private
+    assert "\nFM_SIM_CONTROLLERS_IMAGE_DIGEST=sha256:" + "d" * 64 + "\n" in private
+    assert "\nFM_GHCR_TOKEN_SSM_PARAMETER=/fm-sim/cloud-host/ghcr-token\n" in private
+    assert "\nFM_GHCR_USERNAME=fm-operator\n" in private
+    assert "ghp_" not in private and "github_pat_" not in private
+
+
+def test_host_role_reads_the_ghcr_token_only_when_one_is_named():
+    public = {s["Sid"] for s in statements("HostRole", conditions=frozenset())}
+    assert not {"ReadGhcrToken", "DecryptGhcrTokenThroughSsm"} & public
+    host = statements("HostRole")
+    read = next(s for s in host if s["Sid"] == "ReadGhcrToken")
+    assert read["Action"] == "ssm:GetParameter"
+    assert read["Resource"]["Sub"].endswith("parameter${GhcrTokenParameterName}")
+    decrypt = next(s for s in host if s["Sid"] == "DecryptGhcrTokenThroughSsm")
+    assert decrypt["Action"] == "kms:Decrypt"
+    equals = decrypt["Condition"]["StringEquals"]
+    assert equals["kms:ViaService"] == {"Sub": "ssm.${AWS::Region}.amazonaws.com"}
+    assert equals["kms:EncryptionContext:PARAMETER_ARN"] == read["Resource"]
