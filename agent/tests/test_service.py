@@ -48,6 +48,7 @@ def wire(store):
     runner = FakeRunner(store)
     agent = SimAgent(HOST, runner, store)
     agent.ready_poll_s = 0.01
+    agent.min_free_bytes = 0  # the free-space check has its own tests
     fabric = Fabric(server, agent, HOST, status_period_s=0.05)
     agent.fabric = fabric  # for the lane tests, which fill a lane directly
     # The two sessions find each other asynchronously; a status query answering
@@ -210,6 +211,7 @@ def test_serve_brings_the_active_run_down_on_the_way_out(store):
     runner = FakeRunner(store)
     agent = SimAgent(HOST, runner, store)
     agent.ready_poll_s = 0.01
+    agent.min_free_bytes = 0  # the free-space check has its own tests
     seen = {}
 
     def wait() -> None:
