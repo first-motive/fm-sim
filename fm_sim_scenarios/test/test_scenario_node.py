@@ -8,7 +8,7 @@ import json
 import threading
 import time
 
-from conftest import CAN_ON_TABLE
+from conftest import CAN_ON_TABLE, EXECUTOR_THREADS
 from fm_sim_msgs.msg import ObjectStates, Outcome
 from fm_sim_msgs.srv import Reset
 from fm_sim_scenarios import scenario as sc, scenario_node
@@ -71,7 +71,7 @@ class FakeObjects:
 def ros(monkeypatch):
     monkeypatch.setitem(scenario_node.BACKENDS, 'fake', FakeObjects)
     rclpy.init()
-    executor = MultiThreadedExecutor()
+    executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     spinner = threading.Thread(target=executor.spin, daemon=True)
     nodes = []
 

@@ -9,7 +9,7 @@ import json
 import threading
 import time
 
-from conftest import CAN_ON_TABLE
+from conftest import CAN_ON_TABLE, EXECUTOR_THREADS
 from fm_sim_msgs.msg import ObjectStates
 from fm_sim_msgs.srv import Reset
 from fm_sim_scenarios import isaac_objects, isaac_stage, scenario as sc, scenario_node
@@ -74,7 +74,7 @@ class FakeStage:
 def isaac(monkeypatch):
     monkeypatch.setattr(isaac_objects, 'MOVE_TIMEOUT_S', 1.0)
     rclpy.init()
-    executor = MultiThreadedExecutor()
+    executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     nodes = []
 
     def start(**stage):

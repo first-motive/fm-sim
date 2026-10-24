@@ -42,6 +42,12 @@ BALL = {
     'color': [1.0, 0.0, 0.0, 1.0], 'pose': {'xyz': [0.6, 0.2, 0.228]},
 }
 
+# Threads for the test executors, which spin a fake engine, the scenario node and a
+# probe together. rclpy sizes a default MultiThreadedExecutor by the CPUs the process
+# may use, and on a two-CPU runner a blocked reset and a slow fake reply hold every
+# thread: nothing is left to publish poses or deliver replies.
+EXECUTOR_THREADS = 8
+
 with open(CAN_ON_TABLE_YAML) as entry_file:
     CAN_ON_TABLE = yaml.safe_load(entry_file)
 CAN_ON_TABLE['objects'].append(BALL)
