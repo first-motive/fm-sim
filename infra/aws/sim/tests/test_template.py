@@ -528,7 +528,7 @@ def test_bake_clears_the_instance_identity_and_stops_before_the_idle_timer():
     assert leave.index('if [ "$bake" = 1 ]') < leave.index("terminate-instance-in-auto-scaling-group")
 
 
-def fake_bake_aws(tmp_path, *, console, state="stopped", left=""):
+def fake_bake_aws(tmp_path, *, console, state="stopped", left="", full=()):
     log = tmp_path / "aws.log"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -539,11 +539,16 @@ def fake_bake_aws(tmp_path, *, console, state="stopped", left=""):
         f"  *tag:fm-sim-bake*) echo '{left}' ;;\n"
         "  *HostLaunchTemplate*) echo lt-0abc ;;\n"
         "  *SubnetA*) echo subnet-0abc ;;\n"
+        "  *SubnetB*) echo subnet-0def ;;\n"
         "  *HostSecurityGroup*) echo sg-0abc ;;\n"
         "  *HostName*) echo sim-cloud ;;\n"
         "  *CostTagKey*) echo fm-cost ;;\n"
         "  *CostTagValue*) echo sim ;;\n"
-        "  *run-instances*) echo i-0bake ;;\n"
+        + "".join(
+            f"  *run-instances*SubnetId={subnet},*) echo 'InsufficientInstanceCapacity' >&2; exit 254 ;;\n"
+            for subnet in full
+        )
+        + "  *run-instances*) echo i-0bake ;;\n"
         f"  *describe-instances*) echo {state} ;;\n"
         f"  *get-console-output*) echo '{console}' ;;\n"
         "  *create-image*) echo ami-0baked ;;\n"
@@ -604,3 +609,19 @@ def test_bake_refuses_while_an_earlier_bake_instance_exists(tmp_path):
     result = run_deploy(env, "bake")
     assert result.returncode != 0 and "i-0old" in result.stderr
     assert "run-instances" not in log.read_text()
+
+
+def test_bake_moves_to_the_other_subnet_when_a_zone_has_no_capacity(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", full=("subnet-0abc",))
+    result = run_deploy(env, "bake")
+    assert result.returncode == 0, result.stderr
+    assert "no capacity in SubnetA" in result.stderr
+    runs = [line for line in log.read_text().splitlines() if "run-instances" in line]
+    assert ["SubnetId=subnet-0abc" in runs[0], "SubnetId=subnet-0def" in runs[1]] == [True, True]
+
+
+def test_bake_stops_when_neither_zone_has_capacity(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", full=("subnet-0abc", "subnet-0def"))
+    result = run_deploy(env, "bake")
+    assert result.returncode != 0 and "no capacity in either" in result.stderr
+    assert "create-image" not in log.read_text()

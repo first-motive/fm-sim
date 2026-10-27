@@ -206,9 +206,8 @@ image_state() {
 # the instance, and a bake left by a killed run blocks the next one until an
 # operator ends it.
 bake() {
-  local lt subnet sg host key value tags id image
+  local lt subnet sg host key value tags id="" image
   lt="$(stack_resource HostLaunchTemplate)"
-  subnet="$(stack_resource SubnetA)"
   sg="$(stack_resource HostSecurityGroup)"
   host="$(stack_param HostName)"
   key="$(stack_param CostTagKey)"
@@ -223,14 +222,27 @@ bake() {
     die "an earlier bake instance still exists ($left); terminate it, then bake again"
 
   # These tags take the place of the launch template's own for this one launch.
-
-  id="$(aws_cli ec2 run-instances \
-    --launch-template "LaunchTemplateId=$lt,Version=\$Latest" \
-    --network-interfaces "DeviceIndex=0,SubnetId=$subnet,Groups=$sg,AssociatePublicIpAddress=true,DeleteOnTermination=true" \
-    --instance-initiated-shutdown-behavior stop \
-    --tag-specifications "ResourceType=instance,Tags=[$tags,{Key=fm-sim-bake,Value=1}]" \
-    "ResourceType=volume,Tags=[$tags]" \
-    --query 'Instances[0].InstanceId' --output text)"
+  # The group spreads over both subnets, each in its own zone; a zone out of GPU
+  # capacity moves the bake to the other, as it would a group launch.
+  local logical err
+  err="$(mktemp)"
+  for logical in SubnetA SubnetB; do
+    subnet="$(stack_resource "$logical")"
+    if id="$(aws_cli ec2 run-instances \
+      --launch-template "LaunchTemplateId=$lt,Version=\$Latest" \
+      --network-interfaces "DeviceIndex=0,SubnetId=$subnet,Groups=$sg,AssociatePublicIpAddress=true,DeleteOnTermination=true" \
+      --instance-initiated-shutdown-behavior stop \
+      --tag-specifications "ResourceType=instance,Tags=[$tags,{Key=fm-sim-bake,Value=1}]" \
+      "ResourceType=volume,Tags=[$tags]" \
+      --query 'Instances[0].InstanceId' --output text 2>"$err")"; then
+      break
+    fi
+    id=""
+    grep -q InsufficientInstanceCapacity "$err" || { cat "$err" >&2; rm -f "$err"; die "run-instances failed"; }
+    printf 'no capacity in %s (%s); trying the next subnet\n' "$logical" "$subnet" >&2
+  done
+  rm -f "$err"
+  [ -n "$id" ] || die "no capacity in either subnet's zone; bake again later"
   # shellcheck disable=SC2064  # the id is fixed now; expand it into the trap
   trap "if aws_cli ec2 terminate-instances --instance-ids '$id' >/dev/null; then echo 'terminated $id' >&2; \
     else echo 'could not terminate $id; terminate it by hand' >&2; fi" EXIT
