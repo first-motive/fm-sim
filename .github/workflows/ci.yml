@@ -42,7 +42,7 @@ jobs:
   # this repo's packages: fm-robot's own fm_* tests are its CI's to keep green. The
   # apt packages are the ones unitree_ros2's messages build with, as in fm-robot.
   build-test:
-    uses: first-motive/.github/.github/workflows/ros2-build-test.yml@feat/ros2-image-input
+    uses: first-motive/.github/.github/workflows/ros2-build-test.yml@main
     with:
       distro: jazzy
       # Docker Hub's ros image: this public repo runs GitHub-hosted, where the
@@ -205,7 +205,7 @@ jobs:
   # the wheel, and /joint_states is asserted, so a dead sim_loop is red.
   smoke:
     name: smoke run.sh (native headless)
-    uses: first-motive/.github/.github/workflows/ros2-smoke.yml@feat/ros2-image-input
+    uses: first-motive/.github/.github/workflows/ros2-smoke.yml@main
     with:
       distro: jazzy
       image: ros:jazzy  # as build-test
