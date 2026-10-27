@@ -28,9 +28,13 @@ so its pure helpers unit-test in fm-sim's CI. The Isaac half has not run in CI.
 import argparse
 import json
 import math
+import os
 import sys
+import traceback
 
 STAGE_SCHEMA_VERSION = 1
+# Set by the sim agent's Isaac container (agent/src/fm_sim_agent/isaac.py).
+READY_FILE_ENV = 'FM_ISAAC_READY_FILE'
 # Placeholder the spec uses for the articulation root (isaac_stage.ARTICULATION_ROOT).
 ARTICULATION_ROOT = '$ARTICULATION_ROOT'
 ROS2_BRIDGE_EXTENSION = 'isaacsim.ros2.bridge'
@@ -224,13 +228,26 @@ def _add_camera(stage, camera):
         # The real chest camera is a fisheye: render with its OpenCV fisheye model.
         from isaacsim.sensors.camera import Camera
 
-        Camera(
+        sensor = Camera(
             prim_path=camera['prim_path'],
             resolution=(intrinsics['width'], intrinsics['height']),
-        ).set_opencv_fisheye_properties(
-            cx=intrinsics['cx'], cy=intrinsics['cy'], fx=intrinsics['fx'], fy=intrinsics['fy'],
-            fisheye=list(intrinsics['distortion']),
         )
+        if hasattr(sensor, 'set_opencv_fisheye_properties'):
+            sensor.set_opencv_fisheye_properties(
+                cx=intrinsics['cx'], cy=intrinsics['cy'], fx=intrinsics['fx'], fy=intrinsics['fy'],
+                fisheye=list(intrinsics['distortion']),
+            )
+        else:
+            # Isaac Sim 4.5 has no OpenCV setter. OpenCV's fisheye model is Kannala-Brandt
+            # (k1..k4), fitted from the lens attributes above once the sensor has its
+            # render product.
+            sensor.initialize()
+            sensor.set_projection_type('fisheyePolynomial')
+            sensor.set_kannala_brandt_properties(
+                nominal_width=intrinsics['width'], nominal_height=intrinsics['height'],
+                optical_centre_x=intrinsics['cx'], optical_centre_y=intrinsics['cy'],
+                max_fov=None, distortion_model=list(intrinsics['distortion']),
+            )
 
 
 def _build_graph(graph, articulation_root):
@@ -289,6 +306,14 @@ def _teleport(bodies, targets, log_error):
             log_error(f'teleport of {name} failed: {type(error).__name__}: {error}')
 
 
+def _mark_ready():
+    """Write the agent's ready file, if it gave one: the stage is built and playing."""
+    path = os.environ.get(READY_FILE_ENV)
+    if path:
+        with open(path, 'w') as ready:
+            ready.write('playing\n')
+
+
 def run(spec, headless):
     """Start Isaac Sim, build the stage from ``spec`` and step it until closed."""
     from isaacsim import SimulationApp
@@ -324,6 +349,7 @@ def run(spec, headless):
             spec['object_commands_topic'], set(free), spec['object_workspace']
         )
         world.play()
+        _mark_ready()
         try:
             while app.is_running():
                 targets = listener.take()
@@ -332,6 +358,11 @@ def run(spec, headless):
                 world.step(render=True)
         finally:
             listener.close()
+    except BaseException:
+        # app.close() ends the process with status 0 before an exception would print.
+        traceback.print_exc()
+        sys.stderr.flush()
+        raise
     finally:
         app.close()
 

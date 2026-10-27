@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import stat
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
 import pytest
 
-from fm_sim_agent import bridge
+from fm_sim_agent import bridge, isaac
 from fm_sim_agent.logline import MAX_LINE_BYTES
 from fm_sim_agent.runner import (
     CATALOG,
@@ -47,6 +49,8 @@ FAKE_DOCKER = textwrap.dedent(
         sys.exit(1)
     if args[:2] == ["image", "inspect"]:
         print("sha256:abc")
+    elif args[:2] == ["run", "--rm"] and "/bin/ls" in args:
+        print(os.environ.get("FAKE_IMAGE_ROOT", "bin\\netc\\nws\\nws_ctl"))
     elif args[:2] == ["run", "--rm"]:
         print(os.environ["FAKE_CATALOG"])
     elif args[0] == "exec" and "list_controllers" in " ".join(args):
@@ -59,6 +63,8 @@ FAKE_DOCKER = textwrap.dedent(
     elif args[0] == "exec" and "echo" in args:
         print("header:\\n  stamp:\\n    sec: 1\\nscenario: empty\\nseed: 7\\nsuccess: false\\nreason: 'dropped: cube'\\nelapsed_s: 3\\n---")
     elif args[0] == "logs":
+        import time
+        time.sleep(float(os.environ.get("FAKE_LOGS_SLEEP", "0")))
         print("[INFO] [launch]: All log files can be found below /tmp/.ros/log")
         print("[sim_loop-1] [INFO] [1.5] [sim_loop]: up")
     elif args[0] == "ps" and "--format" in args:
@@ -259,9 +265,14 @@ def test_a_catalog_that_times_out_is_removed(docker, monkeypatch):
 
 def test_stop_stops_then_removes(docker):
     docker.stop(RUN_ID)
-    # The run's bridge first, if any, whatever this runner's own bridge config.
-    assert docker.calls()[0] == ["rm", "--force", f"fm-sim-bridge-{RUN_ID}"]
-    assert [argv[0] for argv in docker.calls()[1:]] == ["stop", "rm"]
+    # The run's bridge and Isaac first, if any, whatever this runner's own config.
+    assert docker.calls() == [
+        ["rm", "--force", f"fm-sim-bridge-{RUN_ID}"],
+        ["stop", "--time", "20", f"fm-sim-isaac-{RUN_ID}"],
+        ["rm", "--force", f"fm-sim-isaac-{RUN_ID}"],
+        ["stop", "--time", "20", f"fm-sim-run-{RUN_ID}"],
+        ["rm", "--force", f"fm-sim-run-{RUN_ID}"],
+    ]
 
 
 def test_stop_tolerates_a_run_with_no_bridge(docker, monkeypatch):
@@ -461,6 +472,8 @@ def test_stop_removes_the_bridge_before_its_run(bridged):
     bridged.stop(RUN_ID)
     assert bridged.calls() == [
         ["rm", "--force", f"fm-sim-bridge-{RUN_ID}"],
+        ["stop", "--time", "20", f"fm-sim-isaac-{RUN_ID}"],
+        ["rm", "--force", f"fm-sim-isaac-{RUN_ID}"],
         ["stop", "--time", "20", f"fm-sim-run-{RUN_ID}"],
         ["rm", "--force", f"fm-sim-run-{RUN_ID}"],
     ]
@@ -469,3 +482,169 @@ def test_stop_removes_the_bridge_before_its_run(bridged):
 def test_a_run_and_its_bridge_are_one_active_run(bridged, monkeypatch):
     monkeypatch.setenv("FAKE_PS_RUNS", f"{RUN_ID}\n{RUN_ID}")
     assert bridged.active_runs() == [RUN_ID]
+
+
+ISAAC_RUN_ID = "20261016T120000-isaac-openarm-can_on_table-idle-7"
+ISAAC_SPEC = {**SPEC, "backend": "isaac", "scenario": "can_on_table"}
+ISAAC_IMAGE = "nvcr.io/nvidia/isaac-sim:4.5.0"
+
+
+@pytest.fixture
+def with_isaac(docker, tmp_path):
+    docker.isaac_image = ISAAC_IMAGE
+    docker.isaac_cache = tmp_path / "isaac-cache"
+    return docker
+
+
+def test_an_isaac_run_without_an_isaac_image_starts_alone(docker):
+    docker.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    (argv,) = docker.calls()
+    assert not any(a.startswith("TMPDIR=") for a in argv)
+
+
+def test_an_isaac_run_shares_its_stage_and_starts_isaac_beside_it(with_isaac):
+    with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    probe, run, sidecar = with_isaac.calls()
+    assert probe[-3:] == ["/bin/ls", "fm-sim:jazzy", "/"] and "--network" in probe
+    stage = with_isaac.runs_dir / ISAAC_RUN_ID / "stage"
+    # The launch writes its stage under TMPDIR, the directory the Isaac container reads.
+    assert f"{stage}:{isaac.STAGE_MOUNT}" in run and f"TMPDIR={isaac.STAGE_MOUNT}" in run
+    assert run[run.index("--name") + 1] == f"fm-sim-run-{ISAAC_RUN_ID}"
+    assert sidecar[sidecar.index("--name") + 1] == f"fm-sim-isaac-{ISAAC_RUN_ID}"
+    assert f"fm.sim.run_id={ISAAC_RUN_ID}" in sidecar and "fm.sim.agent=fm_ws_01" in sidecar
+    assert f"{stage}:{isaac.STAGE_MOUNT}" in sidecar
+    assert (stage / isaac.CYCLONE_NAME).read_text() == isaac.CYCLONE
+    for name, _ in isaac.CACHES:
+        assert (with_isaac.isaac_cache / name).is_dir()
+
+
+def test_the_isaac_container_reads_the_sim_image_at_its_own_paths(with_isaac):
+    argv = with_isaac.isaac_argv(ISAAC_RUN_ID, ("ws", "ws_ctl"))
+    mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "--mount"]
+    assert mounts == [
+        "type=image,source=fm-sim:jazzy,target=/ws,image-subpath=ws",
+        "type=image,source=fm-sim:jazzy,target=/ws_ctl,image-subpath=ws_ctl",
+    ]
+    assert argv[argv.index(ISAAC_IMAGE) - 1] == "/bin/bash"
+    assert argv[argv.index(ISAAC_IMAGE) + 1 :] == [
+        "-c", isaac.SCRIPT, "isaac-stage", str(isaac.STAGE_WAIT_S), isaac.STAGE_MOUNT, isaac.RUNNER,
+    ]  # fmt: skip
+
+
+def test_a_workspace_the_sim_image_lacks_is_not_mounted(with_isaac, monkeypatch):
+    monkeypatch.setenv("FAKE_IMAGE_ROOT", "bin\nws")
+    with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    sidecar = with_isaac.calls()[-1]
+    assert [a for a in sidecar if a.startswith("type=image")] == [
+        "type=image,source=fm-sim:jazzy,target=/ws,image-subpath=ws"
+    ]
+
+
+def test_the_isaac_container_is_bounded_and_on_cyclonedds(with_isaac, monkeypatch):
+    monkeypatch.setenv("ROS_DOMAIN_ID", "7")
+    argv = with_isaac.isaac_argv(ISAAC_RUN_ID, ("ws",))
+    image = argv.index(ISAAC_IMAGE)
+    assert argv[argv.index("--cap-drop") + 1] == "ALL" and argv.index("--cap-drop") < image
+    # The agent's own user, as a run, and nothing given back: never root, no host IPC.
+    assert argv[argv.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
+    assert "--cap-add" not in argv and "--ipc" not in argv
+    # The URDF importer writes into its working directory: the run's stage, not /isaac-sim.
+    assert argv[argv.index("--workdir") + 1] == isaac.STAGE_MOUNT
+    assert argv[argv.index("--security-opt") + 1] == "no-new-privileges"
+    assert argv[argv.index("--memory") + 1] == isaac.MEMORY == argv[argv.index("--memory-swap") + 1]
+    assert ["--gpus", "all"] == argv[argv.index("--gpus") : argv.index("--gpus") + 2]
+    assert "RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" in argv
+    assert f"CYCLONEDDS_URI=file://{isaac.STAGE_MOUNT}/{isaac.CYCLONE_NAME}" in argv
+    assert argv[argv.index("ROS_DOMAIN_ID") - 1] == "--env"
+    assert "--pull=never" in argv[:image]
+
+
+def test_off_the_host_network_isaac_joins_the_runs_network(with_isaac):
+    with_isaac.host_network = False
+    argv = with_isaac.isaac_argv(ISAAC_RUN_ID, ("ws",))
+    assert argv[argv.index("--network") + 1] == f"container:fm-sim-run-{ISAAC_RUN_ID}"
+    assert "--ipc" not in argv
+
+
+def test_an_isaac_run_needs_a_cache_directory(with_isaac):
+    with_isaac.isaac_cache = None
+    with pytest.raises(RunnerError, match="--isaac-cache"):
+        with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    assert with_isaac.calls() == []
+
+
+def test_an_isaac_container_that_does_not_start_fails_the_run(with_isaac, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_FAIL_ARG", ISAAC_IMAGE)
+    with pytest.raises(RunnerError):
+        with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+
+
+def test_the_stage_wait_gives_up_and_says_where_it_looked(tmp_path):
+    done = subprocess.run(
+        ["bash", "-c", isaac.SCRIPT, "isaac-stage", "1", str(tmp_path), "/nowhere.py"],
+        capture_output=True, text=True, timeout=30,
+    )  # fmt: skip
+    assert done.returncode == 1 and f"no stage under {tmp_path}" in done.stderr
+
+
+def test_the_cli_flags_reach_the_isaac_runner():
+    from fm_sim_agent.service import build_parser
+
+    args = build_parser().parse_args(["--isaac-image", ISAAC_IMAGE, "--isaac-memory", "32g"])
+    assert args.isaac_image == ISAAC_IMAGE and args.isaac_memory == "32g"
+
+
+def test_an_isaac_run_is_not_up_until_its_stage_plays(with_isaac):
+    with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    with pytest.raises(RunnerError, match="not playing yet"):
+        with_isaac.list_controllers(ISAAC_RUN_ID)
+    (with_isaac.runs_dir / ISAAC_RUN_ID / "stage" / isaac.READY_NAME).write_text("playing\n")
+    assert with_isaac.list_controllers(ISAAC_RUN_ID)["joint_state_broadcaster"] == "active"
+
+
+def test_isaac_exiting_ends_the_runs_log_stream(with_isaac, monkeypatch):
+    with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    monkeypatch.setenv("FAKE_LOGS_SLEEP", "30")  # the run would stream on; Isaac's wait returns at once
+    lines = list(with_isaac.logs(ISAAC_RUN_ID))
+    assert lines and "Isaac Sim exited" in lines[-1]
+    assert ["wait", f"fm-sim-isaac-{ISAAC_RUN_ID}"] in with_isaac.calls()
+
+
+def test_a_sidecar_that_will_not_go_still_lets_the_run_stop(docker, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_FAIL_ARG", f"fm-sim-isaac-{RUN_ID}")
+    monkeypatch.setenv("FAKE_DOCKER_FAIL_MESSAGE", "Error response from daemon: socket timeout")
+    with pytest.raises(RunnerError, match="socket timeout"):
+        docker.stop(RUN_ID)
+    assert docker.calls()[-2:] == [
+        ["stop", "--time", "20", f"fm-sim-run-{RUN_ID}"],
+        ["rm", "--force", f"fm-sim-run-{RUN_ID}"],
+    ]
+
+
+def test_a_run_that_does_not_start_starts_no_isaac(with_isaac, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_FAIL_ARG", f"fm-sim-run-{ISAAC_RUN_ID}")
+    with pytest.raises(RunnerError):
+        with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    assert not any(ISAAC_IMAGE in argv for argv in with_isaac.calls())
+
+
+def test_the_stage_and_caches_are_the_agents_alone(with_isaac):
+    with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    stage = with_isaac.runs_dir / ISAAC_RUN_ID / "stage"
+    for path in (stage, with_isaac.isaac_cache, *(with_isaac.isaac_cache / n for n, _ in isaac.CACHES)):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o700, path
+    assert stat.S_IMODE((stage / isaac.CYCLONE_NAME).stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("make", ["group_writable", "symlink"])
+def test_a_cache_open_to_others_is_refused_not_changed(with_isaac, tmp_path, make):
+    cache = with_isaac.isaac_cache
+    if make == "group_writable":
+        cache.mkdir(mode=0o770)
+        cache.chmod(0o770)
+    else:
+        (tmp_path / "elsewhere").mkdir(mode=0o700)
+        cache.symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(RunnerError, match="Isaac stage or caches"):
+        with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    assert with_isaac.calls() == []
