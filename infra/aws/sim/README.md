@@ -319,7 +319,7 @@ the bridge, and the sim images. `deploy.sh bake` saves a disk with that work
 done as an image, so a start from it only re-checks it.
 
 ```bash
-infra/aws/sim/deploy.sh bake      # about 15 min with the snapshot; prints the image id
+infra/aws/sim/deploy.sh bake      # 10 min of role, then the snapshot (over an hour at 200 GiB); prints the image id
 # then set ImageIdOverride=<id> in the params file and deploy --execute, host stopped
 ```
 

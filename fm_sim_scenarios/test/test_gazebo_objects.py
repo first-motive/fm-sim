@@ -10,7 +10,7 @@ import math
 import threading
 import time
 
-from conftest import CAN_ON_TABLE
+from conftest import CAN_ON_TABLE, EXECUTOR_THREADS
 from fm_sim_msgs.msg import ObjectStates
 from fm_sim_msgs.srv import Reset
 from fm_sim_scenarios import gazebo_objects, gazebo_world, scenario as sc, scenario_node
@@ -109,7 +109,7 @@ class FakeGazebo:
 def gazebo(monkeypatch):
     monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 2.0)
     rclpy.init()
-    executor = MultiThreadedExecutor()
+    executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     nodes = []
 
     def start(scenario=CAN_ON_TABLE, **fake_args):
