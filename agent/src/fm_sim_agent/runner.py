@@ -8,8 +8,9 @@ in a fake.
 Every command is an argv list handed to :func:`subprocess.run` or
 :class:`subprocess.Popen` — never a shell string. RunSpec names are validated
 before they reach here, and even so nothing a caller sends is ever parsed by a
-shell. The two ``bash -c`` scripts below (the recorder's pid file) are constants;
-the values they act on arrive as positional arguments.
+shell. The ``bash -c`` scripts (the recorder's pid file here, the Isaac stage
+wait in :mod:`fm_sim_agent.isaac`) are constants; the values they act on arrive
+as positional arguments.
 """
 
 from __future__ import annotations
@@ -20,13 +21,14 @@ import os
 import re
 import subprocess
 import tarfile
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
 import yaml
 
-from fm_sim_agent import bridge
+from fm_sim_agent import bridge, isaac
 from fm_sim_agent.logline import MAX_LINE_BYTES
 from fm_sim_agent.runs import BAG_NAME, RECORDING_NAME
 from fm_sim_agent.spec import DIMENSIONS, valid_run_id
@@ -319,6 +321,9 @@ class DockerRunner:
         docker: str = "docker",
         label: str | None = None,
         bridge_config: Path | None = None,
+        isaac_image: str | None = None,
+        isaac_cache: Path | None = None,
+        isaac_memory: str = isaac.MEMORY,
     ) -> None:
         if dds_range not in DDS_RANGES:
             raise ValueError(f"dds_range must be one of {DDS_RANGES}")
@@ -341,6 +346,13 @@ class DockerRunner:
         #: With a run off the host network, the bridge config (its cyclonedds.xml
         #: beside it) each run's bridge reads; None runs no bridge.
         self.bridge_config = bridge_config
+        #: The Isaac Sim image an isaac run's stage runs in, and where its shader
+        #: caches persist; with no image an isaac run only logs the runner command.
+        self.isaac_image = isaac_image
+        self.isaac_cache = isaac_cache
+        self.isaac_memory = isaac_memory
+        #: The runs this runner started an Isaac container beside.
+        self._isaac_runs: set[str] = set()
 
     def container(self, run_id: str) -> str:
         if not valid_run_id(run_id):
@@ -351,6 +363,14 @@ class DockerRunner:
         if not valid_run_id(run_id):
             raise RunnerError("not a run id")
         return f"fm-sim-bridge-{run_id}"
+
+    def isaac_container(self, run_id: str) -> str:
+        if not valid_run_id(run_id):
+            raise RunnerError("not a run id")
+        return f"fm-sim-isaac-{run_id}"
+
+    def _runs_isaac(self, spec: dict) -> bool:
+        return spec.get("backend") == "isaac" and bool(self.isaac_image)
 
     def _run(self, args: list[str], timeout_s: float) -> subprocess.CompletedProcess:
         try:
@@ -425,6 +445,10 @@ class DockerRunner:
             *self._confinement(),
             "--volume", f"{self.runs_dir / run_id / BAG_NAME}:{BAG_MOUNT}",
         ]  # fmt: skip
+        if self._runs_isaac(spec):
+            # The launch writes the stage under TMPDIR, which the Isaac container reads.
+            stage = isaac.stage_dir(self.runs_dir, run_id)
+            argv += ["--volume", f"{stage}:{isaac.STAGE_MOUNT}", "--env", f"TMPDIR={isaac.STAGE_MOUNT}"]
         # Host networking, IPC and GPUs widen what a run can reach. They are the
         # operator's flags on the agent, never a caller's choice on the wire.
         if self.host_network:
@@ -478,9 +502,71 @@ class DockerRunner:
             argv += ["--env", "ROS_DOMAIN_ID"]  # as the run gets it; the config's domain wins
         return [*argv, bridge.IMAGE, "--config", bridge.CONFIG_MOUNT]
 
+    def isaac_argv(self, run_id: str, workspaces: tuple[str, ...]) -> list[str]:
+        """The ``docker run`` arguments for a run's Isaac container. Public so the suite can read them."""
+        if not (self.isaac_image and self.isaac_cache):
+            raise RunnerError("an isaac run needs --isaac-image and --isaac-cache")
+        # Its own IPC namespace: unlike a run, nothing in it shares memory with the host.
+        if self.host_network:
+            network: tuple[str, ...] = ("--network", "host")
+        else:
+            network = ("--network", f"container:{self.container(run_id)}")
+        return isaac.argv(
+            name=self.isaac_container(run_id),
+            labels=(f"{AGENT_LABEL}={self.label}", f"{RUN_LABEL}={run_id}"),
+            isaac_image=self.isaac_image,
+            sim_image=self.image,
+            workspaces=workspaces,
+            stage=isaac.stage_dir(self.runs_dir, run_id),
+            cache=self.isaac_cache,
+            network=network,
+            memory=self.isaac_memory,
+        )
+
+    def _workspaces(self) -> tuple[str, ...]:
+        """The fm-sim image's workspaces an Isaac container mounts: those the image has."""
+        listed = self._run(
+            [
+                "run",
+                "--rm",
+                "--pull=never",
+                "--network",
+                "none",
+                "--label",
+                f"{AGENT_LABEL}={self.label}",
+                *self._confinement(),
+                "--entrypoint",
+                "/bin/ls",
+                self.image,
+                "/",
+            ],  # fmt: skip
+            COMMAND_TIMEOUT_S,
+        ).stdout.split()
+        return tuple(name for name in isaac.WORKSPACES if name in listed)
+
+    def _prepare_isaac(self, run_id: str) -> tuple[str, ...]:
+        """Make the run's stage and the caches; return the workspaces to mount."""
+        if self.isaac_cache is None:
+            raise RunnerError("an isaac run needs an Isaac cache directory (--isaac-cache)")
+        try:
+            isaac.prepare(isaac.stage_dir(self.runs_dir, run_id), self.isaac_cache)
+        except (OSError, isaac.IsaacError) as exc:
+            raise RunnerError(f"cannot prepare the Isaac stage or caches: {exc}") from None
+        return self._workspaces()
+
     def start(self, run_id: str, spec: dict) -> None:
         (self.runs_dir / run_id / BAG_NAME).mkdir(parents=True, exist_ok=True)
+        workspaces = self._prepare_isaac(run_id) if self._runs_isaac(spec) else None
         self._run(self.run_argv(run_id, spec), RUN_TIMEOUT_S)
+        if workspaces is not None:
+            # Started after the run, so it can join the run's network when off the host's.
+            self._isaac_runs.add(run_id)
+            try:
+                self._run(self.isaac_argv(run_id, workspaces), RUN_TIMEOUT_S)
+            except RunnerError as exc:
+                raise RunnerError(
+                    f"Isaac Sim did not start ({exc}); fm-setup's isaac-sim step pulls {self.isaac_image}"
+                ) from None
         if self.bridge_config is None:
             return
         # A bridge that cannot start fails the run, which the agent then stops
@@ -496,6 +582,10 @@ class DockerRunner:
         return self._run(["exec", self.container(run_id), *command], timeout_s)
 
     def list_controllers(self, run_id: str) -> dict[str, str]:
+        # The broadcasters go active before Isaac Sim plays its stage: an isaac
+        # run is not up until the stage runner says so.
+        if run_id in self._isaac_runs and not isaac.ready(isaac.stage_dir(self.runs_dir, run_id)):
+            raise RunnerError("Isaac Sim's stage is not playing yet")
         return parse_controllers(self._exec(run_id, [ENTRYPOINT, *LIST_CONTROLLERS], PROBE_TIMEOUT_S).stdout)
 
     def has_service(self, run_id: str, name: str) -> bool:
@@ -596,12 +686,31 @@ class DockerRunner:
         return parse_assets(done.stdout, done.stderr.decode(errors="replace"))
 
     def stop(self, run_id: str) -> None:
-        name = self.container(run_id)
-        # Whether or not this agent bridges: a bridge an earlier agent started
-        # goes too. First, while the run's network namespace it lives in is there.
-        self._remove(self.bridge_container(run_id))
+        # Whether or not this agent bridges or runs Isaac: what an earlier agent
+        # started goes too. First, while the run's network namespace is there.
+        # A sidecar that will not go never keeps the run itself up.
+        self._isaac_runs.discard(run_id)
+        failures: list[RunnerError] = []
+        for sidecar, stop_s in (
+            (self.bridge_container(run_id), 0),
+            # Stopped before removal, so Isaac Sim finishes writing its caches.
+            (self.isaac_container(run_id), isaac.STOP_TIMEOUT_S),
+        ):
+            try:
+                if stop_s:
+                    self._stop(sidecar, stop_s)
+                else:
+                    self._remove(sidecar)
+            except RunnerError as exc:
+                failures.append(exc)
+        self._stop(self.container(run_id), STOP_TIMEOUT_S)
+        if failures:
+            raise failures[0]
+
+    def _stop(self, name: str, timeout_s: int) -> None:
+        """Stop then remove a container; one already gone is not an error."""
         try:
-            self._run(["stop", "--time", str(STOP_TIMEOUT_S), name], STOP_TIMEOUT_S + 10)
+            self._run(["stop", "--time", str(timeout_s), name], timeout_s + 10)
         except RunnerError:
             pass  # already gone; the removal below says whether that is a problem
         self._remove(name)
@@ -611,10 +720,12 @@ class DockerRunner:
         try:
             self._run(["rm", "--force", name], COMMAND_TIMEOUT_S)
         except RunnerError as exc:
-            if "No such container" not in str(exc):
+            # Gone, or going: another stop got there first.
+            if "No such container" not in str(exc) and "already in progress" not in str(exc):
                 raise
 
     def logs(self, run_id: str) -> Iterator[str]:
+        """The run's log lines. For an isaac run the stream also ends when Isaac Sim exits."""
         try:
             process = subprocess.Popen(
                 [self.docker, "logs", "--follow", self.container(run_id)],
@@ -626,11 +737,30 @@ class DockerRunner:
         except OSError as exc:
             raise RunnerError(f"cannot run docker: {exc}") from exc
         assert process.stdout is not None
+        isaac_exited = threading.Event()
+        if run_id in self._isaac_runs:
+            threading.Thread(
+                target=self._end_with_isaac, args=(run_id, process, isaac_exited), daemon=True
+            ).start()
         try:
             yield from capped_lines(process.stdout)
+            if isaac_exited.is_set():
+                yield f"[fm_sim_agent] Isaac Sim exited; its output is in {isaac.STAGE_NAME}/{isaac.LOG_NAME}"
         finally:
             process.kill()
             process.wait()
+
+    def _end_with_isaac(self, run_id: str, logs: subprocess.Popen, exited: threading.Event) -> None:
+        """Wait for the run's Isaac container, then end its log stream: a run with no stage is no run."""
+        try:
+            subprocess.run(
+                [self.docker, "wait", self.isaac_container(run_id)], capture_output=True, check=False
+            )
+        except OSError:
+            return
+        if logs.poll() is None and run_id in self._isaac_runs:
+            exited.set()
+            logs.kill()
 
     def active_runs(self) -> list[str]:
         """The run ids of this label's run containers that are up, newest first.

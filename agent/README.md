@@ -113,7 +113,43 @@ idle ─up─▶ starting ─broadcasters active─▶ running ─down─▶ sto
   again only when the image changes. Concurrent queries share one fetch, and
   a failed fetch is not retried for 10 s.
 
+- An `isaac` run on an agent started with `--isaac-image` gets a second
+  container, `fm-sim-isaac-<run id>`, of that Isaac Sim image (see
+  [Isaac Runs](#isaac-runs)). It is removed with the run.
+
 Every container call is an argv list. Nothing a caller sends reaches a shell.
+
+### Isaac Runs
+
+The fm-sim image does not carry Isaac Sim. For an `isaac` run on an agent
+started with `--isaac-image`, the agent starts that image beside the run
+(`isaac.py`):
+
+```
+run container (fm-sim)       TMPDIR=/fm-run/stage: run.launch.py writes stage.json there
+Isaac container (isaac-sim)  waits for stage.json, then python.sh fm_sim_isaac.py --spec it
+```
+
+- Both mount the run's `stage/` at `/fm-run/stage`. The Isaac container reads
+  the fm-sim image's `/ws` and `/ws_ctl` through read-only image mounts
+  (Docker 28 or later) at the same paths, so the stage's absolute mesh and
+  runner paths resolve alike. `/ws_ctl` is mounted only when the image has it.
+- It runs as the agent's user, with every capability dropped. Isaac Sim's image
+  assumes root, so its home and `/isaac-sim/kit/{cache,logs,data}` are mounted
+  from `--isaac-cache`, where its shader caches persist. A cold start compiles
+  shaders for about three minutes; a warm one is ready in seconds. An agent
+  with `--isaac-image` therefore waits up to 480 s for any run to come up,
+  not 180 s.
+- It joins the run's DDS graph on CycloneDDS through Isaac Sim's bundled Humble
+  libraries, with the discovery Jazzy's `LOCALHOST` range uses, written to
+  `stage/cyclonedds.xml`. On Isaac's default Fast DDS its memory grew by about
+  40 MB a physics step once the run's CycloneDDS subscribed, until the host ran
+  out of memory. A run settles near 6 GiB.
+- The run is up only once the stage runner writes `stage/isaac.ready`, after
+  its stage plays: the broadcasters go active before Isaac Sim does. If the
+  Isaac container exits, the run's log stream ends and the run is failed, as
+  when the run's own container exits.
+- The stage runner's output is kept in `stage/isaac.log` with the run.
 
 ### On Disk
 
@@ -159,7 +195,8 @@ narrow, and confines what it starts:
 - Every container runs as the agent's own uid and gid, with
   `--cap-drop ALL --security-opt no-new-privileges`, a process ceiling
   (`--pids-limit`, 4096 by default) and a memory ceiling (`--memory`, 16 GiB by
-  default).
+  default). An isaac run's Isaac container does too, with its own ceilings
+  (8192 processes, `--isaac-memory`) and its own IPC namespace.
 - Host networking, host IPC, GPUs and extra `docker run` arguments are the
   operator's flags on the agent. No query can turn them on.
 - Runs are host-local on DDS: every container gets
@@ -167,7 +204,11 @@ narrow, and confines what it starts:
   robots no sim topic reaches a robot's graph. Only the zenoh bridge on the
   host carries anything off it. `--dds-range` is the only way to change this;
   the host's own environment is not passed through for it.
-- A run sees only its own `bag/` directory under the runs directory.
+- A run sees only its own `bag/` directory under the runs directory, and an
+  isaac run also its `stage/`. The stage and the Isaac caches are the agent's,
+  mode 0700; a start refuses a cache directory that is a symlink, another
+  user's, or open to the group or others, since Isaac Sim loads compiled code
+  from it.
 - A run's length and the disk it needs are bounded: a maximum run duration,
   MCAP file splitting, and a free-space check at `up`.
 
@@ -185,7 +226,10 @@ uv run fm-sim-agent --host local --no-host-network --image fm-sim:jazzy
 | `--label NAME` | the host segment | `fm.sim.agent` label on its containers; `up` is `busy` while another process's run is up under it |
 | `--image REF` | `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy` | image runs use; pin a digest on a host |
 | `--runs-dir DIR` | `$XDG_STATE_HOME/fm-sim/runs` | where summaries and bags go |
-| `--gpus` | off | `--gpus all` for Isaac |
+| `--gpus` | off | `--gpus all` for every run (an isaac run's Isaac container gets the GPUs whatever this says) |
+| `--isaac-image REF` | none | Isaac Sim image an `isaac` run's stage runs in, beside the run; pin a digest on a host. Without it an `isaac` run only logs the runner command |
+| `--isaac-cache DIR` | `~/.cache/fm-sim-isaac/<label>` | where Isaac Sim's shader caches persist between runs |
+| `--isaac-memory SIZE` | `24g` | memory ceiling of a run's Isaac container |
 | `--no-host-network` | host network on | macOS, where the container cannot share the host's network; each run then gets a bridge (see [Live Topics](#live-topics)) |
 | `--bridge-config PATH` | `$FM_SIM_BRIDGE_CONFIG`, else `~/.config/fm-comms/bridge-sim.json5` | with `--no-host-network`: the config each run's bridge reads, `cyclonedds.xml` beside it |
 | `--docker-arg ARG` | none | extra `docker run` argument, repeatable |
