@@ -43,10 +43,13 @@ class FakeStage:
         self._node = node
         self._pub = node.create_publisher(TFMessage, isaac_stage.OBJECT_POSES_TOPIC, 10)
         if listening:
-            node.create_subscription(
-                TFMessage, isaac_stage.OBJECT_COMMANDS_TOPIC, self._on_command, 10
-            )
+            self.listen()
         node.create_timer(0.02, self._publish)
+
+    def listen(self):
+        self._node.create_subscription(
+            TFMessage, isaac_stage.OBJECT_COMMANDS_TOPIC, self._on_command, 10
+        )
 
     def _on_command(self, msg):
         self.commands.append(msg)
@@ -73,6 +76,7 @@ class FakeStage:
 @pytest.fixture
 def isaac(monkeypatch):
     monkeypatch.setattr(isaac_objects, 'MOVE_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(isaac_objects, 'LISTENER_TIMEOUT_S', 2.0)
     rclpy.init()
     executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     nodes = []
@@ -164,6 +168,21 @@ def test_reset_fails_without_isaac_listening(isaac):
     response = _reset(probe, 6)
     assert not response.ok
     assert 'is Isaac Sim running?' in response.message
+
+
+def test_reset_waits_for_isaac_to_start_listening(isaac):
+    # The run is seeded once its broadcasters are active, which can be before
+    # the stage runner's command subscriber is matched.
+    stage, probe = isaac(listening=False)
+    late = threading.Timer(0.5, stage.listen)
+    late.start()
+    try:
+        response = _reset(probe, 6)
+    finally:
+        late.cancel()
+        late.join()
+    assert response.ok, response.message
+    assert len(stage.commands) == 1
 
 
 def test_poses_outside_the_world_frame_are_skipped(isaac):
