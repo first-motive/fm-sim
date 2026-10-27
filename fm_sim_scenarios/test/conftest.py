@@ -5,6 +5,14 @@ packages in parallel, and on one shared domain these tests receive the live
 scenario runs' /sim/objects and pose topics from fm_sim_bringup.
 domain_coordinator reserves a free domain id for as long as this pytest process
 runs; every node here inherits it through ROS_DOMAIN_ID.
+
+The nodes run on CycloneDDS, the RMW the sim agent defaults to. On
+rmw_fastrtps_cpp, a subscription's default QoS event handlers wake the executor's
+wait set while that subscription has a message not yet taken. A
+MultiThreadedExecutor excludes such a subscription from the wait set until a
+worker takes the message, but the event handlers stay in it. The executor then
+rebuilds its wait set thousands of times a second and holds the GIL. The 50 Hz
+fakes publish only a few times a second, and the reset deadlines run out.
 """
 
 from contextlib import ExitStack
@@ -21,6 +29,9 @@ _reservation = ExitStack()
 def pytest_configure(config):
     if importlib.util.find_spec('rclpy') is None:
         return  # A run without ROS has no graph to share.
+    # tradeoff: overrides any RMW the shell sets, so rmw_fastrtps_cpp goes untested
+    # here; test_the_nodes_run_on_cyclonedds fails if the override stops applying.
+    os.environ['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
     from domain_coordinator import domain_id
     os.environ['ROS_DOMAIN_ID'] = str(_reservation.enter_context(domain_id()))
 

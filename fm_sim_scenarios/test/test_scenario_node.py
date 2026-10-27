@@ -121,6 +121,12 @@ def _reset(probe, seed):
     return client.call_async(Reset.Request(seed=seed))
 
 
+def test_the_nodes_run_on_cyclonedds():
+    # conftest pins the RMW: on rmw_fastrtps_cpp the shared executor spins and the
+    # reset deadlines in these tests run out.
+    assert rclpy.get_rmw_implementation_identifier() == 'rmw_cyclonedds_cpp'
+
+
 def test_objects_and_markers_cover_every_object(ros):
     _, probe = ros(seed=4)
     objects = _collect(probe, ObjectStates, '/sim/objects')
