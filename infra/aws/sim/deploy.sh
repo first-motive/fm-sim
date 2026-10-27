@@ -10,6 +10,7 @@
 #   ./deploy.sh deploy --execute      upload the controller and deploy the stack
 #   ./deploy.sh status                read the published status (read-only AWS call)
 #   ./deploy.sh start | stop          ask the controller to start or stop the host
+#   ./deploy.sh bake                  save a set-up host disk as an image; prints its id
 #
 # Config (environment):
 #   FM_AWS_PROFILE      AWS CLI profile                       (required for AWS verbs)
@@ -155,6 +156,102 @@ invoke() {
   rm -f "$out"
 }
 
+stack_resource() {
+  aws_cli cloudformation describe-stack-resource --stack-name "$stack" --logical-resource-id "$1" \
+    --query StackResourceDetail.PhysicalResourceId --output text
+}
+
+stack_param() {
+  aws_cli cloudformation describe-stacks --stack-name "$stack" \
+    --query "Stacks[0].Parameters[?ParameterKey=='$1'].ParameterValue | [0]" --output text
+}
+
+# await MINUTES "WORD..." CMD... — reruns CMD every 20 s until it prints one of
+# the words, then prints that word. Returns 1 after MINUTES. The aws CLI's own
+# waiters stop at ten minutes, too soon for a role run or a first snapshot.
+await() {
+  local minutes="$1" wanted="$2" seen=""
+  shift 2
+  local deadline=$(( $(date +%s) + minutes * 60 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    seen="$("$@" || true)"
+    case " $wanted " in *" $seen "*) printf '%s\n' "$seen"; return 0 ;; esac
+    sleep "${FM_SIM_POLL_SECONDS:-20}"
+  done
+  printf 'deploy.sh: gave up after %s min; last: %s\n' "$minutes" "${seen:-none}" >&2
+  return 1
+}
+
+instance_state() {
+  aws_cli ec2 describe-instances --instance-ids "$1" \
+    --query 'Reservations[0].Instances[0].State.Name' --output text
+}
+
+# Console output trails the instance by a minute or two, so this is polled too.
+bake_finished() {
+  if aws_cli ec2 get-console-output --instance-id "$1" --output text --query Output |
+    grep -aq 'bake complete'; then echo finished; else echo waiting; fi
+}
+
+image_state() {
+  aws_cli ec2 describe-images --image-ids "$1" --query 'Images[0].State' --output text
+}
+
+# Saves a set-up root disk as an image for ImageIdOverride. It launches the
+# stack's own launch template once, outside the group, tagged fm-sim-bake=1 and
+# set to stop on shutdown. The bootstrap reads the tag, runs the role without
+# the tailnet join or the readiness check, removes the Tailscale state and
+# host.env, and stops. This then images the disk and terminates the instance, on
+# success or not. The controller sees only group members, so this is what ends
+# the instance, and a bake left by a killed run blocks the next one until an
+# operator ends it.
+bake() {
+  local lt subnet sg host key value tags id image
+  lt="$(stack_resource HostLaunchTemplate)"
+  subnet="$(stack_resource SubnetA)"
+  sg="$(stack_resource HostSecurityGroup)"
+  host="$(stack_param HostName)"
+  key="$(stack_param CostTagKey)"
+  value="$(stack_param CostTagValue)"
+  tags="{Key=Name,Value=$host-bake},{Key=$key,Value=$value}"
+
+  local left
+  left="$(aws_cli ec2 describe-instances \
+    --filters Name=tag:fm-sim-bake,Values=1 Name=instance-state-name,Values=pending,running,stopping,stopped \
+    --query 'Reservations[].Instances[].InstanceId' --output text)"
+  [ -z "$left" ] || [ "$left" = None ] ||
+    die "an earlier bake instance still exists ($left); terminate it, then bake again"
+
+  # These tags take the place of the launch template's own for this one launch.
+
+  id="$(aws_cli ec2 run-instances \
+    --launch-template "LaunchTemplateId=$lt,Version=\$Latest" \
+    --network-interfaces "DeviceIndex=0,SubnetId=$subnet,Groups=$sg,AssociatePublicIpAddress=true,DeleteOnTermination=true" \
+    --instance-initiated-shutdown-behavior stop \
+    --tag-specifications "ResourceType=instance,Tags=[$tags,{Key=fm-sim-bake,Value=1}]" \
+    "ResourceType=volume,Tags=[$tags]" \
+    --query 'Instances[0].InstanceId' --output text)"
+  # shellcheck disable=SC2064  # the id is fixed now; expand it into the trap
+  trap "if aws_cli ec2 terminate-instances --instance-ids '$id' >/dev/null; then echo 'terminated $id' >&2; \
+    else echo 'could not terminate $id; terminate it by hand' >&2; fi" EXIT
+  printf 'bake instance %s: running the role, then stopping (about 10 min)\n' "$id" >&2
+
+  [ "$(await 75 "stopped terminated" instance_state "$id")" = stopped ] ||
+    die "$id did not stop; read its console output"
+  await "${FM_SIM_BAKE_CONSOLE_MINUTES:-5}" finished bake_finished "$id" >/dev/null ||
+    die "$id stopped without finishing the bake; read its console output"
+
+  image="$(aws_cli ec2 create-image --instance-id "$id" --name "$host-$(date -u +%Y%m%dT%H%M%SZ)" \
+    --description "fm-sim cloud host, baked by deploy.sh" \
+    --tag-specifications "ResourceType=image,Tags=[$tags]" "ResourceType=snapshot,Tags=[$tags]" \
+    --query ImageId --output text)"
+  printf 'image %s: waiting for its snapshot\n' "$image" >&2
+  [ "$(await 60 "available failed" image_state "$image")" = available ] ||
+    die "image $image did not become available"
+  printf '%s\n' "$image"
+  printf 'Set ImageIdOverride=%s in the params file and deploy, with the host stopped.\n' "$image" >&2
+}
+
 main() {
   local verb="${1:-}"
   [ "$#" -gt 0 ] && shift
@@ -165,6 +262,7 @@ main() {
     deploy) deploy "$@" ;;
     status) status ;;
     start | stop) invoke "$verb" ;;
+    bake) bake ;;
     *) sed -n '2,/^[^#]/s/^#//p' "$0" >&2; exit 2 ;;
   esac
 }
