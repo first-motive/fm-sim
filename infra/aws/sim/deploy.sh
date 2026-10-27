@@ -265,8 +265,9 @@ bake() {
     --tag-specifications "ResourceType=image,Tags=[$tags]" "ResourceType=snapshot,Tags=[$tags]" \
     --query ImageId --output text)"
   printf 'image %s: waiting for its snapshot\n' "$image" >&2
-  [ "$(await 60 "available failed" image_state "$image")" = available ] ||
-    die "image $image did not become available"
+  # The first snapshot of a 200 GiB root volume ran past an hour.
+  [ "$(await 180 "available failed" image_state "$image")" = available ] ||
+    die "image $image is not available yet; once it is, set ImageIdOverride=$image and deploy"
   printf '%s\n' "$image"
   printf 'Set ImageIdOverride=%s in the params file and deploy, with the host stopped.\n' "$image" >&2
 }
