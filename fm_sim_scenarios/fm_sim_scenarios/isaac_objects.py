@@ -6,7 +6,8 @@ transform per free object from ``World``, named by its child frame. A move
 publishes the target poses on ``isaac_stage.OBJECT_COMMANDS_TOPIC``, which the
 stage runner inside Isaac Sim applies at rest on its next step; the move counts
 as done once a pose update stamped strictly after the command puts every object
-within ``POSITION_TOLERANCE_M`` of its target.
+within ``POSITION_TOLERANCE_M`` of its target. Before publishing, a move waits up
+to ``LISTENER_TIMEOUT_S`` for the stage runner to subscribe, then refuses.
 
 The stage runs Isaac Sim's own Python and ROS 2 libraries, which cannot load
 fm_sim_msgs, so the command is a standard message and the acknowledgement is
@@ -22,6 +23,11 @@ from rclpy.time import Time
 from tf2_msgs.msg import TFMessage
 
 MOVE_TIMEOUT_S = 5.0
+# The agent seeds a run as soon as its broadcasters are active, which can be
+# before discovery has matched the stage runner's command subscriber. Worst case
+# LISTENER_TIMEOUT_S + MOVE_TIMEOUT_S = 20 s, inside the agent's RESET_TIMEOUT_S
+# of 30 s (agent/src/fm_sim_agent/agent.py); change both together.
+LISTENER_TIMEOUT_S = 15.0
 # A teleported object settles from its spawn under gravity before the update
 # that acknowledges it: a millimetre or so for a scenario's spawns.
 POSITION_TOLERANCE_M = 0.005
@@ -92,10 +98,21 @@ class IsaacObjects:
                 return False
         return True
 
+    def _wait_for_listener(self):
+        deadline = time.monotonic() + LISTENER_TIMEOUT_S
+        while self._commands.get_subscription_count() == 0:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(POLL_S)
+        return True
+
     def move(self, poses):
         """Teleport ``{name: (xyz, quat_xyzw)}`` at rest; return ``(ok, message)``."""
-        if self._commands.get_subscription_count() == 0:
-            return False, f'nothing subscribes {self.COMMANDS_TOPIC}; is Isaac Sim running?'
+        if not self._wait_for_listener():
+            return False, (
+                f'nothing subscribes {self.COMMANDS_TOPIC} after {LISTENER_TIMEOUT_S:g} s; '
+                'is Isaac Sim running?'
+            )
         now = self._node.get_clock().now()
         command = TFMessage()
         for name, (xyz, quat) in poses.items():
