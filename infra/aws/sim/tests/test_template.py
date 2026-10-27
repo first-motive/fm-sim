@@ -528,7 +528,7 @@ def test_bake_clears_the_instance_identity_and_stops_before_the_idle_timer():
     assert leave.index('if [ "$bake" = 1 ]') < leave.index("terminate-instance-in-auto-scaling-group")
 
 
-def fake_bake_aws(tmp_path, *, console, state="stopped", left="", full=()):
+def fake_bake_aws(tmp_path, *, console, state="stopped", left="", full=(), denied=()):
     log = tmp_path / "aws.log"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -547,6 +547,10 @@ def fake_bake_aws(tmp_path, *, console, state="stopped", left="", full=()):
         + "".join(
             f"  *run-instances*SubnetId={subnet},*) echo 'InsufficientInstanceCapacity' >&2; exit 254 ;;\n"
             for subnet in full
+        )
+        + "".join(
+            f"  *run-instances*SubnetId={subnet},*) echo 'UnauthorizedOperation' >&2; exit 254 ;;\n"
+            for subnet in denied
         )
         + "  *run-instances*) echo i-0bake ;;\n"
         f"  *describe-instances*) echo {state} ;;\n"
@@ -625,3 +629,11 @@ def test_bake_stops_when_neither_zone_has_capacity(tmp_path):
     result = run_deploy(env, "bake")
     assert result.returncode != 0 and "no capacity in either" in result.stderr
     assert "create-image" not in log.read_text()
+
+
+def test_bake_stops_at_once_on_any_other_launch_error(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", denied=("subnet-0abc",))
+    result = run_deploy(env, "bake")
+    assert result.returncode != 0
+    assert "UnauthorizedOperation" in result.stderr and "run-instances failed" in result.stderr
+    assert sum("run-instances" in line for line in log.read_text().splitlines()) == 1

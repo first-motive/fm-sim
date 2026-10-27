@@ -224,10 +224,12 @@ bake() {
   # These tags take the place of the launch template's own for this one launch.
   # The group spreads over both subnets, each in its own zone; a zone out of GPU
   # capacity moves the bake to the other, as it would a group launch.
-  local logical err
+  local subnets logical err
+  subnets="SubnetA=$(stack_resource SubnetA) SubnetB=$(stack_resource SubnetB)"
   err="$(mktemp)"
-  for logical in SubnetA SubnetB; do
-    subnet="$(stack_resource "$logical")"
+  for logical in $subnets; do
+    subnet="${logical#*=}"
+    logical="${logical%%=*}"
     if id="$(aws_cli ec2 run-instances \
       --launch-template "LaunchTemplateId=$lt,Version=\$Latest" \
       --network-interfaces "DeviceIndex=0,SubnetId=$subnet,Groups=$sg,AssociatePublicIpAddress=true,DeleteOnTermination=true" \
