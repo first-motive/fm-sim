@@ -11,6 +11,7 @@
 #   ./deploy.sh status                read the published status (read-only AWS call)
 #   ./deploy.sh start | stop          ask the controller to start or stop the host
 #   ./deploy.sh bake                  save a set-up host disk as an image; prints its id
+#                                     (FM_SIM_BAKE_INSTANCE_TYPE bakes on another GPU type)
 #
 # Config (environment):
 #   FM_AWS_PROFILE      AWS CLI profile                       (required for AWS verbs)
@@ -224,6 +225,10 @@ bake() {
   # These tags take the place of the launch template's own for this one launch.
   # The group spreads over both subnets, each in its own zone; a zone out of GPU
   # capacity moves the bake to the other, as it would a group launch.
+  # The image is the same on any GPU type the driver image supports, so a bake
+  # can use another when the stack's type has no capacity in either zone.
+  local type_args=()
+  [ -z "${FM_SIM_BAKE_INSTANCE_TYPE:-}" ] || type_args=(--instance-type "$FM_SIM_BAKE_INSTANCE_TYPE")
   local subnets logical err
   subnets="SubnetA=$(stack_resource SubnetA) SubnetB=$(stack_resource SubnetB)"
   err="$(mktemp)"
@@ -233,7 +238,7 @@ bake() {
     if id="$(aws_cli ec2 run-instances \
       --launch-template "LaunchTemplateId=$lt,Version=\$Latest" \
       --network-interfaces "DeviceIndex=0,SubnetId=$subnet,Groups=$sg,AssociatePublicIpAddress=true,DeleteOnTermination=true" \
-      --instance-initiated-shutdown-behavior stop \
+      --instance-initiated-shutdown-behavior stop ${type_args[@]+"${type_args[@]}"} \
       --tag-specifications "ResourceType=instance,Tags=[$tags,{Key=fm-sim-bake,Value=1}]" \
       "ResourceType=volume,Tags=[$tags]" \
       --query 'Instances[0].InstanceId' --output text 2>"$err")"; then
@@ -244,7 +249,7 @@ bake() {
     printf 'no capacity in %s (%s); trying the next subnet\n' "$logical" "$subnet" >&2
   done
   rm -f "$err"
-  [ -n "$id" ] || die "no capacity in either subnet's zone; bake again later"
+  [ -n "$id" ] || die "no capacity in either subnet's zone; bake again later, or set FM_SIM_BAKE_INSTANCE_TYPE to another GPU type"
   # shellcheck disable=SC2064  # the id is fixed now; expand it into the trap
   trap "if aws_cli ec2 terminate-instances --instance-ids '$id' >/dev/null; then echo 'terminated $id' >&2; \
     else echo 'could not terminate $id; terminate it by hand' >&2; fi" EXIT

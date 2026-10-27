@@ -637,3 +637,11 @@ def test_bake_stops_at_once_on_any_other_launch_error(tmp_path):
     assert result.returncode != 0
     assert "UnauthorizedOperation" in result.stderr and "run-instances failed" in result.stderr
     assert sum("run-instances" in line for line in log.read_text().splitlines()) == 1
+
+
+def test_bake_can_run_on_another_instance_type(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete")
+    result = run_deploy({**env, "FM_SIM_BAKE_INSTANCE_TYPE": "g6.xlarge"}, "bake")
+    assert result.returncode == 0, result.stderr
+    run = next(line for line in log.read_text().splitlines() if "run-instances" in line)
+    assert "--instance-type g6.xlarge" in run
