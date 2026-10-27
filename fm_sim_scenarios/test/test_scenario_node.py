@@ -8,7 +8,7 @@ import json
 import threading
 import time
 
-from conftest import CAN_ON_TABLE
+from conftest import CAN_ON_TABLE, EXECUTOR_THREADS
 from fm_sim_msgs.msg import ObjectStates, Outcome
 from fm_sim_msgs.srv import Reset
 from fm_sim_scenarios import scenario as sc, scenario_node
@@ -71,7 +71,7 @@ class FakeObjects:
 def ros(monkeypatch):
     monkeypatch.setitem(scenario_node.BACKENDS, 'fake', FakeObjects)
     rclpy.init()
-    executor = MultiThreadedExecutor()
+    executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     spinner = threading.Thread(target=executor.spin, daemon=True)
     nodes = []
 
@@ -119,6 +119,12 @@ def _reset(probe, seed):
     client = probe.create_client(Reset, '/sim/reset')
     assert client.wait_for_service(timeout_sec=5.0)
     return client.call_async(Reset.Request(seed=seed))
+
+
+def test_the_nodes_run_on_cyclonedds():
+    # conftest pins the RMW: on rmw_fastrtps_cpp the shared executor spins and the
+    # reset deadlines in these tests run out.
+    assert rclpy.get_rmw_implementation_identifier() == 'rmw_cyclonedds_cpp'
 
 
 def test_objects_and_markers_cover_every_object(ros):

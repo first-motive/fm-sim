@@ -28,6 +28,8 @@
   <test_depend>ament_pep257</test_depend>
   <test_depend>domain_coordinator</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <!-- conftest runs the test nodes on it; see the note there. -->
+  <test_depend>rmw_cyclonedds_cpp</test_depend>
   <!-- compile, from the MuJoCo build mujoco_ros2_control loads, checks generated worlds. -->
   <test_depend>mujoco_vendor</test_depend>
   <!-- gz sdf checks generated Gazebo worlds and robot files. -->
