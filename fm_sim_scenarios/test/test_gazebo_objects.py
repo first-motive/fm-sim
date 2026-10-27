@@ -105,9 +105,15 @@ class FakeGazebo:
             self._pubs[name].publish(msg)
 
 
+# A move that should land gets the shipped margin and more: a loaded CI host has
+# taken over 2 s for a fake set_pose to answer and the pose to come back. Tests
+# that wait out a move on purpose set a short timeout of their own.
+MOVE_S = 10.0
+
+
 @pytest.fixture
 def gazebo(monkeypatch):
-    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 2.0)
+    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', MOVE_S)
     rclpy.init()
     executor = MultiThreadedExecutor()
     nodes = []
@@ -277,13 +283,14 @@ def test_a_late_reply_is_ignored(gazebo, monkeypatch):
     gz, probe = gazebo()
     received = _objects(probe)
     assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
-    gz.slow = {'can': 2.5}
+    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 2.0)
+    gz.slow = {'can': 6.0}
     response = _reset(probe, 3)
     assert not response.ok
     assert 'did not answer for can' in response.message
-    assert _wait(lambda: gz.late_replies == 1)
+    assert _wait(lambda: gz.late_replies == 1, 15.0)
     # The later resets are not about timing: give a loaded host room.
-    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 5.0)
+    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', MOVE_S)
     # The late success of the first move does not count toward the next one.
     gz.refuse = {'can'}
     response = _reset(probe, 4)
@@ -299,18 +306,20 @@ def test_a_late_reply_is_ignored(gazebo, monkeypatch):
 
 def test_a_stale_forward_move_after_the_rollback_is_reported(gazebo, monkeypatch):
     # Wide margins: the rollback waits behind the slow reply on a loaded test host.
-    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 3.0)
+    # The forward reply comes after the move gives up; the rollback then has its
+    # own deadline, and the stale move lands well after that.
     gz, probe = gazebo()
+    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 5.0)
     received = _objects(probe)
     assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
-    gz.slow_apply = {'can': (4.0, 9.0)}
+    gz.slow_apply = {'can': (7.0, 18.0)}
     response = _reset(probe, 3)
     assert not response.ok
     # The rollback landed (the adapter checks that before answering), and the warning
     # names the object whose move may still land.
     assert 'restored every object, but can may still move' in response.message
     target = sc.spawn_poses(CAN_ON_TABLE, 3)['can'][0]
-    assert _wait(lambda: gz.positions['can'] == pytest.approx(target), 10.0)
+    assert _wait(lambda: gz.positions['can'] == pytest.approx(target), 20.0)
     # The can was back at its start before the stale move landed. Read from the log,
     # not the live pose, which that move can overwrite before the reply reaches a
     # loaded probe.
@@ -318,10 +327,12 @@ def test_a_stale_forward_move_after_the_rollback_is_reported(gazebo, monkeypatch
     assert landed == [pytest.approx(START['can']), pytest.approx(target)]
 
 
-def test_a_move_that_does_not_land_is_undone(gazebo):
+def test_a_move_that_does_not_land_is_undone(gazebo, monkeypatch):
     gz, probe = gazebo()
     received = _objects(probe)
     assert _wait(lambda: received and len(received[-1].objects) == 4, DISCOVERY_S)
+    # Nothing lands, so the move and its rollback each wait out the whole timeout.
+    monkeypatch.setattr(gazebo_objects, 'MOVE_TIMEOUT_S', 2.0)
     gz.applies = False
     response = _reset(probe, 3)
     assert not response.ok
