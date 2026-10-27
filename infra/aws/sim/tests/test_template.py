@@ -488,3 +488,160 @@ def test_host_role_reads_the_ghcr_token_only_when_one_is_named():
     equals = decrypt["Condition"]["StringEquals"]
     assert equals["kms:ViaService"] == {"Sub": "ssm.${AWS::Region}.amazonaws.com"}
     assert equals["kms:EncryptionContext:PARAMETER_ARN"] == read["Resource"]
+
+
+def test_bake_is_read_from_an_instance_tag_the_template_exposes():
+    options = RESOURCES["HostLaunchTemplate"]["Properties"]["LaunchTemplateData"]["MetadataOptions"]
+    assert options["InstanceMetadataTags"] == "enabled"
+    assert options["HttpTokens"] == "required"
+    script = user_data()
+    assert "meta-data/tags/instance/fm-sim-bake" in script
+    # Read before the trap is armed, so a failed read never takes the group path.
+    assert script.index("tags/instance/fm-sim-bake") < script.index("trap 'leave") < script.index("host.env <<")
+    # Only 200 or 404 count; any other answer ends the bootstrap before a step runs.
+    read = script[script.index("bake_status=") : script.index("trap 'leave")]
+    assert "200)" in read and "404)" in read and "exit 1" in read
+
+
+def test_bake_skips_only_the_tailnet_join_and_the_readiness_check():
+    script = user_data()
+    assert "--skip tailscale-authkey,sim-cloud-ready" in script
+    assert script.count("--skip") == 1
+    # A launch from the group still runs the whole role.
+    assert "\n  NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh '--sim-cloud'\n" in script
+
+
+def test_bake_clears_the_instance_identity_and_stops_before_the_idle_timer():
+    script = user_data()
+    bake = script[script.index("--skip tailscale-authkey") : script.index("systemctl enable --now fm-sim-idle.timer")]
+    for step in (
+        "systemctl disable --now fm-sim-agent.service fm-zenoh-bridge.service",
+        "rm -f /var/lib/tailscale/tailscaled.state /etc/fm-sim-cloud/host.env",
+        "journalctl --vacuum-time=1s",
+        "cloud-init clean --logs",
+        "shutdown -h now",
+    ):
+        assert step in bake, step
+    assert "machine-id" not in bake.replace("/etc/machine-id stays", "")
+    leave = script[script.index("leave() {") : script.index("trap 'leave")]
+    # A failed bake stops instead of asking a group it is not in.
+    assert leave.index('if [ "$bake" = 1 ]') < leave.index("terminate-instance-in-auto-scaling-group")
+
+
+def fake_bake_aws(tmp_path, *, console, state="stopped", left="", full=(), denied=()):
+    log = tmp_path / "aws.log"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "aws").write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> {log}\n'
+        'case "$*" in\n'
+        f"  *tag:fm-sim-bake*) echo '{left}' ;;\n"
+        "  *HostLaunchTemplate*) echo lt-0abc ;;\n"
+        "  *SubnetA*) echo subnet-0abc ;;\n"
+        "  *SubnetB*) echo subnet-0def ;;\n"
+        "  *HostSecurityGroup*) echo sg-0abc ;;\n"
+        "  *HostName*) echo sim-cloud ;;\n"
+        "  *CostTagKey*) echo fm-cost ;;\n"
+        "  *CostTagValue*) echo sim ;;\n"
+        + "".join(
+            f"  *run-instances*SubnetId={subnet},*) echo 'InsufficientInstanceCapacity' >&2; exit 254 ;;\n"
+            for subnet in full
+        )
+        + "".join(
+            f"  *run-instances*SubnetId={subnet},*) echo 'UnauthorizedOperation' >&2; exit 254 ;;\n"
+            for subnet in denied
+        )
+        + "  *run-instances*) echo i-0bake ;;\n"
+        f"  *describe-instances*) echo {state} ;;\n"
+        f"  *get-console-output*) echo '{console}' ;;\n"
+        "  *create-image*) echo ami-0baked ;;\n"
+        "  *describe-images*) echo available ;;\n"
+        "esac\n"
+    )
+    (bin_dir / "aws").chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "FM_AWS_PROFILE": "p",
+        "FM_AWS_REGION": "us-test-1",
+        "FM_SIM_POLL_SECONDS": "0",
+    }
+    return env, log
+
+
+def test_bake_launches_outside_the_group_images_the_disk_and_terminates(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="... bake complete")
+    result = run_deploy(env, "bake")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ami-0baked"
+    calls = log.read_text()
+    run = next(line for line in calls.splitlines() if "run-instances" in line)
+    assert "LaunchTemplateId=lt-0abc" in run and "SubnetId=subnet-0abc" in run
+    assert "--instance-initiated-shutdown-behavior stop" in run
+    assert "Key=fm-sim-bake,Value=1" in run and "Key=fm-cost,Value=sim" in run
+    assert "autoscaling" not in calls
+    assert calls.index("create-image --instance-id i-0bake") < calls.index("terminate-instances --instance-ids i-0bake")
+
+
+def test_bake_terminates_and_makes_no_image_when_the_role_did_not_finish(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake failed at line 42; stopping")
+    result = subprocess.run(
+        [str(SIM_DIR / "deploy.sh"), "bake"],
+        env={**env, "FM_SIM_BAKE_CONSOLE_MINUTES": "0"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "without finishing the bake" in result.stderr
+    calls = log.read_text()
+    assert "create-image" not in calls
+    assert "terminate-instances --instance-ids i-0bake" in calls
+
+
+def test_bake_makes_no_image_when_the_instance_did_not_stop(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", state="terminated")
+    result = run_deploy(env, "bake")
+    assert result.returncode != 0 and "did not stop" in result.stderr
+    calls = log.read_text()
+    assert "create-image" not in calls
+    assert "terminate-instances --instance-ids i-0bake" in calls
+
+
+def test_bake_refuses_while_an_earlier_bake_instance_exists(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", left="i-0old")
+    result = run_deploy(env, "bake")
+    assert result.returncode != 0 and "i-0old" in result.stderr
+    assert "run-instances" not in log.read_text()
+
+
+def test_bake_moves_to_the_other_subnet_when_a_zone_has_no_capacity(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", full=("subnet-0abc",))
+    result = run_deploy(env, "bake")
+    assert result.returncode == 0, result.stderr
+    assert "no capacity in SubnetA" in result.stderr
+    runs = [line for line in log.read_text().splitlines() if "run-instances" in line]
+    assert ["SubnetId=subnet-0abc" in runs[0], "SubnetId=subnet-0def" in runs[1]] == [True, True]
+
+
+def test_bake_stops_when_neither_zone_has_capacity(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", full=("subnet-0abc", "subnet-0def"))
+    result = run_deploy(env, "bake")
+    assert result.returncode != 0 and "no capacity in either" in result.stderr
+    assert "create-image" not in log.read_text()
+
+
+def test_bake_stops_at_once_on_any_other_launch_error(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete", denied=("subnet-0abc",))
+    result = run_deploy(env, "bake")
+    assert result.returncode != 0
+    assert "UnauthorizedOperation" in result.stderr and "run-instances failed" in result.stderr
+    assert sum("run-instances" in line for line in log.read_text().splitlines()) == 1
+
+
+def test_bake_can_run_on_another_instance_type(tmp_path):
+    env, log = fake_bake_aws(tmp_path, console="bake complete")
+    result = run_deploy({**env, "FM_SIM_BAKE_INSTANCE_TYPE": "g6.xlarge"}, "bake")
+    assert result.returncode == 0, result.stderr
+    run = next(line for line in log.read_text().splitlines() if "run-instances" in line)
+    assert "--instance-type g6.xlarge" in run

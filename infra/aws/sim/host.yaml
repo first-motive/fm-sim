@@ -329,6 +329,10 @@ Resources:
           HttpProtocolIpv6: disabled
           HttpPutResponseHopLimit: 1
           HttpTokens: required
+          # The bootstrap reads its fm-sim-bake tag here. Runs execute as the
+          # agent's account, which is blocked from IMDS and gets no docker
+          # socket, so a run cannot read the tags.
+          InstanceMetadataTags: enabled
         NetworkInterfaces:
           - AssociatePublicIpAddress: true
             DeleteOnTermination: true
@@ -361,9 +365,41 @@ Resources:
               install -m 0600 /dev/null /var/log/fm-sim-cloud-bootstrap.log
               exec > >(tee -a /var/log/fm-sim-cloud-bootstrap.log) 2>&1
 
+              # A bake (deploy.sh bake) launches this template outside the group,
+              # tagged fm-sim-bake=1 and set to stop on shutdown, to save a set-up
+              # disk as an image. It runs the role without joining the tailnet,
+              # and it stops instead of leaving a group it is not in.
+              #
+              # The tag is read before the trap is armed, so a bake never takes
+              # the group path. Only 200 (tagged) and 404 (no such tag) count:
+              # anything else ends the bootstrap before any step, rather than
+              # guess and run a bake as a group host. Without IMDS, leave() could
+              # not name the instance either.
+              imds=http://169.254.169.254/latest
+              imds_token="$(curl -fsS --retry 5 --retry-connrefused -X PUT \
+                -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$imds/api/token")"
+              bake=0
+              bake_tag="$(mktemp)"
+              bake_status="$(curl -sS --retry 5 --retry-connrefused -o "$bake_tag" -w '%{http_code}' \
+                -H "X-aws-ec2-metadata-token: $imds_token" "$imds/meta-data/tags/instance/fm-sim-bake")"
+              case "$bake_status" in
+                200) [ "$(cat "$bake_tag")" != 1 ] || bake=1 ;;
+                404) ;;
+                *) echo "could not read the instance's tags (HTTP $bake_status)"; exit 1 ;;
+              esac
+              rm -f "$bake_tag"
+              if [ "$bake" = 1 ]; then
+                echo "baking an image: the tailnet join and the readiness check are skipped"
+              fi
+
               # Any failure leaves the group at once, so a broken host does not
               # bill until the deadline. Needs only curl and the AWS CLI.
               leave() {
+                if [ "$bake" = 1 ]; then
+                  echo "bake failed at line $1; stopping"
+                  shutdown -h now
+                  return
+                fi
                 echo "bootstrap failed at line $1; leaving the group"
                 imds=http://169.254.169.254/latest
                 token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$imds/api/token")" &&
@@ -449,7 +485,32 @@ Resources:
               . /etc/fm-sim-cloud/host.env
               set +a
               # A hang fails like any other error, so the trap ends the host.
-              NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh '--${FmSetupRole}'
+              if [ "$bake" = 1 ]; then
+                NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh '--${FmSetupRole}' \
+                  --skip tailscale-authkey,sim-cloud-ready
+              else
+                NONINTERACTIVE=1 timeout 60m /opt/fm/fm-setup/install.sh '--${FmSetupRole}'
+              fi
+
+              if [ "$bake" = 1 ]; then
+                # The Tailscale state and host.env stay out of the image; cloud-init
+                # makes new SSH host keys for each instance. The agent and bridge stay off until a real launch's role
+                # run starts them against that launch's pins. The unit names are
+                # fm-setup's FM_SIM_UNIT and FM_COMMS_BRIDGE_UNIT.
+                systemctl disable --now fm-sim-agent.service fm-zenoh-bridge.service
+                systemctl stop tailscaled.service
+                rm -f /var/lib/tailscale/tailscaled.state /etc/fm-sim-cloud/host.env
+                journalctl --rotate
+                journalctl --vacuum-time=1s
+                # /etc/machine-id stays: emptied, the next boot would count as
+                # systemd's first and could apply presets that start the agent
+                # before the role does. The group runs one host at a time.
+                cloud-init clean --logs
+                echo "bake complete"
+                rm -f /var/log/fm-sim-cloud-bootstrap.log
+                shutdown -h now
+                exit 0
+              fi
 
               systemctl enable --now fm-sim-idle.timer
               echo "bootstrap complete"
