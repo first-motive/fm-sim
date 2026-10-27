@@ -45,6 +45,9 @@ jobs:
     uses: first-motive/.github/.github/workflows/ros2-build-test.yml@main
     with:
       distro: jazzy
+      # Docker Hub's ros image: this public repo runs GitHub-hosted, where the
+      # shared egress addresses exhaust ECR Public's anonymous data cap.
+      image: ros:jazzy
       checkout-path: src/fm-sim
       repos-file: fm-sim.repos
       build-externals: topic_based_ros2_control fm-robot openarm_description unitree_ros2
@@ -205,6 +208,7 @@ jobs:
     uses: first-motive/.github/.github/workflows/ros2-smoke.yml@main
     with:
       distro: jazzy
+      image: ros:jazzy  # as build-test
       repos-file: fm-sim.repos
       build-externals: topic_based_ros2_control fm-robot openarm_description unitree_ros2
       apt-packages: >-
