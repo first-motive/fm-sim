@@ -1,14 +1,17 @@
 # AGENTS.md
 
-<!-- fm-render:begin agents-invariants sha256:0725d9687ad94ff0421993d070be039b4bef26b9cb06b68a8e7469aa9c0ceae9 — rendered by the First Motive render plane — edit the upstream source, not this file -->
+<!-- fm-render:begin agents-invariants sha256:311959fea747960e045bbf2fcf4e3314930fe25555e9df4931c97b4c0f7017f0 — rendered by the First Motive render plane — edit the upstream source, not this file -->
 ## First Motive Invariants
 
-These five hold in every First Motive repo. Break one and the review, the CI
-check, or the next machine catches it — usually all three.
+These five guide First Motive repos. Existing name exceptions are listed below.
+The review, CI check, or next machine usually catches other violations.
 
-- **Names.** Repos, packages, and hosts are `fm-<kebab>`; Python modules are
-  `fm_<snake>`. A name that does not carry the `fm` prefix is unreachable to the
-  `fm` CLI and to the tooling that discovers repos by prefix.
+- **Names.** New First Motive repos and packages use `fm-<kebab>`; Python
+  modules use `fm_<snake>`. The existing organization repos `.github`,
+  `.github-private`, `anvil-loader`, `anvil-embodied-ai`, and `tactile-gate` are
+  named exceptions. Hosts normally use `fm-<kebab>`; Rune is the existing
+  `adiis-mac-mini` exception. Check the `fm` registry before assuming a repo
+  or host is discoverable from its name.
 - **Config, never source.** Anything that differs per host — hostname, role,
   workspace path, transport, device IDs — is read from `machine.json`, never
   typed into a script, unit file, or launch file. A hardcoded host value works on
