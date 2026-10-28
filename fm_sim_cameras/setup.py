@@ -17,7 +17,6 @@ setup(
     description='Simulated cameras: the fisheye warp of a pinhole render, published '
     'JPEG-compressed with the real intrinsics',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'sim_camera = fm_sim_cameras.camera_node:main',

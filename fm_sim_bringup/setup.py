@@ -33,7 +33,6 @@ setup(
     description='Sim run launch and the ament-index catalog of backends, robots, '
     'scenarios and controllers',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'catalog = fm_sim_bringup.catalog:main',

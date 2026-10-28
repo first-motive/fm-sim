@@ -20,7 +20,6 @@ setup(
     maintainer_email="nish@ubundi.co.za",
     description="Simulation core: ROS-free MuJoCo stepper plus the headless sim_loop node",
     license="Apache-2.0",
-    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "sim_loop = fm_sim_core.sim_loop:main",

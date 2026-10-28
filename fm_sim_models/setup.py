@@ -29,7 +29,6 @@ setup(
     maintainer_email="nish@ubundi.co.za",
     description="Simulation model registry: maps each robot to its MJCF path",
     license="Apache-2.0",
-    tests_require=["pytest"],
     entry_points={
         "console_scripts": [],
     },

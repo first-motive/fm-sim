@@ -31,7 +31,6 @@ setup(
     maintainer_email='nish@ubundi.co.za',
     description='Simulation backend hosts: per-engine launch files (mujoco, gazebo, isaac)',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'camera_info = fm_sim_backends.camera_info:main',
