@@ -46,7 +46,23 @@ def nodes(monkeypatch):
     monkeypatch.setattr(cameras, 'Node', record)
 
 
-LOCAL = {'GZ_IP': '127.0.0.1', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST'}
+LOCAL = {
+    'GZ_IP': '127.0.0.1',
+    'GZ_PARTITION': gazebo.DEFAULT_GZ_PARTITION,
+    'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST',
+}
+
+
+@pytest.fixture(autouse=True)
+def no_partition(monkeypatch):
+    """Run each test as a sim host does: no GZ_PARTITION of its own."""
+    monkeypatch.delenv('GZ_PARTITION', raising=False)
+
+
+def test_a_partition_already_set_is_kept(monkeypatch):
+    monkeypatch.setenv('GZ_PARTITION', 'fm_sim_test_1')
+    assert gazebo.host_local_gz_env()['GZ_PARTITION'] == 'fm_sim_test_1'
+    assert gazebo.gz_environment()['GZ_PARTITION'] == 'fm_sim_test_1'
 
 
 def test_server_stays_on_this_host():

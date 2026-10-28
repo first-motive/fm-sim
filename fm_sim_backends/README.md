@@ -104,7 +104,11 @@ on each free object), the gazebo launch (`fm_sim_backends.gazebo`):
 
 The server, the spawn and the bridge run with `GZ_IP=127.0.0.1` and
 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (the relays with the latter), so
-neither gz-transport nor the bridge's DDS is reachable from the LAN.
+neither gz-transport nor the bridge's DDS is reachable from the LAN. They also
+share `GZ_PARTITION=fm_sim` unless the environment sets one: gz-transport's
+default partition is `hostname:username`, and a container run as a uid with no
+passwd entry (a Mac runs it as uid 501) gets none, so discovery finds nothing
+and the spawn waits on the world list forever.
 
 The server is `gz sim` run as a bash job whose traps pass launch's SIGINT and
 SIGTERM to its whole process group
