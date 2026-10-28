@@ -21,6 +21,7 @@ CATALOG = {
         {
             **entry("openarm"),
             "robot_profile": "fm_openarm_v2",
+            "supported_backends": ["mujoco", "gazebo", "isaac"],
             "controller_roles": {
                 "broadcasters": ["joint_state_broadcaster"],
                 "right_arm": ["openarm_right_arm_controller"],
@@ -30,9 +31,10 @@ CATALOG = {
         {
             **entry("so101"),
             "robot_profile": None,
+            "supported_backends": ["mujoco", "gazebo", "isaac"],
             "controller_roles": {"broadcasters": ["joint_state_broadcaster"]},
         },
-        entry("bare"),
+        {**entry("bare"), "supported_backends": ["mujoco", "gazebo", "isaac"]},
     ],
     "scenarios": [entry("empty"), entry("pick_cube")],
     "controllers": [entry("idle")],

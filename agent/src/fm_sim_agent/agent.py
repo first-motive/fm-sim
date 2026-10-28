@@ -242,6 +242,37 @@ def broadcasters_of(robot: dict) -> tuple[str, ...]:
     return tuple(names)
 
 
+def combination_refusal(entries: dict) -> str | None:
+    """Why ``run.launch.py`` would refuse these four entries together, or None.
+
+    A mirror of the pair rules in ``fm_sim_bringup.run.resolve`` and
+    ``_activated_roles``, so ``up`` refuses before a container starts, for every
+    caller: the desktop, ``fm sim up``, a script. The agent cannot import them:
+    it runs on the host, they run in the image. Both suites check their copy
+    against ``fm_sim_bringup/test/combination_cases.json``, so a rule changed in
+    one and not the other fails a test.
+    """
+    robot, controller = entries["robot"], entries["controller"]
+    backends = robot.get("supported_backends")
+    if not isinstance(backends, list) or entries["backend"]["name"] not in backends:
+        supported = ", ".join(map(str, backends)) if isinstance(backends, list) and backends else "none"
+        return f"robot {robot['name']} is not supported on backend {entries['backend']['name']}; supported: {supported}"
+    if controller.get("launch") and robot.get("robot_profile") is None:
+        return f"controller {controller['name']} needs a robot profile; robot {robot['name']} has none yet"
+    controller_roles = robot.get("controller_roles") or {}
+    launch_roles = robot.get("launch_roles") or {}
+    activate = controller.get("activate") or []
+    missing = [role for role in activate if role not in controller_roles and role not in launch_roles]
+    if missing:
+        return f"controller {controller['name']} activates {', '.join(map(str, missing))}, which robot {robot['name']} does not have"
+    for role in activate:
+        needed = (launch_roles.get(role) or {}).get("requires") or []
+        unmet = [name for name in needed if name not in controller_roles]
+        if unmet:
+            return f"robot {robot['name']} launch role {role} requires {', '.join(map(str, unmet))}, which is not a controller role"
+    return None
+
+
 class SimAgent:
     """One host's run control, behind the verb set."""
 
@@ -387,6 +418,11 @@ class SimAgent:
             if entry["available"] is not True:
                 raise VerbError("unavailable_entry", f"{dimension} {spec[dimension]} is not available here")
             entries[dimension] = entry
+        refusal = combination_refusal(entries)
+        if refusal:
+            # unavailable_entry, not a new code: clients already in the field
+            # show its message, where a code they do not know reads as malformed.
+            raise VerbError("unavailable_entry", refusal)
         try:
             return broadcasters_of(entries["robot"])
         except ValueError as exc:
