@@ -27,7 +27,7 @@ set -euo pipefail
 
 IMAGE="ghcr.io/first-motive/fm-sim:jazzy"
 FM_SIM_RAW="https://raw.githubusercontent.com/first-motive/fm-sim/main"
-# fm-render:begin fm-tools-pin sha256:5de9c0a921c441407f1aea8b6e32f37ca9d3f654d1116c636f0a7136da03b7d2 — rendered by the First Motive render plane — edit the upstream source, not this file
+# fm-render:begin fm-tools-pin sha256:df76d6b982d50c5ee6969e85e12baa59ead56c3665a6bc598bdc5f0ccbe95630 — rendered by the First Motive render plane — edit the upstream source, not this file
 # fm-tools owns both shared bootstrap pieces: lib.sh (fetched raw, before any
 # clone exists) and the fm_tools wheel (the shared TUI banner). Both come from
 # one pinned release tag — the single reuse home. Re-pin in the render plane,
@@ -35,9 +35,9 @@ FM_SIM_RAW="https://raw.githubusercontent.com/first-motive/fm-sim/main"
 # so the pin reads the same everywhere it appears; the disables below declare
 # that, rather than splitting the pin into two blocks that can disagree.
 # shellcheck disable=SC2034
-FM_TOOLS_RAW="https://raw.githubusercontent.com/first-motive/fm-tools/v0.4.1"
+FM_TOOLS_RAW="https://raw.githubusercontent.com/first-motive/fm-tools/v0.28.0"
 # shellcheck disable=SC2034
-FM_TOOLS="fm-tools @ git+https://github.com/first-motive/fm-tools@v0.4.1"
+FM_TOOLS="fm-tools @ git+https://github.com/first-motive/fm-tools@v0.28.0"
 # fm-render:end fm-tools-pin
 # fm-render:begin fm-docker-pin sha256:19a047f515a3016c31c93a42aef126d53c3efd4aa3f314511e4c1a49ba4ce6d7 — rendered by the First Motive render plane — edit the upstream source, not this file
 # The container runtime install is delegated to fm-docker, fetched from one
