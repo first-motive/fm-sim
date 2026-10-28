@@ -1,0 +1,198 @@
+{
+  "_comment": "Robot/controller pairs and whether run.launch.py refuses them. test_run.py checks fm_sim_bringup.run against this table; agent/tests/test_agent.py checks the sim agent's combination_refusal against it, so the agent refuses exactly what the launch refuses. A refused case's reason is a phrase both refusals carry.",
+  "cases": [
+    {
+      "name": "a launch-free controller on a robot with no profile",
+      "backend": "mujoco",
+      "robot": {
+        "robot_profile": null,
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ],
+          "arm_trajectory": [
+            "arm"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [
+          "arm_trajectory"
+        ],
+        "launch": null
+      },
+      "refused": false
+    },
+    {
+      "name": "a controller with a launch on a robot with no profile",
+      "backend": "mujoco",
+      "robot": {
+        "robot_profile": null,
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ],
+          "arm_trajectory": [
+            "arm"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [],
+        "launch": {
+          "package": "pkg",
+          "path": "launch/sim.launch.py"
+        }
+      },
+      "refused": true,
+      "reason": "needs a robot profile"
+    },
+    {
+      "name": "a controller with a launch on a robot with a profile",
+      "backend": "mujoco",
+      "robot": {
+        "robot_profile": "p",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [],
+        "launch": {
+          "package": "pkg",
+          "path": "launch/sim.launch.py"
+        }
+      },
+      "refused": false
+    },
+    {
+      "name": "a backend the robot does not list",
+      "backend": "gazebo",
+      "robot": {
+        "robot_profile": "p",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [],
+        "launch": null
+      },
+      "refused": true,
+      "reason": "is not supported on backend"
+    },
+    {
+      "name": "a role the robot lacks",
+      "backend": "mujoco",
+      "robot": {
+        "robot_profile": "p",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [
+          "arm_trajectory"
+        ],
+        "launch": null
+      },
+      "refused": true,
+      "reason": "which robot"
+    },
+    {
+      "name": "a launch role and the controller role it requires",
+      "backend": "mujoco",
+      "robot": {
+        "robot_profile": "p",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ],
+          "arm_trajectory": [
+            "arm"
+          ]
+        },
+        "launch_roles": {
+          "servo": {
+            "requires": [
+              "arm_trajectory"
+            ],
+            "launch": {
+              "package": "pkg",
+              "path": "launch/servo.launch.py"
+            }
+          }
+        }
+      },
+      "controller": {
+        "activate": [
+          "arm_trajectory",
+          "servo"
+        ],
+        "launch": {
+          "package": "pkg",
+          "path": "launch/sim.launch.py"
+        }
+      },
+      "refused": false
+    },
+    {
+      "name": "a launch role whose required role is not a controller role",
+      "backend": "mujoco",
+      "robot": {
+        "robot_profile": "p",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ]
+        },
+        "launch_roles": {
+          "servo": {
+            "requires": [
+              "arm_trajectory"
+            ],
+            "launch": {
+              "package": "pkg",
+              "path": "launch/servo.launch.py"
+            }
+          }
+        }
+      },
+      "controller": {
+        "activate": [
+          "servo"
+        ],
+        "launch": null
+      },
+      "refused": true,
+      "reason": "which is not a controller role"
+    }
+  ]
+}

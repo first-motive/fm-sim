@@ -269,7 +269,7 @@ MCAP. Run lifecycle, on-disk layout and flags:
 | `invalid_request` | The body is too large, not a JSON object, or a field is malformed |
 | `invalid_spec` | The RunSpec has a bad name, seed or flag, or an extra key such as `params` |
 | `unknown_entry` | A name is not in the image's catalog |
-| `unavailable_entry` | The entry is `available: false` |
+| `unavailable_entry` | The entry is `available: false`, or the four entries do not go together: a backend the robot does not list in `supported_backends`, a controller with a launch on a robot with no `robot_profile`, or a controller activating a role the robot lacks. The message names which; the code stays one so clients already in the field read it |
 | `catalog_unavailable` | The catalog could not be read from the image, or the robot names no broadcasters |
 | `busy` | A run is active or stopping, another process's run is up under the agent's label, or the query queue is full |
 | `run_exists` | A run with that id already exists; retry a second later |

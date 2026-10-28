@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory
@@ -532,3 +533,29 @@ def test_a_rate_isaac_cannot_divide_still_renders_on_mujoco(mujoco_verdict):
     assert mujoco_verdict(data)
     with pytest.raises(isaac_stage.StageError, match='divide the 60 Hz'):
         _isaac_verdict(data)
+
+
+COMBINATION_CASES = json.loads(
+    (Path(__file__).parent / 'combination_cases.json').read_text()
+)['cases']
+
+
+@pytest.mark.parametrize('case', COMBINATION_CASES, ids=lambda case: case['name'])
+def test_resolve_matches_the_shared_combination_cases(monkeypatch, case):
+    """The sim agent refuses from the same table; the two must agree."""
+    entries = {
+        'backends': {'name': case['backend']},
+        'robots': {'name': 'robot', **case['robot']},
+        'scenarios': catalog.load('scenarios', 'empty'),
+        'controllers': {'name': 'controller', **case['controller']},
+    }
+    monkeypatch.setattr(catalog, 'require_available', lambda kind, name: entries[kind])
+    try:
+        resolved = run.resolve(case['backend'], 'robot', 'empty', 'controller')
+        run.controller_sets(resolved['robot'], resolved['controller'])
+    except catalog.CatalogError as error:
+        refusal = str(error)
+    else:
+        refusal = None
+    assert (refusal is not None) == case['refused']
+    assert case.get('reason', '') in (refusal or '')

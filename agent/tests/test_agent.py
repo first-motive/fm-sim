@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import threading
 import time
 
 import pytest
 
 from fm_sim_agent import agent as agent_module
-from fm_sim_agent.agent import RESET_TIMEOUT_S
+from fm_sim_agent.agent import RESET_TIMEOUT_S, combination_refusal
 from fm_sim_agent.runs import SUMMARY_KEYS
 from fm_sim_agent.spec import valid_run_id
-from tests.fakes import SPEC, URDF, wait_for
+from tests.fakes import SPEC, URDF, entry, wait_for
 
 STATUS_KEYS = {"host", "state", "run_id", "spec", "since", "version"}
 
@@ -254,6 +255,68 @@ def test_up_refuses_a_name_the_catalog_lacks(agent, runner):
 def test_up_refuses_an_unavailable_entry(agent, runner):
     assert code(ask(agent, "up", {**SPEC, "backend": "isaac"})) == "unavailable_entry"
     assert runner.names() == []
+
+
+def _pair_catalog(runner):
+    """The fake catalog with the pair rules run.launch.py checks, on a copy."""
+    doc = json.loads(json.dumps(runner.catalog_doc))
+    doc["robots"][0]["supported_backends"] = ["mujoco"]
+    doc["robots"][0]["launch_roles"] = {"servo": {"requires": ["right_arm"]}}
+    launch = {"package": "fm_skills_sim", "path": "launch/sim.launch.py"}
+    doc["controllers"] += [
+        {**entry("fm_skills"), "activate": [], "launch": launch},
+        {**entry("policy_serve"), "activate": ["right_arm", "servo"], "launch": launch},
+    ]
+    runner.catalog_doc = doc
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({"backend": "gazebo"}, "robot openarm is not supported on backend gazebo; supported: mujoco"),
+        ({"robot": "so101", "controller": "fm_skills"}, "controller fm_skills needs a robot profile"),
+        ({"robot": "so101", "controller": "policy_serve"}, "controller policy_serve needs a robot profile"),
+    ],
+)
+def test_up_refuses_a_combination_the_launch_refuses(agent, runner, change, reason):
+    _pair_catalog(runner)
+    reply = ask(agent, "up", {**SPEC, **change})
+    assert code(reply) == "unavailable_entry"
+    assert reason in reply["error"]["message"]
+    assert runner.names() == []  # refused before any container starts
+
+
+def test_up_refuses_a_controller_activating_a_role_the_robot_lacks(agent, runner):
+    _pair_catalog(runner)
+    runner.catalog_doc["robots"][1]["robot_profile"] = "fm_so101"
+    reply = ask(agent, "up", {**SPEC, "robot": "so101", "controller": "policy_serve"})
+    assert code(reply) == "unavailable_entry"
+    assert "activates right_arm, servo, which robot so101 does not have" in reply["error"]["message"]
+
+
+#: The launch's own accept/refuse table; test_run.py checks run.py against it.
+#: A path, not a package resource: the table lives beside the launch's tests.
+COMBINATION_CASES = json.loads(
+    (Path(__file__).parents[2] / "fm_sim_bringup" / "test" / "combination_cases.json").read_text()
+)["cases"]
+
+
+@pytest.mark.parametrize("case", COMBINATION_CASES, ids=lambda case: case["name"])
+def test_combination_refusal_matches_the_launch(case):
+    entries = {
+        "backend": entry(case["backend"]),
+        "robot": {**entry("robot"), **case["robot"]},
+        "controller": {**entry("controller"), **case["controller"]},
+    }
+    refusal = combination_refusal(entries)
+    assert (refusal is not None) == case["refused"]
+    assert case.get("reason", "") in (refusal or "")
+
+
+def test_combination_refusal_refuses_a_robot_listing_no_backends():
+    # run.py reads supported_backends with no default, so a robot without it fails at launch.
+    entries = {"backend": entry("mujoco"), "robot": entry("robot"), "controller": entry("idle")}
+    assert combination_refusal(entries) == "robot robot is not supported on backend mujoco; supported: none"
 
 
 def test_up_refuses_a_robot_with_no_broadcasters_listed(agent, runner):
