@@ -17,6 +17,7 @@ setup(
     description='Backend-neutral scenarios: seeded spawns, the success predicate, '
     'per-backend world generators and the scenario node',
     license='Apache-2.0',
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'scenario_node = fm_sim_scenarios.scenario_node:main',

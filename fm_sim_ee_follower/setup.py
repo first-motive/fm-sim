@@ -19,6 +19,7 @@ setup(
     maintainer_email='nish@ubundi.co.za',
     description='Damped-least-squares IK node that follows a commanded tool pose',
     license='Apache-2.0',
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'ee_follower = fm_sim_ee_follower.follower_node:main',
