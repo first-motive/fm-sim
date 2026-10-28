@@ -147,7 +147,7 @@ Source: [`diagrams/backends.d2`](diagrams/backends.d2).
 |---------|-------------|-------|-------|
 | `mujoco` | `mujoco.launch.py` | `mujoco_ros2_control/ros2_control_node`, headless; its CameraPlugin renders on EGL, or as `MUJOCO_GL` says | **Daily driver**, native arm64 on M5 (CPU, no GPU) |
 | `gazebo` | `gazebo.launch.py` | Gazebo Harmonic: `gz sim` in its own process group, `create`, `ros_gz_bridge` (clock, object poses, camera images, `set_pose`); `gz_ros2_control` in-engine | Linux/GPU, or server-only with headless rendering anywhere. Runs the generated world SDF, the robot with camera sensors, and the camera relays |
-| `isaac` | `isaac.launch.py` | standalone `controller_manager` with `topic_based_ros2_control`, bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Wired; Linux + NVIDIA. Builds the Isaac Sim 4.5 stage (URDF, objects, cameras, ROS 2 bridge graph) and starts Isaac when `FM_ISAAC_PYTHON` is set and a world is given |
+| `isaac` | `isaac.launch.py` | standalone `controller_manager` with `topic_based_ros2_control`, bridged over `/isaac_joint_states` ↔ `/isaac_joint_commands` | Linux + NVIDIA. Builds the Isaac Sim 4.5 stage (URDF, objects, cameras, ROS 2 bridge graph) and starts Isaac when `FM_ISAAC_PYTHON` is set and a world is given. Under the agent, Isaac runs in its own container beside the run (agent README, Isaac Runs) |
 
 `topic_based_ros2_control` has no Jazzy apt release, so `fm-sim.repos` pins it as
 a source external that CI and the image build.
@@ -333,7 +333,8 @@ The agent's account runs Docker, which is root-equivalent, so the agent keeps
 what a caller chooses narrow: four catalog names, a seed and a record flag. No
 caller value reaches a shell. Each run container runs as the agent's uid with
 every capability dropped and process and memory ceilings, sees only its own
-`bag/` directory, and keeps DDS discovery on the host, so no sim topic reaches a
+`bag/` directory (an isaac run also its `stage/`, which its Isaac container
+shares under the same confinement), and keeps DDS discovery on the host, so no sim topic reaches a
 real robot's graph on a shared LAN. Only the host's bridge carries topics off
 it, and only its allowlist. On AWS the agent's account is also blocked from the
 instance metadata service. Full list:

@@ -293,6 +293,7 @@ infra/aws/sim/deploy.sh plan              # local: prints the upload and deploy 
 infra/aws/sim/deploy.sh deploy --execute  # uploads the controller ZIP and deploys
 infra/aws/sim/deploy.sh status            # reads /<stack>/status
 infra/aws/sim/deploy.sh start             # or stop; exits 1 when refused
+infra/aws/sim/deploy.sh bake              # saves a set-up disk as an image (see Baked Image)
 ```
 
 Before the first deploy, create the auth key parameter yourself (a single-use,
@@ -309,6 +310,34 @@ checked against a live update.
 The default `ImageParameter` follows the latest Deep Learning AMI at each
 deploy. For production, set `ImageIdOverride` (see `host.params.example`) to
 pin the exact image a host boots.
+
+### Baked Image
+
+A start spends about two of its five minutes in the role installing what every
+launch installs the same way: Docker, the NVIDIA container toolkit, Tailscale,
+the bridge, and the sim images. `deploy.sh bake` saves a disk with that work
+done as an image, so a start from it only re-checks it.
+
+```bash
+infra/aws/sim/deploy.sh bake      # 10 min of role, then the snapshot (over an hour at 200 GiB); prints the image id
+# then set ImageIdOverride=<id> in the params file and deploy --execute, host stopped
+```
+
+`bake` launches the stack's own launch template once, outside the group, tagged
+`fm-sim-bake=1` and set to stop on shutdown. The bootstrap reads that tag from
+instance metadata and runs the same role, minus the tailnet join
+(`tailscale-authkey`) and the readiness check (`sim-cloud-ready`). It then
+turns off the agent and the bridge, deletes the Tailscale state and `host.env`,
+cleans cloud-init, and stops. `bake` images the stopped
+disk and terminates the instance, whether or not the bake finished. The
+controller sees only the group's instances, so it would not end a bake
+instance on its own, and the budget gate does not apply to one.
+
+A start from the image still runs the whole role against that launch's pins,
+so an image built before an `FmSetupCommit` or image digest change still boots
+correctly, only slower. Bake again after such a change. The image holds the
+controllers image when the stack runs it, so it is as private as the GHCR
+package; it stays in this account, unshared.
 
 `deploy --execute` refuses a code bucket without versioning. It uploads the
 controller ZIP with an SHA-256 checksum and deploys only when the stored

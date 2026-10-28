@@ -31,7 +31,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fm_sim_agent import bridge
+from fm_sim_agent import bridge, isaac
 from fm_sim_agent.agent import (
     BINARY_VERBS,
     MAX_BODY_BYTES,
@@ -321,6 +321,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--gpus", action="store_true", help="Give runs every GPU (Isaac).")
     parser.add_argument(
+        "--isaac-image",
+        default="",
+        help="Isaac Sim image an isaac run's stage runs in, beside the run (fm-setup's isaac-sim "
+        "step pulls it). Without it an isaac run only logs the stage runner command.",
+    )
+    parser.add_argument(
+        "--isaac-cache",
+        type=Path,
+        default=None,
+        help="Where Isaac Sim's shader caches persist between runs (default ~/.cache/fm-sim-isaac/<label>).",
+    )
+    parser.add_argument(
+        "--isaac-memory", default=isaac.MEMORY, help="Memory ceiling of a run's Isaac container."
+    )
+    parser.add_argument(
         "--no-host-network", action="store_true", help="Do not share the host's network (macOS)."
     )
     parser.add_argument(
@@ -444,6 +459,12 @@ def main(argv: list[str] | None = None) -> int:
         dds_range=args.dds_range,
         label=label,
         bridge_config=bridge_of(args),
+        isaac_image=args.isaac_image or None,
+        # Per label: two agents on one host never write one cache at once.
+        isaac_cache=(args.isaac_cache or Path.home() / ".cache" / "fm-sim-isaac" / label)
+        .expanduser()
+        .resolve(),
+        isaac_memory=args.isaac_memory,
     )
     agent = SimAgent(host, runner, RunStore(runs_dir))
     agent.keep_foreign_runs = label != host  # a label shared with other processes
@@ -452,6 +473,9 @@ def main(argv: list[str] | None = None) -> int:
     for removed in agent.recover():
         print(f"fm-sim-agent: removed stale run container {removed}", flush=True)
     print(f"fm-sim-agent: runs use {image}, filed under {runs_dir}", flush=True)
+    if runner.isaac_image:
+        agent.startup_timeout_s = max(agent.startup_timeout_s, isaac.STARTUP_TIMEOUT_S)
+        print(f"fm-sim-agent: isaac runs start {runner.isaac_image} beside them", flush=True)
 
     # Blocked before the session starts its threads, so they inherit the mask
     # and the signal systemd sends on stop reaches sigwait, not a default handler.

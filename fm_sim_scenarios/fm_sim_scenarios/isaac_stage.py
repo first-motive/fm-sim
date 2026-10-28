@@ -263,9 +263,13 @@ def generate(scenario, seed):
 
 
 def _dump(spec, path):
-    with open(path, 'w') as spec_file:
+    # Written aside and renamed: a reader polling for the file (the sim agent's
+    # Isaac container) never sees half of it.
+    partial = f'{path}.partial'
+    with open(partial, 'w') as spec_file:
         json.dump(spec, spec_file, indent=2, sort_keys=True)
         spec_file.write('\n')
+    os.replace(partial, path)
 
 
 def write(robot_mjcf, mount_xyz, scenario, seed, out_dir):

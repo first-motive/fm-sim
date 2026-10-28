@@ -1,7 +1,8 @@
 # Sim hosts. The fm sim CLI and the desktop app are both clients of one sim
 # agent per host, reached over the fleet's Zenoh router. The agent starts each
-# run as a container of the fm-sim image; the host's zenoh bridge carries the
-# run's topics off the host under its namespace.
+# run as a container of the fm-sim image, and an isaac run's Isaac Sim beside it
+# in a container of NVIDIA's image; the host's zenoh bridge carries the run's
+# topics off the host under its namespace.
 # Each block: role, package, artifact.
 ...@styles
 direction: right
@@ -48,6 +49,14 @@ host: "Sim Host (This Mac · fm-ws-01 · AWS)" {
     a: "run.launch.py · DDS localhost" { class: art }
   }
 
+  isaac: "" {
+    grid-rows: 3
+    class: block
+    r: Isaac Sim { class: role }
+    p: isaac-sim image { class: pkg }
+    a: "isaac runs · stage/ · agent uid" { class: art }
+  }
+
   bridge: "" {
     grid-rows: 3
     class: block
@@ -60,10 +69,12 @@ host: "Sim Host (This Mac · fm-ws-01 · AWS)" {
     grid-rows: 2
     class: block
     r: Runs Dir { class: role }
-    a: "summary.json · bag/*.mcap" { class: art }
+    a: "summary.json · bag/*.mcap · stage/" { class: art }
   }
 
   agent -> run: docker run
+  agent -> isaac: "docker run (isaac)"
+  run <-> isaac: "stage · DDS localhost"
   agent -> runs
   run -> bridge: topics
 }
