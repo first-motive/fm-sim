@@ -37,7 +37,19 @@ CATALOG = {
         {**entry("bare"), "supported_backends": ["mujoco", "gazebo", "isaac"]},
     ],
     "scenarios": [entry("empty"), entry("pick_cube")],
-    "controllers": [entry("idle")],
+    "controllers": [
+        entry("idle"),
+        {
+            **entry("picker_classical"),
+            "family": "picker",
+            "control": {"package": "picker", "path": "control/picker_classical.yaml"},
+            "control_descriptor": {
+                "name": "picker_classical",
+                "blocks": [{"id": "perception", "kind": "perception", "variant": "bg-diff"}],
+                "edges": [],
+            },
+        },
+    ],
 }
 
 SPEC = {

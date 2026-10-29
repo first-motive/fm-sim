@@ -233,3 +233,104 @@ def test_schema_robot_profile_is_a_name_or_null(profile, valid):
     else:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(robot, schema)
+
+
+CONTROL = {
+    'name': 'wam',
+    'blocks': [
+        {'id': 'perception', 'kind': 'perception', 'variant': 'YOLO-seg',
+         'live': '/detections', 'sim': {'variant': 'ground truth'}},
+        {'id': 'task', 'kind': 'state_machine', 'variant': 'pick and place',
+         'states': ['IDLE', 'PICK'],
+         'source': {'topic': '/task/state', 'type': 'std_msgs/msg/String', 'field': 'data'}},
+    ],
+    'edges': [{'from': 'perception', 'to': 'task'}],
+}
+
+
+def _write_control(tmp_path, descriptor):
+    path = tmp_path / 'share/fake_pkg/control/wam.yaml'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(descriptor))
+    package_marker = tmp_path / 'share/ament_index/resource_index/packages/fake_pkg'
+    package_marker.parent.mkdir(parents=True, exist_ok=True)
+    package_marker.touch()
+    return path
+
+
+def test_controller_carries_family_and_its_control_descriptor(extra_prefix, tmp_path, capsys):
+    _write_control(tmp_path, CONTROL)
+    extra_prefix('wam', dict(PLACEHOLDER, family='wam_family',
+                             control={'package': 'fake_pkg', 'path': 'control/wam.yaml'}))
+    entry = catalog.load('controllers', 'wam')
+    assert entry['family'] == 'wam_family'
+    assert entry['control_descriptor'] == CONTROL
+    assert catalog.main(['--json']) == 0
+    output = json.loads(capsys.readouterr().out)
+    jsonschema.validate(output, catalog.load_schema())
+    (listed,) = [c for c in output['controllers'] if c['name'] == 'wam']
+    assert listed['control'] == {'package': 'fake_pkg', 'path': 'control/wam.yaml'}
+    assert listed['control_descriptor']['blocks'][0]['variant'] == 'YOLO-seg'
+
+
+def test_control_file_must_name_its_entry(extra_prefix, tmp_path):
+    _write_control(tmp_path, dict(CONTROL, name='other'))
+    extra_prefix('wam', dict(PLACEHOLDER, control={'package': 'fake_pkg',
+                                                   'path': 'control/wam.yaml'}))
+    with pytest.raises(catalog.CatalogError, match="control file names itself 'other'"):
+        catalog.load('controllers', 'wam')
+
+
+def _with_block(**changes):
+    blocks = [dict(CONTROL['blocks'][0], **changes), CONTROL['blocks'][1]]
+    return dict(CONTROL, blocks=blocks)
+
+
+@pytest.mark.parametrize('descriptor, match', [
+    (_with_block(kind='planner'), 'is not one of'),
+    (dict(CONTROL, edges=[{'from': 'perception', 'to': 'skill'}]), "missing block 'skill'"),
+    (dict(CONTROL, blocks=[CONTROL['blocks'][0],
+                           dict(CONTROL['blocks'][1], states=[])]), 'is too short'),
+    (dict(CONTROL, blocks=[CONTROL['blocks'][0],
+                           {k: v for k, v in CONTROL['blocks'][1].items() if k != 'states'}]),
+     "'states' is a required property"),
+    (_with_block(states=['IDLE']), 'should not be valid under'),
+    (_with_block(source=CONTROL['blocks'][1]['source']), 'should not be valid under'),
+    (_with_block(id='task'), 'duplicate block ids task'),
+    (_with_block(live='detections'), 'does not match'),
+], ids=['unknown_kind', 'edge_to_missing_block', 'empty_states', 'no_states',
+        'states_outside_state_machine', 'source_outside_state_machine', 'duplicate_id', 'relative_topic'])
+def test_bad_control_descriptor_is_rejected(tmp_path, descriptor, match):
+    path = _write_control(tmp_path, descriptor)
+    with pytest.raises(catalog.CatalogError, match=match):
+        catalog.load_control(str(path))
+
+
+def test_inline_control_descriptor_is_refused(extra_prefix):
+    extra_prefix('wam', dict(PLACEHOLDER, control_descriptor=CONTROL))
+    with pytest.raises(catalog.CatalogError, match='not a control_descriptor'):
+        catalog.load('controllers', 'wam')
+
+
+@pytest.mark.parametrize('content', [None, 'blocks: [unclosed'], ids=['missing', 'malformed'])
+def test_unreadable_control_file_is_a_catalog_error(extra_prefix, tmp_path, content):
+    path = _write_control(tmp_path, CONTROL)
+    if content is None:
+        path.unlink()
+    else:
+        path.write_text(content)
+    extra_prefix('wam', dict(PLACEHOLDER, control={'package': 'fake_pkg',
+                                                   'path': 'control/wam.yaml'}))
+    with pytest.raises(catalog.CatalogError,
+                       match='control fake_pkg/control/wam.yaml: unreadable') as raised:
+        catalog.load('controllers', 'wam')
+    assert str(tmp_path) not in str(raised.value)
+
+
+def test_check_control_validates_files(tmp_path, capsys):
+    good = _write_control(tmp_path, CONTROL)
+    assert catalog.main(['--check-control', str(good)]) == 0
+    bad = tmp_path / 'bad.yaml'
+    bad.write_text(yaml.safe_dump(dict(CONTROL, edges=[{'from': 'x', 'to': 'task'}])))
+    assert catalog.main(['--check-control', str(good), str(bad)]) == 1
+    assert "missing block 'x'" in capsys.readouterr().err

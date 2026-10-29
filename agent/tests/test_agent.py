@@ -60,6 +60,13 @@ def test_catalog_is_returned_under_catalog(agent, runner):
     assert ask(agent, "catalog") == {"ok": True, "catalog": runner.catalog_doc}
 
 
+def test_catalog_carries_controller_family_and_control_descriptor(agent):
+    controllers = {c["name"]: c for c in ask(agent, "catalog")["catalog"]["controllers"]}
+    picker = controllers["picker_classical"]
+    assert picker["family"] == "picker"
+    assert picker["control_descriptor"]["blocks"][0]["variant"] == "bg-diff"
+
+
 def test_catalog_is_cached_per_image_id(agent, runner):
     ask(agent, "catalog")
     ask(agent, "catalog")
