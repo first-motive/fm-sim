@@ -2,11 +2,11 @@
 
     fm sim catalog --host fm-ws-01
     fm sim status  --host fm-ws-01
-    fm sim up      --host fm-ws-01 --scenario can_on_table --controller fm_skills --seed 3
+    fm sim up      --host fm-ws-01 --scenario can_on_table --controller fm_skills_classical --seed 3
     fm sim logs    --host fm-ws-01
     fm sim down    --host fm-ws-01
     fm sim runs    --host fm-ws-01 --limit 5
-    fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills --seeds 0..19
+    fm sim trial   --host fm-ws-01 --scenario can_on_table --controller fm_skills_classical --seeds 0..19
     fm sim host start aws --stack fm-sim-cloud-host --region eu-west-1
     fm sim host start local
 

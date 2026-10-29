@@ -106,7 +106,7 @@ not either.
 By default the host runs the public `ghcr.io/first-motive/fm-sim` image and
 holds no GitHub credential. Set `GhcrTokenParameterName` to run the private
 `ghcr.io/first-motive/fm-sim-controllers` image instead, which carries the
-private OpenArm description and the `fm_skills` controller.
+private OpenArm description and the `fm_skills_classical` controller.
 
 | Parameter | Default | Meaning |
 |---|---|---|
