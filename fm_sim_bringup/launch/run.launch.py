@@ -35,12 +35,26 @@ backend launch (given ``world``, the robot's ``cameras_file``, ``mesh_roots`` an
 name) completes from the robot description. ``timeout_s`` overrides the
 scenario's episode timeout; empty keeps it. The world is written to a temporary
 directory that is removed when the launch shuts down.
+
+Run params (``fm_sim_bringup.params``): ``overrides_file`` is a JSON object of
+tunable overrides keyed ``<dimension>.<name>``, each checked against the
+tunable its entry declares. ``entry`` targets are merged into the entries
+before anything is built; ``description`` targets set a xacro arg of the robot
+description or an attribute of the robot's MJCF (patched after fm_sim_models
+compiles it, into a copy beside the world). ``params_file`` is a ROS params
+file keyed by fully qualified node name (``fm_sim_backends.params_file``): it
+is appended last to the camera and scenario nodes, then a guard file
+re-asserting their launch-owned parameters; it is a second ``--param-file``
+for every spawner, and it is passed on to the backend, launch-role and
+controller launches.
 """
 
+import os
 import shutil
 import tempfile
 
-from fm_sim_bringup import catalog, run
+from fm_sim_backends.params_file import declare_params_file, with_params_file, write_guard
+from fm_sim_bringup import catalog, params, run
 from fm_sim_models.models import mjcf_path
 from launch import LaunchDescription
 from launch.actions import (
@@ -62,10 +76,13 @@ _CONTROLLER_MANAGER_TIMEOUT_S = '120'
 _logger = launch.logging.get_logger('run')
 
 
-def _spawner(controllers, controllers_file, inactive=False):
+def _spawner(controllers, controllers_file, params_file, inactive=False):
+    # A second --param-file loads after the first, so the run's params file
+    # beats the controllers file for each controller it names.
     arguments = [
         *controllers,
         '--param-file', controllers_file,
+        *(['--param-file', params_file] if params_file else []),
         '--controller-manager-timeout', _CONTROLLER_MANAGER_TIMEOUT_S,
     ]
     if inactive:
@@ -113,46 +130,63 @@ def _launch_setup(context):
         raise catalog.CatalogError(f"use_sim must be 'true' or 'false', got {use_sim!r}")
     seed = run.parse_seed(LaunchConfiguration('seed').perform(context))
     timeout_s = run.parse_timeout(LaunchConfiguration('timeout_s').perform(context))
-    entries = run.resolve(**choice)
+    params_file = LaunchConfiguration('params_file', default='').perform(context)
+    if params_file and not os.path.isfile(params_file):
+        raise catalog.CatalogError('params_file is not a file')
+    overrides = run.load_overrides(
+        LaunchConfiguration('overrides_file', default='').perform(context)
+    )
+    entries = run.apply_overrides(run.resolve(**choice), overrides)
     backend, robot, controller = entries['backend'], entries['robot'], entries['controller']
     scenario = entries['scenario']
 
     active, inactive = run.controller_sets(robot, controller)
     # Resolved now, so a missing launch file fails the run before anything starts.
     launches = [
-        (catalog.share_file(role['launch']), role.get('launch_args', {}))
+        (catalog.share_file(role['launch']), run.forward_params_file(
+            role.get('launch_args', {}), params_file
+        ))
         for role in run.role_launches(robot, controller)
     ]
 
-    robot_mjcf = mjcf_path(robot['mjcf'])
+    described = run.description_overrides(entries, overrides)
     # The generated world lives for this launch only: the engine has read it by the
     # time the launch shuts down, and the handler removes it then.
     world_dir = tempfile.mkdtemp(prefix='fm_sim_world_')
     controllers_file = catalog.share_file(robot['controllers_file'])
     try:
+        robot_mjcf = run.patched_mjcf(mjcf_path(robot['mjcf']), described.mjcf, world_dir)
         # Where the world carries cameras, the description names it before it
         # exists: the cameras are placed from the description.
         world = run.world_file(backend, scenario, seed, world_dir)
         robot_description = xacro.process_file(
             catalog.share_file(robot['description_file']),
-            mappings=run.description_args(backend, robot, world or robot_mjcf, controllers_file),
+            mappings={
+                **run.description_args(backend, robot, world or robot_mjcf, controllers_file),
+                **described.xacro_args,
+            },
         ).toxml()
         cameras = run.sim_cameras(backend, robot, robot_description, robot_mjcf)
         world = run.world_model(backend, robot, scenario, seed, robot_mjcf, world_dir, cameras)
+        scenario_parameters = run.scenario_node_parameters(backend, scenario, seed, timeout_s)
+        # What this launch owns on its own nodes, taken back after the params file.
+        guard = write_guard(
+            world_dir, run.own_node_guards(cameras, scenario_parameters)
+        ) if params_file else None
     except Exception:
         # The launch fails before the shutdown handler exists; remove the world here.
         shutil.rmtree(world_dir, ignore_errors=True)
         raise
-    active_spawner = _spawner(active, controllers_file)
+    active_spawner = _spawner(active, controllers_file, params_file)
     actions = [
         RegisterEventHandler(OnShutdown(
             on_shutdown=lambda event, context: shutil.rmtree(world_dir, ignore_errors=True)
         )),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(catalog.share_file(backend['launch'])),
-            launch_arguments=run.backend_launch_arguments(
+            launch_arguments=run.forward_params_file(run.backend_launch_arguments(
                 backend, robot, robot_description, controllers_file, world
-            ).items(),
+            ), params_file).items(),
         ),
         active_spawner,
     ]
@@ -162,32 +196,32 @@ def _launch_setup(context):
             on_exit=_after_active(launches, robot_description),
         )))
     if inactive:
-        actions.append(_spawner(inactive, controllers_file, inactive=True))
+        actions.append(_spawner(inactive, controllers_file, params_file, inactive=True))
     if controller['launch']:
         actions.append(
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(catalog.share_file(controller['launch'])),
-                launch_arguments={
+                launch_arguments=run.forward_params_file({
                     'use_sim': use_sim,
                     'robot_profile': robot['robot_profile'],
                     'scenario': choice['scenario'],
-                }.items(),
+                }, params_file).items(),
             )
         )
     for camera in cameras:
         actions.append(Node(
             package='fm_sim_cameras',
             executable='sim_camera',
-            name=f'sim_camera_{camera.role}',
-            parameters=[run.camera_node_parameters(camera)],
+            name=run.camera_node_name(camera),
+            parameters=with_params_file([run.camera_node_parameters(camera)], params_file, guard),
             output='screen',
         ))
-    scenario_parameters = run.scenario_node_parameters(backend, scenario, seed, timeout_s)
     if scenario_parameters:
         actions.append(Node(
             package='fm_sim_scenarios',
             executable='scenario_node',
-            parameters=[scenario_parameters],
+            name=params.SCENARIO_NODE,
+            parameters=with_params_file([scenario_parameters], params_file, guard),
             output='screen',
         ))
     return actions
@@ -225,6 +259,12 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 'timeout_s', default_value='',
                 description="Episode timeout in seconds; empty keeps the scenario's.",
+            ),
+            declare_params_file(),
+            DeclareLaunchArgument(
+                'overrides_file', default_value='',
+                description='Optional JSON of tunable overrides (<dimension>.<name>: value); '
+                'entry targets are merged before the world is built.',
             ),
             OpaqueFunction(function=_launch_setup),
         ]

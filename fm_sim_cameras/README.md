@@ -46,6 +46,7 @@ contracts §3).
 | `cameras_file` | — | The robot's cameras file |
 | `render_topic` | — | The simulator's `rgb8` render of this camera, at `render_camera`'s size; other sizes or encodings are skipped with a warning |
 | `jpeg_quality` | `90` | 1 to 100 |
+| `rate_hz` | `0.0` | Overrides the cameras file's `rate_hz` when above 0, up to 120 |
 
 ## Tests
 
@@ -54,7 +55,7 @@ contracts §3).
 | `test_cameras_file.py` | OpenArm's cameras file carries the fm-skills chest intrinsics for both roles, and the CameraInfo `camera_info` builds from it; normalised plain data; `plumb_bob` accepted; the large-image cap; every refusal |
 | `test_fisheye.py` | The warp refuses `plumb_bob`; the render covers the edge midpoints and matches the CameraPlugin's focal length; about 12 % of the frame black; the warp inverts `cv2.fisheye.distortPoints` to 0.01 px |
 | `test_mount.py` | Mounts on a moving link's body and on the root, frames that are bodies, a moving joint and an unknown frame refused, quaternions |
-| `test_camera_node.py` | The node on a fake render: JPEG of the real size with the frame, stamp and orientation kept, black corners, the real camera_info; a wrong-size render, a buffer that does not fit and a future stamp skipped; the stall warning; thinning to `rate_hz`; unknown roles refused, also by the executable |
+| `test_camera_node.py` | The node on a fake render: JPEG of the real size with the frame, stamp and orientation kept, black corners, the real camera_info; a wrong-size render, a buffer that does not fit and a future stamp skipped; the stall warning; thinning to `rate_hz`, the `rate_hz` parameter overriding the file and its range; unknown roles refused, also by the executable |
 
 `test/conftest.py` gives the tests a ROS domain of their own and holds the shared
 constants (the shipped OpenArm cameras file, the fm-skills K and D).

@@ -30,7 +30,7 @@ import yaml
 
 from fm_sim_agent import bridge, isaac
 from fm_sim_agent.logline import MAX_LINE_BYTES
-from fm_sim_agent.runs import BAG_NAME, RECORDING_NAME
+from fm_sim_agent.runs import BAG_NAME, PARAMS_JSON, PARAMS_NAME, PARAMS_YAML, RECORDING_NAME
 from fm_sim_agent.spec import DIMENSIONS, valid_run_id
 
 #: What a run launches inside the image (contracts §1).
@@ -46,6 +46,10 @@ ENTRYPOINT = "/ros_entrypoint.sh"
 #: directory is mounted: a run cannot read or overwrite any other run's files,
 #: nor its own summary.
 BAG_MOUNT = "/fm-run/bag"
+
+#: Where a run's ``params/`` directory is mounted, read-only, when it has params.
+#: The launch reads the files by these constant paths: no value is on its command line.
+PARAMS_MOUNT = "/fm-run/params"
 
 #: The host's loopback Cyclone profile, mounted where fm-docker's compose base
 #: mounts it, so CYCLONEDDS_URI reads the same on every host.
@@ -278,9 +282,18 @@ def parse_controllers(text: str) -> dict[str, str]:
     return dict(CONTROLLER_STATE.findall(text))
 
 
-def launch_args(spec: dict) -> list[str]:
-    """The ``name:=value`` arguments one RunSpec launches with."""
-    return [*(f"{dimension}:={spec[dimension]}" for dimension in DIMENSIONS), "use_sim:=true"]
+def launch_args(spec: dict, overrides: bool = False, params_file: bool = False) -> list[str]:
+    """The ``name:=value`` arguments one RunSpec launches with.
+
+    ``overrides`` and ``params_file`` add the mounted params files: every
+    checked override, and the ROS params file for those that target a node.
+    """
+    args = [*(f"{dimension}:={spec[dimension]}" for dimension in DIMENSIONS), "use_sim:=true"]
+    if overrides:
+        args.append(f"overrides_file:={PARAMS_MOUNT}/{PARAMS_JSON}")
+    if params_file:
+        args.append(f"params_file:={PARAMS_MOUNT}/{PARAMS_YAML}")
+    return args
 
 
 def capped_lines(stream) -> Iterator[str]:
@@ -445,6 +458,10 @@ class DockerRunner:
             *self._confinement(),
             "--volume", f"{self.runs_dir / run_id / BAG_NAME}:{BAG_MOUNT}",
         ]  # fmt: skip
+        params = self.runs_dir / run_id / PARAMS_NAME
+        overrides = (params / PARAMS_JSON).is_file()
+        if overrides:
+            argv += ["--volume", f"{params}:{PARAMS_MOUNT}:ro"]
         if self._runs_isaac(spec):
             # The launch writes the stage under TMPDIR, which the Isaac container reads.
             stage = isaac.stage_dir(self.runs_dir, run_id)
@@ -468,7 +485,14 @@ class DockerRunner:
                 "--env",
                 f"CYCLONEDDS_URI=file://{CYCLONE_MOUNT}",
             ]
-        argv += [*self.docker_args, self.image, ENTRYPOINT, *LAUNCH, *launch_args(spec)]
+        params_file = overrides and (params / PARAMS_YAML).is_file()
+        argv += [
+            *self.docker_args,
+            self.image,
+            ENTRYPOINT,
+            *LAUNCH,
+            *launch_args(spec, overrides, params_file),
+        ]
         return argv
 
     def bridge_argv(self, run_id: str, config: Path) -> list[str]:

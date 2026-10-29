@@ -7,7 +7,8 @@ real fisheye image (``fisheye.warp_maps``), and publishes it JPEG-compressed on
 camera's optical frame. The role's frame, rate and intrinsics come from the
 robot's cameras file (``cameras_file.load``).
 
-It publishes at most once per render and at most at the role's ``rate_hz``,
+It publishes at most once per render and at most at the role's ``rate_hz`` (or
+the node's ``rate_hz`` parameter, when set),
 judged on the render stamps: a render less than three quarters of a period after
 the last one published is skipped, so a render rate below ``rate_hz`` passes
 through unthinned. A render it cannot use is skipped and logged: the wrong size
@@ -31,6 +32,8 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 RENDER_ENCODING = 'rgb8'
 JPEG_FORMAT = 'jpeg'
+# Past what any renderer here produces; a rate above it would only thin nothing.
+MAX_RATE_HZ = 120.0
 # Periods of sim time without a render before the node warns that renders stopped.
 STALL_PERIODS = 5
 LOG_THROTTLE_S = 5.0
@@ -47,7 +50,11 @@ class SimCamera(Node):
         camera = cameras[self.role]
         self.frame_id = camera['frame']
         self.camera = fisheye.from_intrinsics(camera['intrinsics'])
-        self.period_ns = int(1e9 / camera['rate_hz'])
+        # A run may override the cameras file's rate (a run param); 0 keeps it.
+        rate_hz = float(self.declare_parameter('rate_hz', 0.0).value) or camera['rate_hz']
+        if not 0.0 < rate_hz <= MAX_RATE_HZ:
+            raise cameras_file.CameraError(f'rate_hz must be in (0, {MAX_RATE_HZ}]')
+        self.period_ns = int(1e9 / rate_hz)
         self.min_gap_ns = int(0.75 * self.period_ns)
         self.last_published_ns = None
         self.last_render_ns = None

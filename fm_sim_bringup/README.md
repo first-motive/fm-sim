@@ -22,6 +22,8 @@ ros2 launch fm_sim_bringup run.launch.py \
 | `use_sim` | `true` | — | Passed to the controller's launch |
 | `seed` | `0` | — | Spawn seed for the scenario's objects, an integer in [0, 2^32 - 1] |
 | `timeout_s` | empty | — | Episode timeout in seconds; empty keeps the scenario's |
+| `overrides_file` | empty | — | JSON of tunable overrides, `<dimension>.<name>: value` (see [Run Params](#run-params)) |
+| `params_file` | empty | — | ROS params file keyed by fully qualified node name, appended last (see [Run Params](#run-params)) |
 
 An unknown value fails before anything starts and lists the registered ones; an
 entry marked `available: false` is listed but refused, as is one whose
@@ -74,6 +76,95 @@ What `run.launch.py` does, in order:
    a controller with a `launch`, since that launch reads its names from the profile.
 7. For a scenario with objects, starts the scenario node (`fm_sim_scenarios`) with
    `use_sim_time`. `empty` has none, so it has no `/sim/reset` or `/sim/outcome`.
+
+Before step 1, the overrides in `overrides_file` are checked and merged into the
+four entries, and the robot's MJCF is patched; `params_file` reaches every node
+from step 3 on. See [Run Params](#run-params).
+
+## Run Params
+
+An entry may declare `params`: tunables a run can override, such as the can's
+mass or the controller's arm speed. A caller names one `<dimension>.<name>`
+(`scenario.can_mass`) and sends only the values it changes; the sim agent checks
+them, writes them to the run directory, and starts the launch with
+`overrides_file` and `params_file` pointing at the read-only copies. No value is
+ever on a command line.
+
+```yaml
+params:
+  can_mass:
+    label: Can mass              # required, the app's label
+    description: ...             # optional help text
+    type: float                  # float | int | bool | enum | array
+    default: 0.35                # required, within its own type and bounds
+    min: 0.05                    # float, int, array: required, with max
+    max: 2.0
+    step: 0.05                   # optional, > 0
+    unit: kg                     # optional
+    enum: [ptp, lin]             # enum only: the members
+    items: float                 # array only: float | int
+    length: 2                    # array only: the fixed length; min and max bound each element
+    ordered: true                # array only: the elements ascend, as a [low, high] range does
+    advanced: true               # optional: the advanced tier (default basic)
+    backends: [mujoco]           # optional: refused on any other backend
+    target: {kind: entry, path: objects.can.mass}
+```
+
+| Target | Shape | Applied |
+|--------|-------|---------|
+| `ros_param` | `node` (fully qualified, no wildcard), `param` (dotted) | Through the params file, appended last to each node |
+| `entry` | `path`: dotted into the entry; a list item by its `name` | Merged into the entry before the world is built; the entry is checked again as the catalog checks it |
+| `description` | `xacro_arg`, or `mjcf: {element, name, attribute}` | A xacro arg of the robot description, or one attribute of one MJCF element (`joint` `damping`; `position` `kp` or `forcerange`), patched after `fm_sim_models` compiles the model; an `mjcf` target needs `backends: [mujoco]` |
+
+`fm_sim_bringup.params` checks every declaration on load, beyond the schema:
+`min <= max` (integers for an int tunable), the default within its own type
+and bounds, an `entry` target's path holding the default and ending on a
+value rather than an identity field (`name`, `shape`, `static`, `object`,
+`region`), no two `ros_param` targets of one entry setting one ROS param (or
+one inside another), and no `ros_param` target on a launch-owned parameter
+(`params.guarded`): a safety gate (`use_sim_time`, `sim_only`,
+`engage_on_start`), a topic (`command`, `observation`, `enable`, `status`, any
+`*_topic`), the robot description (`robot_description`, `_semantic`,
+`_kinematics`; MoveIt's `robot_description_planning` joint limits stay
+tunable), an identity or path param (`checkpoint`,
+`policy_type`, `robot_profile`), or what this launch sets on its scenario and
+camera nodes. A value must be the tunable's type (`true` is not a number; an
+int is a float, and is written as one), within its bounds and, for an array,
+its length and order; NaN and infinities are refused, and an int too large for
+a float is out of bounds. `test/param_cases.json` holds the cases the launch and the
+agent both check.
+
+**The params file.** Every launch that owns tunables declares `params_file` and
+appends it last to each node it starts (`fm_sim_backends.params_file`), so its
+values win; it forwards it to the launches it includes. launch_ros writes a dict
+parameter under `/**`, which rcl applies before node-keyed entries whatever the
+order, so a node-keyed params file beats every launch dict. What the launch owns
+is taken back with a node-keyed guard file after it: here the camera and
+scenario nodes' parameters (`params.SCENARIO_OWNED`, `params.CAMERA_OWNED`),
+and on mujoco, for both nodes of the engine process (the controller_manager
+and `/mujoco_ros2_control_node`), `use_sim_time`, the description and every
+plugin key but its rate. Each spawner gets the params file as a second
+`--param-file`, so it beats the robot's controllers file. The
+robot_state_publisher gets none: it owns no tunables. `SetParametersFromFile` is
+never used: it applies before a node's own parameters.
+
+**Testing a launch.** `fm_sim_backends.params_check` resolves a launch's `Node`
+action through a real rclpy node, so a test sees rcl's precedence, not the
+list's order. `assert_params_file_wins(node, context, {param: value})` and
+`assert_guard_holds(...)` are its two asserts; another repo's launch test
+imports them where `fm_sim_backends` is installed, or copies the file (it needs
+only rclpy and launch_ros). `test/test_run_params.py` uses them on this launch.
+
+| Entry | Tunables |
+|-------|----------|
+| `mujoco` | Object pose and camera render rates of the MuJoCo plugins (advanced) |
+| `so101` | Control rate (mujoco), each JTC's end-velocity flag, and each joint's damping and actuator force limit in the MJCF (all advanced) |
+| `axol` | Control rate (mujoco, advanced) |
+| `openarm` | Control rate, each arm JTC's end-velocity flag, each camera's rate (at most the 10 Hz the engine renders and the bridge carries) and JPEG quality, each finger's stiffness and force limit (mujoco for all but the JTC flags; camera rates basic) |
+| `can_on_table` | Can mass, friction and timeout (basic); can size (no taller than it is, since it spawns at a fixed height on the paper), spawn ranges, and the success tolerance, hold and at-rest speed, bounded so a success is still a can standing placed on the paper (advanced) |
+
+Not tunable, by design: frames, joint and controller names, topics, paths,
+safety gates, calibration, and the table and paper (`table_only` mirrors them).
 
 ## Scenarios
 
@@ -207,6 +298,7 @@ file back to its source). An
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
 | `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
+| every kind | | optional `params` (see [Run Params](#run-params)) |
 | `controllers` | `idle`, `teleop` | `activate`, `launch`, optional `family` (groups variants of one controller), optional `control` (see [Control Descriptor](#control-descriptor)) |
 
 ### Control Descriptor
@@ -308,6 +400,9 @@ is the contract for that output.
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, `requires_packages` (a missing package lists the entry as unavailable and is named when it is refused), schema validation (`robot_profile` a name or `null`, launch role shape), `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
 | `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose. The OpenArm rows skip without its private description |
+| `test_params.py` | Tunable declarations the loader refuses (default out of bounds or of the wrong type, `min` above `max`, an unknown target kind, a relative or wildcard node, a guarded param, an `mjcf` target without `backends`, an entry path naming nothing or not holding the default) and the shared value cases in `param_cases.json` |
+| `test_run_params.py` | Overrides through the launch: an entry override changes the generated world (can mass), an override the entry would refuse is refused, a description override changes the compiled MJCF (joint damping) and a xacro arg; through rcl, the params file beats the scenario node's own parameters and the controllers file, and the guard keeps what the launch owns |
+| `test_entry_params.py` | fm-sim's own tunables: every default is what the node, file or compiled model holds (OpenArm's MJCF ones skip without its description), none names what the launch owns, and overrides reach the world through the launch |
 | `test_openarm_entry.py` | The OpenArm entry's description against its MJCF, built as `run.launch.py` builds them: joints, limits, prismatic fingers and actuators; a position servo on every `ros2_control` joint; the hand and camera frames at random poses; a clean spawn; the fingers' travel; the right hand closing on the `can_on_table` can between its pads and holding it, still and while the elbow lifts the hand. Skips without the private description |
 | `test_openarm_hand.py` | fm-robot's `openarm.sim.urdf.xacro` (loader hand) against `fm_sim_models`' `openarm` model, which the entry ran before it moved to the Anvil description; both are retired once the Anvil model passes a live pick in sim |
 | `test_run_launch_roles.py` | `run.launch.py`'s setup with SO-101 given OpenArm's `servo` role (SO-101 is public, so this runs in every image) and a controller that activates it: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down; a missing launch file fails at setup |

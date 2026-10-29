@@ -137,6 +137,7 @@ fm sim catalog --host fm-ws-01
 fm sim up      --host fm-ws-01 --scenario empty --controller idle --seed 3
 fm sim down    --host fm-ws-01
 fm sim trial   --host fm-ws-01 --seeds 0..19      # one run per seed, scored, JSON report
+fm sim up      --host local --param scenario.can_mass=0.5   # override a tunable for one run
 fm sim up      --host local                       # the agent in-process, on this Mac's OrbStack
 fm sim host start aws --stack fm-sim-cloud-host   # the AWS sim host, through its controller
 fm sim host start local [--controllers]           # this Mac as a sim host the app can drive
@@ -158,6 +159,12 @@ ros2 run fm_sim_bringup catalog --json   # every registered entry
 `so101` is the default robot because every image runs it. `robot:=openarm` needs
 the OpenArm's private description, which only the fm-sim-controllers image
 installs; the public image lists it as unavailable.
+
+Each entry may declare tunables a run overrides, such as the can's mass or a
+controller's arm speed: the app's Parameters inspector and `fm sim --param`
+set them, and the run gets them as read-only files (`overrides_file`, and a
+`params_file` appended last to every node). See
+[Run Params](fm_sim_bringup/README.md#run-params).
 
 See [`fm_sim_bringup`](fm_sim_bringup/README.md) for the contract, the catalog
 convention and the JSON schema.

@@ -22,3 +22,21 @@ controller_roles:
   arm_trajectory: [axol_left_arm_controller, axol_right_arm_controller]
 robot_profile: null
 supported_backends: [mujoco, gazebo, isaac]
+# Run tunables (fm_sim_bringup.params).
+params:
+  update_rate:
+    label: Control rate
+    description: The controller_manager's update rate.
+    type: int
+    default: 100
+    min: 25
+    max: 500
+    step: 25
+    unit: Hz
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /controller_manager
+      param: update_rate

@@ -184,7 +184,8 @@ def aggregate(host: str, spec: dict, seeds: list[int], rows: list[dict], started
 
     ``success_rate`` is over every run attempted: a run with no outcome counts
     as a failure, so a host that crashes every run cannot score well by
-    scoring nothing. ``unscored`` says how many those were.
+    scoring nothing. ``unscored`` says how many those were. ``spec`` keeps the
+    trial's ``params``, so the report says which overrides every run had.
     """
     successes = sum(1 for row in rows if row["success"] is True)
     unscored = sum(1 for row in rows if row["success"] is None)

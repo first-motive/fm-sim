@@ -22,6 +22,11 @@ scenario starts from, so it counts as applied either way).
 ``error`` holds no run: the failed run's summary is already written, and the
 next ``up`` is accepted.
 
+A RunSpec's ``params`` are checked against the tunables the four entries
+declare (:mod:`fm_sim_agent.params`) before anything starts, written to the
+run's ``params/`` directory, and kept in the spec, so ``status`` and the
+summary say which values the run changed.
+
 ``description`` and ``asset`` let a viewer draw the active run's robot from its
 own meshes. ``description`` is the run's ``/robot_description``, read once per
 run. ``asset`` is one mesh's bytes, and only a mesh that description draws: the
@@ -56,7 +61,7 @@ from datetime import datetime
 from xml.etree import ElementTree
 from importlib.metadata import PackageNotFoundError, version
 
-from fm_sim_agent import logline
+from fm_sim_agent import logline, params
 from fm_sim_agent.runner import SIM_RESET, Runner, RunnerError
 from fm_sim_agent.runs import RunStore
 from fm_sim_agent.spec import (
@@ -406,8 +411,8 @@ class SimAgent:
                 self._catalog = (image_id, doc)
             return doc
 
-    def _resolve(self, spec: dict) -> tuple[str, ...]:
-        """Check each name against the catalog; return the robot's broadcasters."""
+    def _resolve(self, spec: dict) -> tuple[tuple[str, ...], dict]:
+        """Check each name against the catalog; return the robot's broadcasters and the entries."""
         doc = self.catalog()
         entries = {}
         for dimension in DIMENSIONS:
@@ -424,7 +429,7 @@ class SimAgent:
             # show its message, where a code they do not know reads as malformed.
             raise VerbError("unavailable_entry", refusal)
         try:
-            return broadcasters_of(entries["robot"])
+            return broadcasters_of(entries["robot"]), entries
         except ValueError as exc:
             log(f"catalog: {exc}")
             raise VerbError(
@@ -457,7 +462,14 @@ class SimAgent:
             spec = parse_spec(body)
         except SpecError as exc:
             raise VerbError("invalid_spec", str(exc)) from None
-        broadcasters = self._resolve(spec)
+        broadcasters, entries = self._resolve(spec)
+        ros_params: dict = {}
+        if "params" in spec:
+            try:
+                spec["params"] = params.check(spec["params"], entries)
+                ros_params = params.ros_params(spec["params"], entries)
+            except SpecError as exc:
+                raise VerbError("invalid_spec", str(exc)) from None
         self._check_free_space()
         foreign = self._foreign_run()
         if foreign is not None:
@@ -480,6 +492,8 @@ class SimAgent:
         try:
             with run.write_lock:  # raised, not logged: a run with no record never starts
                 self.store.write(self.summary(run))
+            if "params" in spec:
+                self.store.write_params(run.run_id, spec["params"], ros_params)
             overtaken = self._start_container(run)
         except RunnerError as exc:
             log(f"{run.run_id}: start failed: {exc}")

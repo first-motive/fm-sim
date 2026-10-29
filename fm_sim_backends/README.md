@@ -210,6 +210,26 @@ ros2 launch fm_sim_core sim.launch.py backend:=isaac \
 | `world`, `cameras_file`, `mesh_roots` | gazebo | The scenario's world SDF, the robot's cameras file and its mesh roots (JSON `[[prefix, directory]]`); an empty `world` runs gz-sim's `empty.sdf`, spawns `/robot_description` and bridges `/clock` only |
 | `robot` | gazebo | Spawned model name; default `robot` (`run.launch.py` passes the robot entry's name) |
 | `gz_args` | gazebo | gz-sim flags, the world follows; default `-r -v 3` |
+| `params_file` | mujoco | A run's ROS params file, appended last to the engine node, then a guard keeping `use_sim_time`, the description and the plugins (all but their rates) on `/controller_manager` and `/mujoco_ros2_control_node`; empty changes nothing |
+
+## Params File
+
+`fm_sim_backends.params_file` is the `params_file` launch contract every
+launch that owns run tunables follows: `declare_params_file()` declares the
+argument, `with_params_file(parameters, params_file, guard)` appends the file and
+then a guard file, and `write_guard(directory, {node: {param: value}})` writes
+that guard keyed by fully qualified node name. A dict guard would not do:
+launch_ros writes a dict under `/**`, and rcl applies node-keyed entries after
+it whatever the order. A relative key (`servo_node`) is not the fully
+qualified one (`/servo_node`) either, so both files use the latter.
+
+`fm_sim_backends.params_check` holds the test helpers: `resolved_parameters`
+expands a launch_ros `Node` action's parameters as launch_ros does and loads
+them into a real rclpy node, and `assert_params_file_wins` and
+`assert_guard_holds` assert on what rcl resolved. Pass `node_name` for a node
+the action leaves unnamed (naming the engine would remap every node in its
+process). Another repo imports them where this package is installed, or copies
+the file. See [Run Params](../fm_sim_bringup/README.md#run-params).
 
 ## Tests
 
@@ -217,7 +237,10 @@ ros2 launch fm_sim_core sim.launch.py backend:=isaac \
 gets the `robot_description` argument, the mujoco and isaac
 `controller_manager` still get it as a parameter, mujoco's also gets the
 plugins file, and `MUJOCO_GL` sets its environment and prefix as the table above
-says. `test/test_description_topic.py` launches mujoco (default `egl`, and
+says; through rcl, a params file beats the controllers file on mujoco's
+controller_manager and on the hardware node's plugin rate, and the guard keeps
+both nodes' `use_sim_time`, description and plugin types and topics.
+`test/test_description_topic.py` launches mujoco (default `egl`, and
 `MUJOCO_GL=glfw` for the xvfb-run wrapper) and isaac live with the one-joint probe robots in `test/fixtures/`, waits for
 `/robot_description` and for the controller_manager to finish initialising, and
 after shutdown checks that no controller_manager is left running.

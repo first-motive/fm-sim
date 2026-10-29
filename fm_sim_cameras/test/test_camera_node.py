@@ -28,11 +28,12 @@ def ros():
     rclpy.try_shutdown()
 
 
-def _camera(role='chest', cameras_file=OPENARM_CAMERAS):
+def _camera(role='chest', cameras_file=OPENARM_CAMERAS, **extra):
     return SimCamera(parameter_overrides=[
         Parameter('role', value=role),
         Parameter('cameras_file', value=cameras_file),
         Parameter('render_topic', value=RENDER_TOPIC),
+        *(Parameter(name, value=value) for name, value in extra.items()),
     ])
 
 
@@ -213,3 +214,22 @@ def test_executable_exits_nonzero_on_a_bad_role():
     )
     assert result.returncode != 0
     assert "unknown camera role 'head'" in result.stderr
+
+
+def test_rate_hz_overrides_the_cameras_file(ros):
+    camera = _camera(rate_hz=5.0)
+    try:
+        assert camera.period_ns == 200_000_000
+    finally:
+        camera.destroy_node()
+    camera = _camera()
+    try:
+        assert camera.period_ns == int(1e9 / 15)  # the openarm file's chest rate
+    finally:
+        camera.destroy_node()
+
+
+@pytest.mark.parametrize('rate_hz', [-1.0, 500.0])
+def test_refuses_a_rate_out_of_range(ros, rate_hz):
+    with pytest.raises(cameras_file.CameraError, match='rate_hz must be in'):
+        _camera(rate_hz=rate_hz)

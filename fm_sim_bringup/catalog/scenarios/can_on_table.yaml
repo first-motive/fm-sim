@@ -54,3 +54,150 @@ success:
   # at 20 mm/s and holds it there about a second before opening.
   max_speed: 0.005
   timeout_s: 120.0
+# Run tunables (fm_sim_bringup.params): the can and the success predicate. The table
+# and paper are not tunable: table_only mirrors them.
+params:
+  can_mass:
+    label: Can mass
+    type: float
+    default: 0.35
+    min: 0.05
+    max: 2.0
+    step: 0.05
+    unit: kg
+    target:
+      kind: entry
+      path: objects.can.mass
+  can_friction:
+    label: Can friction
+    description: Sliding friction coefficient of the can.
+    type: float
+    default: 1.0
+    min: 0.1
+    max: 2.0
+    step: 0.05
+    target:
+      kind: entry
+      path: objects.can.friction
+  can_size:
+    label: Can size
+    description: "Radius, then height. At most the 0.135 m it is: the can spawns centred at a fixed height with its base on the paper, so a taller one would start inside the paper and table."
+    type: array
+    items: float
+    length: 2
+    default:
+    - 0.033
+    - 0.135
+    min: 0.02
+    max: 0.135
+    step: 0.001
+    unit: m
+    advanced: true
+    target:
+      kind: entry
+      path: objects.can.size
+  spawn_x:
+    label: Spawn x range
+    description: Seeded offset range along x, low then high.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -0.03
+    - 0.03
+    min: -0.1
+    max: 0.1
+    step: 0.005
+    unit: m
+    advanced: true
+    target:
+      kind: entry
+      path: objects.can.spawn.x
+  spawn_y:
+    label: Spawn y range
+    description: Seeded offset range along y, low then high. The low bound keeps every spawn outside the
+      target.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -0.02
+    - 0.03
+    min: -0.02
+    max: 0.1
+    step: 0.005
+    unit: m
+    advanced: true
+    target:
+      kind: entry
+      path: objects.can.spawn.y
+  spawn_yaw:
+    label: Spawn yaw range
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -3.14159
+    - 3.14159
+    min: -3.14159
+    max: 3.14159
+    step: 0.01
+    unit: rad
+    advanced: true
+    target:
+      kind: entry
+      path: objects.can.spawn.yaw
+  success_tolerance:
+    label: Success tolerance
+    description: How far outside the target the can's centre may stand and still count. At most 20 mm, so a counted can still stands mostly on the paper.
+    type: float
+    default: 0.01
+    min: 0.0
+    max: 0.02
+    step: 0.001
+    unit: m
+    advanced: true
+    target:
+      kind: entry
+      path: success.tolerance
+  success_hold:
+    label: Success hold
+    description: How long the can must stay placed. At least 0.5 s, so a can dropped through the target does not count.
+    type: float
+    default: 2.0
+    min: 0.5
+    max: 10.0
+    step: 0.5
+    unit: s
+    advanced: true
+    target:
+      kind: entry
+      path: success.hold_s
+  success_max_speed:
+    label: At-rest speed
+    description: The can must move no faster than this to count as placed. Below the place's 20 mm/s descent, so a can still held and lowering does not count.
+    type: float
+    default: 0.005
+    min: 0.001
+    max: 0.015
+    step: 0.001
+    unit: m/s
+    advanced: true
+    target:
+      kind: entry
+      path: success.max_speed
+  timeout:
+    label: Episode timeout
+    description: The episode fails after this long.
+    type: float
+    default: 120.0
+    min: 10.0
+    max: 600.0
+    step: 10.0
+    unit: s
+    target:
+      kind: entry
+      path: success.timeout_s

@@ -3,6 +3,7 @@
     fm sim catalog --host fm-ws-01
     fm sim status  --host fm-ws-01
     fm sim up      --host fm-ws-01 --scenario can_on_table --controller fm_skills_classical --seed 3
+    fm sim up      --host local --scenario can_on_table --param scenario.can_mass=0.5
     fm sim logs    --host fm-ws-01
     fm sim down    --host fm-ws-01
     fm sim runs    --host fm-ws-01 --limit 5
@@ -86,7 +87,7 @@ from fm_sim_agent.service import (
     image_ref,
     key_of,
 )
-from fm_sim_agent.spec import DIMENSIONS, NAME_PATTERN, SpecError, valid_name, valid_run_id
+from fm_sim_agent.spec import DIMENSIONS, NAME_PATTERN, SpecError, parse_params, valid_name, valid_run_id
 from fm_sim_agent.trial import (
     DEFAULT_RUN_TIMEOUT_S,
     Refused,
@@ -330,6 +331,15 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"catalog {dimension} (default %(default)s)",
         )
     run.add_argument("--record", action="store_true", help="record an MCAP of the run")
+    run.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        metavar="DIM.NAME=VALUE",
+        help=f"override a tunable `fm sim catalog` lists; DIM is one of {', '.join(DIMENSIONS)}."
+        " VALUE is JSON (1.5, true, [0, 1]) or a bare string. A tunable limited to some"
+        " backends is refused on the others. Repeatable",
+    )
 
     parser = argparse.ArgumentParser(prog="fm sim", description="Drive a First Motive sim host.")
     verbs = parser.add_subparsers(dest="verb", required=True, metavar="verb")
@@ -443,6 +453,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             # Checked here as well as by the agent: a trial's report is named after them.
             if not valid_name(getattr(args, dimension)):
                 parser.error(f"--{dimension} must match {NAME_PATTERN.pattern}")
+    if args.verb in ("up", "trial"):
+        try:
+            args.params = parse_param_flags(args.param)
+        except SpecError as exc:
+            parser.error(str(exc))
     if args.verb == "trial":
         try:
             args.seed_list = parse_seeds(args.seeds) if args.seeds else seed_run(args.count, args.seed_start)
@@ -455,8 +470,34 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
+def parse_param_flags(flags: list[str]) -> dict:
+    """``--param DIM.NAME=VALUE`` flags as a RunSpec's ``params``, checked for shape.
+
+    VALUE is read as JSON, so ``1.5``, ``true`` and ``[0, 1]`` keep their types;
+    anything that is not JSON is a string. The host checks each against its
+    catalog; naming one twice is refused here.
+    """
+    params: dict = {}
+    for flag in flags:
+        key, equals, text = flag.partition("=")
+        if not equals:
+            raise SpecError("--param takes DIM.NAME=VALUE")
+        if key in params:
+            raise SpecError(f"--param names {safe(key)} twice")
+        try:
+            params[key] = json.loads(text)
+        except RecursionError:
+            raise SpecError(f"--param {safe(key)} is nested too deeply") from None
+        except ValueError:
+            params[key] = text
+    return parse_params(params)
+
+
 def spec_of(args: argparse.Namespace, seed: int) -> dict:
-    return {**{d: getattr(args, d) for d in DIMENSIONS}, "seed": seed, "record": args.record}
+    spec = {**{d: getattr(args, d) for d in DIMENSIONS}, "seed": seed, "record": args.record}
+    if getattr(args, "params", None):
+        spec["params"] = args.params
+    return spec
 
 
 def default_report_path(spec: dict) -> Path:
@@ -490,15 +531,37 @@ def status_line(status: dict) -> str:
     return f"{safe(status.get('host'))}: {safe(status.get('state'))}{run}{error} since {safe(status.get('since'))}"
 
 
+def tunable_line(dimension: str, entry: dict, name: str, tunable: dict) -> str:
+    """One tunable as ``  <entry>  <dimension>.<name> = <default>  [<bounds>]``, safe to print."""
+    bounds = f"{tunable.get('min')}..{tunable.get('max')}" if "min" in tunable else ""
+    if isinstance(tunable.get("enum"), list):
+        bounds = "|".join(map(str, tunable["enum"]))
+    shown = " ".join(part for part in (bounds, str(tunable.get("unit") or "")) if part)
+    tier = "  advanced" if tunable.get("advanced") is True else ""
+    default = json.dumps(tunable.get("default"))
+    return safe(
+        f"  {entry.get('name')}  {dimension}.{name} = {default}{f'  [{shown}]' if shown else ''}{tier}"
+    )
+
+
 def catalog_lines(reply: dict) -> str:
+    """Each dimension's entries, then the tunables each declares for ``--param``."""
     catalog = reply.get("catalog", {})
     lines = []
     for dimension in DIMENSIONS:
+        entries = [e for e in catalog.get(f"{dimension}s", []) if isinstance(e, dict)]
         names = [
-            f"{safe(e.get('name'))}{'' if e.get('available') is True else ' (unavailable)'}"
-            for e in catalog.get(f"{dimension}s", [])
+            f"{safe(e.get('name'))}{'' if e.get('available') is True else ' (unavailable)'}" for e in entries
         ]
         lines.append(f"{dimension}s: {', '.join(names) or '-'}")
+        for entry in entries:
+            tunables = entry.get("params")
+            if isinstance(tunables, dict):
+                lines.extend(
+                    tunable_line(dimension, entry, name, tunable)
+                    for name, tunable in sorted(tunables.items())
+                    if isinstance(tunable, dict)
+                )
     return "\n".join(lines)
 
 

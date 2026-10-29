@@ -47,3 +47,182 @@ launch_roles:
       sim_only: 'true'
       command_type: joint_jog
       names: loader
+# Run tunables (fm_sim_bringup.params). The finger ones patch the MJCF fm_sim_models
+# compiles; its arm joints keep their motor classes.
+params:
+  update_rate:
+    label: Control rate
+    description: The controller_manager's update rate.
+    type: int
+    default: 100
+    min: 25
+    max: 500
+    step: 25
+    unit: Hz
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /controller_manager
+      param: update_rate
+  left_arm_end_velocity:
+    label: Left arm ends moving
+    description: Let a trajectory end with the joints still moving (JTC allow_nonzero_velocity_at_trajectory_end).
+    type: bool
+    default: true
+    advanced: true
+    target:
+      kind: ros_param
+      node: /follower_l_jtc
+      param: allow_nonzero_velocity_at_trajectory_end
+  right_arm_end_velocity:
+    label: Right arm ends moving
+    description: Let a trajectory end with the joints still moving (JTC allow_nonzero_velocity_at_trajectory_end).
+    type: bool
+    default: true
+    advanced: true
+    target:
+      kind: ros_param
+      node: /follower_r_jtc
+      param: allow_nonzero_velocity_at_trajectory_end
+  chest_camera_rate:
+    label: Chest camera rate
+    description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_chest
+      param: rate_hz
+  chest_jpeg_quality:
+    label: Chest JPEG quality
+    type: int
+    default: 90
+    min: 10
+    max: 100
+    step: 5
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_chest
+      param: jpeg_quality
+  wrist_right_camera_rate:
+    label: Right wrist camera rate
+    description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_right
+      param: rate_hz
+  wrist_right_jpeg_quality:
+    label: Right wrist JPEG quality
+    type: int
+    default: 90
+    min: 10
+    max: 100
+    step: 5
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_right
+      param: jpeg_quality
+  left_finger_stiffness:
+    label: Left finger stiffness
+    description: The finger servo gain (FINGER_KP in fm_sim_models).
+    type: float
+    default: 500.0
+    min: 50.0
+    max: 2000.0
+    step: 50.0
+    unit: N/m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: follower_l_finger_joint1_position
+        attribute: kp
+  left_finger_force_limit:
+    label: Left finger force limit
+    description: The finger force range, low then high (FINGER_FORCE_N in fm_sim_models).
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -30.0
+    - 30.0
+    min: -100.0
+    max: 100.0
+    step: 1.0
+    unit: N
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: follower_l_finger_joint1_position
+        attribute: forcerange
+  right_finger_stiffness:
+    label: Right finger stiffness
+    description: The finger servo gain (FINGER_KP in fm_sim_models).
+    type: float
+    default: 500.0
+    min: 50.0
+    max: 2000.0
+    step: 50.0
+    unit: N/m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: follower_r_finger_joint1_position
+        attribute: kp
+  right_finger_force_limit:
+    label: Right finger force limit
+    description: The finger force range, low then high (FINGER_FORCE_N in fm_sim_models).
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -30.0
+    - 30.0
+    min: -100.0
+    max: 100.0
+    step: 1.0
+    unit: N
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: follower_r_finger_joint1_position
+        attribute: forcerange

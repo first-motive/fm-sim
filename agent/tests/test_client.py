@@ -373,3 +373,85 @@ def test_local_host_bridges_only_with_both_bridge_files(files, tmp_path, monkeyp
     runner = client.local_host("fm-sim:jazzy", tmp_path / "runs").agent.runner
     expected = (tmp_path / "bridge-sim.json5").resolve() if len(files) == 2 else None
     assert runner.bridge_config == expected and runner.host_network is False
+
+
+# -- --param -----------------------------------------------------------------
+
+
+def test_param_flags_keep_their_json_types():
+    args = parse_args([
+        "up", "--host", "local", "--param", "controller.speed=1.5", "--param", "scenario.mode=lin",
+        "--param", "robot.range=[0, 1]", "--param", "robot.flag=true",
+    ])  # fmt: skip
+    assert client.spec_of(args, 0)["params"] == {
+        "controller.speed": 1.5, "robot.flag": True, "robot.range": [0, 1], "scenario.mode": "lin",
+    }  # fmt: skip
+
+
+def test_no_param_flags_send_no_params():
+    args = parse_args(["up", "--host", "local"])
+    assert "params" not in client.spec_of(args, 0)
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--param", "controller.speed"],
+        ["--param", "controller.speed=1", "--param", "controller.speed=2"],
+        ["--param", "speed=1"],
+        ["--param", "controller.speed=NaN"],
+        ["--param", "controller.speed={}"],
+        ["--param", "controller.speed=" + "[" * 100000],
+    ],
+)
+def test_bad_param_flags_are_usage_errors(flags):
+    with pytest.raises(SystemExit) as caught:
+        parse_args(["trial", "--host", "local", "--count", "1", *flags])
+    assert caught.value.code == 2
+
+
+SPEED = {
+    "label": "Speed", "type": "float", "default": 0.5, "min": 0.1, "max": 2.0, "unit": "rad/s",
+    "target": {"kind": "ros_param", "node": "/motion_server", "param": "max_joint_speed"},
+}  # fmt: skip
+
+
+@pytest.fixture
+def tunable(runner):
+    doc = json.loads(json.dumps(runner.catalog_doc))
+    doc["controllers"][0]["params"] = {"speed": SPEED, "mode": {**SPEED, "advanced": True}}
+    runner.catalog_doc = doc
+
+
+def test_catalog_lists_each_entrys_tunables(local, tunable, capsys):
+    code, out, _ = run(["catalog", "--host", "local"], local, capsys)
+    assert code == 0
+    assert "  idle  controller.speed = 0.5  [0.1..2.0 rad/s]" in out.splitlines()
+    assert "  idle  controller.mode = 0.5  [0.1..2.0 rad/s]  advanced" in out.splitlines()
+
+
+def test_local_trial_runs_with_its_params_and_reports_them(local, runner, tunable, capsys, tmp_path):
+    runner.latch_each_episode(lambda seed: True)
+    report_path = tmp_path / "trial.json"
+    argv = [
+        "trial",
+        "--host",
+        "local",
+        "--count",
+        "1",
+        "--param",
+        "controller.speed=1",
+        "--report",
+        str(report_path),
+    ]
+    code, _, _ = run(argv, local, capsys)
+    assert code == 0
+    assert json.loads(report_path.read_text())["spec"]["params"] == {"controller.speed": 1}
+    (start,) = [call for call in runner.calls if call[0] == "start"]
+    assert start[2]["params"] == {"controller.speed": 1.0}
+
+
+def test_a_param_the_host_does_not_declare_is_refused(local, runner, tunable, capsys):
+    code, _, err = run(["up", "--host", "local", "--param", "controller.nope=1"], local, capsys)
+    assert code == 1 and "refused (invalid_spec)" in err
+    assert "start" not in runner.names()

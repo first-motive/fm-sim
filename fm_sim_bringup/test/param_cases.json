@@ -1,0 +1,391 @@
+{
+  "_comment": "Tunable declarations, values, and whether they are accepted. test_params.py checks fm_sim_bringup.params.check_value against this table; agent/tests/test_params.py checks the sim agent's mirror against it, so the agent refuses exactly what the launch refuses. An accepted case gives the normalised value; a refused one a phrase both messages carry. NaN and Infinity are the JSON extension Python reads and writes: a caller's body can carry them.",
+  "cases": [
+    {
+      "name": "a float in bounds",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": 1.5,
+      "accepted": true,
+      "normalised": 1.5
+    },
+    {
+      "name": "an int for a float renders as a float",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": 1,
+      "accepted": true,
+      "normalised": 1.0
+    },
+    {
+      "name": "a float at its bound",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": 2.0,
+      "accepted": true,
+      "normalised": 2.0
+    },
+    {
+      "name": "a float above its max",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": 2.5,
+      "accepted": false,
+      "reason": "between"
+    },
+    {
+      "name": "true is not a float",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": true,
+      "accepted": false,
+      "reason": "number"
+    },
+    {
+      "name": "a string is not a float",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": "1.5",
+      "accepted": false,
+      "reason": "number"
+    },
+    {
+      "name": "an int in bounds",
+      "param": {
+        "type": "int",
+        "min": 1,
+        "max": 100
+      },
+      "value": 7,
+      "accepted": true,
+      "normalised": 7
+    },
+    {
+      "name": "a float is not an int",
+      "param": {
+        "type": "int",
+        "min": 1,
+        "max": 100
+      },
+      "value": 7.0,
+      "accepted": false,
+      "reason": "integer"
+    },
+    {
+      "name": "true is not an int",
+      "param": {
+        "type": "int",
+        "min": 1,
+        "max": 100
+      },
+      "value": true,
+      "accepted": false,
+      "reason": "integer"
+    },
+    {
+      "name": "an int below its min",
+      "param": {
+        "type": "int",
+        "min": 1,
+        "max": 100
+      },
+      "value": 0,
+      "accepted": false,
+      "reason": "between"
+    },
+    {
+      "name": "a bool",
+      "param": {
+        "type": "bool"
+      },
+      "value": false,
+      "accepted": true,
+      "normalised": false
+    },
+    {
+      "name": "0 is not a bool",
+      "param": {
+        "type": "bool"
+      },
+      "value": 0,
+      "accepted": false,
+      "reason": "true or false"
+    },
+    {
+      "name": "an enum member",
+      "param": {
+        "type": "enum",
+        "enum": [
+          "ptp",
+          "lin"
+        ]
+      },
+      "value": "lin",
+      "accepted": true,
+      "normalised": "lin"
+    },
+    {
+      "name": "not an enum member",
+      "param": {
+        "type": "enum",
+        "enum": [
+          "ptp",
+          "lin"
+        ]
+      },
+      "value": "spline",
+      "accepted": false,
+      "reason": "one of"
+    },
+    {
+      "name": "an array of its length",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 3,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "value": [
+        0,
+        0.5,
+        -1
+      ],
+      "accepted": true,
+      "normalised": [
+        0.0,
+        0.5,
+        -1.0
+      ]
+    },
+    {
+      "name": "an array too short",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 3,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "value": [
+        0,
+        0.5
+      ],
+      "accepted": false,
+      "reason": "list of 3"
+    },
+    {
+      "name": "an array element out of bounds",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 3,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "value": [
+        0,
+        0.5,
+        1.5
+      ],
+      "accepted": false,
+      "reason": "each element"
+    },
+    {
+      "name": "an array with a bool",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 3,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "value": [
+        0,
+        true,
+        0
+      ],
+      "accepted": false,
+      "reason": "list of 3"
+    },
+    {
+      "name": "an int array with a float",
+      "param": {
+        "type": "array",
+        "items": "int",
+        "length": 2,
+        "min": 0,
+        "max": 10
+      },
+      "value": [
+        1,
+        2.5
+      ],
+      "accepted": false,
+      "reason": "list of 2"
+    },
+    {
+      "name": "an int array",
+      "param": {
+        "type": "array",
+        "items": "int",
+        "length": 2,
+        "min": 0,
+        "max": 10
+      },
+      "value": [
+        1,
+        2
+      ],
+      "accepted": true,
+      "normalised": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "NaN is not a number",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": NaN,
+      "accepted": false,
+      "reason": "number"
+    },
+    {
+      "name": "Infinity is not a number",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": Infinity,
+      "accepted": false,
+      "reason": "number"
+    },
+    {
+      "name": "-Infinity is not a number",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": -Infinity,
+      "accepted": false,
+      "reason": "number"
+    },
+    {
+      "name": "an int past the float range is out of bounds",
+      "param": {
+        "type": "float",
+        "min": 0.1,
+        "max": 2.0
+      },
+      "value": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,
+      "accepted": false,
+      "reason": "between"
+    },
+    {
+      "name": "an int past any bound is out of bounds",
+      "param": {
+        "type": "int",
+        "min": 1,
+        "max": 100
+      },
+      "value": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,
+      "accepted": false,
+      "reason": "between"
+    },
+    {
+      "name": "an array with NaN",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 3,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "value": [
+        0,
+        NaN,
+        0
+      ],
+      "accepted": false,
+      "reason": "list of 3"
+    },
+    {
+      "name": "an array with an int past the float range",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 3,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "value": [
+        0,
+        10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,
+        0
+      ],
+      "accepted": false,
+      "reason": "each element"
+    },
+    {
+      "name": "an ordered range ascending",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 2,
+        "min": -10.0,
+        "max": 10.0,
+        "ordered": true
+      },
+      "value": [
+        -3,
+        3
+      ],
+      "accepted": true,
+      "normalised": [
+        -3.0,
+        3.0
+      ]
+    },
+    {
+      "name": "an ordered range reversed",
+      "param": {
+        "type": "array",
+        "items": "float",
+        "length": 2,
+        "min": -10.0,
+        "max": 10.0,
+        "ordered": true
+      },
+      "value": [
+        3,
+        -3
+      ],
+      "accepted": false,
+      "reason": "ascending"
+    }
+  ]
+}

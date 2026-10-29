@@ -7,12 +7,16 @@ refused, never coerced or dropped. Nothing here reaches a shell — the runner
 passes argv lists — but a name that cannot be a path component is still refused
 here, before it gets anywhere near one.
 
-Caller ``params`` are not accepted in v1: nothing consumes them yet, and every
-free-form string on a launch line is surface the agent does not need.
+A RunSpec may carry ``params``: overrides keyed ``<dimension>.<name>``, each a
+JSON number, bool, string or array of numbers. Here only their shape is
+checked; :mod:`fm_sim_agent.params` checks each against the tunable its catalog
+entry declares. No value reaches a command line: the agent writes them to the
+run's params files, which the container reads through a read-only mount.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime, timezone
 
@@ -28,7 +32,15 @@ DIMENSIONS = ("backend", "robot", "scenario", "controller")
 #: `/sim/reset` takes a uint32 seed (fm_sim_msgs/srv/Reset).
 SEED_MAX = 2**32 - 1
 
-SPEC_KEYS = frozenset((*DIMENSIONS, "seed", "record"))
+SPEC_KEYS = frozenset((*DIMENSIONS, "seed", "record", "params"))
+
+#: A ``params`` key: ``<dimension>.<tunable name>``.
+PARAM_KEY_PATTERN = re.compile(r"(?:backend|robot|scenario|controller)\.[a-z][a-z0-9_]*")
+#: tradeoff: bounds on what a caller's params can hold. A run's entries declare
+#: tens of tunables; these stop a body that tries to send far more.
+MAX_PARAMS = 256
+MAX_PARAM_ARRAY = 64
+MAX_PARAM_STRING = 64
 
 #: What a run id looks like. A caller's `down` names one, and it becomes a
 #: directory name, so it is matched whole rather than trusted.
@@ -88,7 +100,42 @@ def parse_spec(body: object) -> dict:
     if not isinstance(body["record"], bool):
         raise SpecError("record must be true or false")
     spec["record"] = body["record"]
+
+    params = parse_params(body.get("params", {}))
+    if params:
+        spec["params"] = params
     return spec
+
+
+def _param_value(value: object) -> bool:
+    """Whether ``value`` has a tunable value's shape: a finite number, a bool, a short string,
+    or a short list of finite numbers."""
+    if isinstance(value, (bool, int)):
+        return True  # an int of any size is finite; the catalog's bounds refuse a huge one
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, str):
+        return len(value) <= MAX_PARAM_STRING
+    if isinstance(value, list):
+        return len(value) <= MAX_PARAM_ARRAY and all(
+            not isinstance(v, bool) and (isinstance(v, int) or (isinstance(v, float) and math.isfinite(v)))
+            for v in value
+        )
+    return False
+
+
+def parse_params(params: object) -> dict:
+    """A RunSpec's ``params`` by shape alone, sorted by key; ``{}`` when there are none."""
+    if not isinstance(params, dict):
+        raise SpecError("params must be an object")
+    if len(params) > MAX_PARAMS:
+        raise SpecError(f"params holds at most {MAX_PARAMS} entries")
+    for key, value in params.items():
+        if len(key) > 2 * NAME_MAX_LEN or PARAM_KEY_PATTERN.fullmatch(key) is None:
+            raise SpecError(f"params keys must match {PARAM_KEY_PATTERN.pattern}")
+        if not _param_value(value):
+            raise SpecError(f"params.{key} must be a number, a bool, a string or a list of numbers")
+    return dict(sorted(params.items()))
 
 
 def utc_now() -> datetime:
