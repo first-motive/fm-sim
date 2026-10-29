@@ -10,6 +10,9 @@ An entry that names ``requires_packages`` is listed as unavailable, and refused 
 ``require_available``, while any of those packages is not installed: a robot whose
 description ships only in a private image, say.
 
+Any entry may declare ``params``: tunables a run can override, checked on load
+by ``fm_sim_bringup.params``.
+
 A controller entry may name a ``control`` file: the descriptor that draws its
 pipeline. The loader validates it and adds it as ``control_descriptor``.
 
@@ -28,6 +31,7 @@ import sys
 
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import get_resource, get_resources, has_resource
+from fm_sim_bringup import params
 from fm_sim_scenarios import scenario
 import jsonschema
 import yaml
@@ -103,18 +107,7 @@ def load(kind, name, schema=None, registered=None):
         entry = yaml.safe_load(entry_file)
     entry['package'] = package
     schema = schema or load_schema()
-    try:
-        jsonschema.validate(
-            entry, {**schema, '$ref': f'#/definitions/{_DEFINITIONS[kind]}'}
-        )
-    except jsonschema.ValidationError as error:
-        raise CatalogError(f'{kind[:-1]} {name!r}: {error.message}') from error
-    if kind == 'scenarios':
-        # What the schema cannot say: unique names, ranges, success references.
-        try:
-            scenario.check(entry)
-        except scenario.ScenarioError as error:
-            raise CatalogError(f'scenario {name!r}: {error}') from error
+    validate(kind, entry, schema)
     if entry['name'] != name:
         raise CatalogError(
             f'{kind[:-1]} {name!r}: its yaml names itself {entry["name"]!r}'
@@ -139,6 +132,30 @@ def load(kind, name, schema=None, registered=None):
         entry['available'] = False
         entry['missing_packages'] = missing
     return entry
+
+
+def validate(kind, entry, schema=None):
+    """Check one entry of ``kind`` against the schema and what the schema cannot say.
+
+    For a scenario: unique names, ranges and success references. For every
+    entry: its ``params`` (``fm_sim_bringup.params.check_params``). Run again on
+    an entry a run's overrides changed.
+    """
+    name = entry.get('name')
+    try:
+        jsonschema.validate(
+            entry, {**(schema or load_schema()), '$ref': f'#/definitions/{_DEFINITIONS[kind]}'}
+        )
+    except jsonschema.ValidationError as error:
+        where = '/'.join(map(str, error.absolute_path))
+        at = f' (at {where})' if where else ''
+        raise CatalogError(f'{kind[:-1]} {name!r}: {error.message}{at}') from error
+    try:
+        if kind == 'scenarios':
+            scenario.check(entry)
+        params.check_params(entry)
+    except (scenario.ScenarioError, params.ParamError) as error:
+        raise CatalogError(f'{kind[:-1]} {name!r}: {error}') from error
 
 
 def require_available(kind, name):
