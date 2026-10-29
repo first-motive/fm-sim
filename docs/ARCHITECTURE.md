@@ -89,8 +89,8 @@ and is listed as unavailable in the public fm-sim image.
 | Robot | `fm_sim.robots` | `openarm`, `so101`, `axol` | `fm_sim_bringup` |
 | Scenario | `fm_sim.scenarios` | `empty`, `can_on_table`, `table_only` | `fm_sim_bringup` |
 | Controller | `fm_sim.controllers` | `idle`, `teleop` | `fm_sim_bringup` |
-| | | `fm_skills` | fm-skills `fm_skills_sim` |
-| | | `classical` (unavailable) | anvil-embodied-ai `classical_control` |
+| | | `fm_skills_classical`; `fm_skills_learned` (unavailable), family `fm_skills` | fm-skills `fm_skills_sim` |
+| | | `anvil_classical` (unavailable), family `anvil` | anvil-embodied-ai `classical_control` |
 | | | `act`, `smolvla`, `pi0` (unavailable) | anvil-embodied-ai `lerobot_control` |
 | | | `policy_serve`; `fastwam` (placeholder, unavailable) | fm-teleop `fm_teleop_policy` |
 
@@ -99,9 +99,10 @@ An entry joins the catalog wherever its package is installed beside
 The public fm-sim image builds only this repo and the externals in
 `fm-sim.repos`, so it offers `idle` and `teleop` alone. The private
 `ghcr.io/first-motive/fm-sim-controllers:jazzy` image, built from fm-skills'
-`docker/sim-controllers.Dockerfile`, adds a colcon overlay with `fm_skills`,
-`classical`, `policy_serve` and `fastwam`; a host selects it with `FM_SIM_IMAGE`
-and pins it with `FM_SIM_IMAGE_DIGEST`. An unavailable entry's `description`
+`docker/sim-controllers.Dockerfile`, adds a colcon overlay with
+`fm_skills_classical`, `fm_skills_learned`, `anvil_classical`, `policy_serve` and
+`fastwam`; a host selects it with `FM_SIM_IMAGE` and pins it with
+`FM_SIM_IMAGE_DIGEST`. An unavailable entry's `description`
 says why it is refused, and `ros2 run fm_sim_bringup catalog` prints it.
 
 ### Scenario Topics
@@ -379,7 +380,7 @@ runs only controllers without a launch. Add the robot to
 
 | Work | State |
 |------|-------|
-| `fm_skills` in sim | Available in the controllers image, planning on the same Anvil description the sim openarm runs; a live pick trial on the loader hand is still to pass |
+| `fm_skills_classical` in sim | Available in the controllers image, planning on the same Anvil description the sim openarm runs; a live pick trial on the loader hand is still to pass |
 | VLA controllers | `act`, `smolvla` and `pi0` need torch, so no image builds them; they wait for a GPU variant of the controllers image |
 | Controllers image on a host | The image is private, so a host needs a ghcr login to pull it; a host runs it only when `--controllers` or `FM_SIM_CONTROLLERS=1` chooses it |
 
