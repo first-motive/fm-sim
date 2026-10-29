@@ -1,0 +1,25 @@
+# Catalog entry (fm_sim.scenarios): can_on_table's table and paper, no can. A
+# camera's view of it is the empty scene a background-difference detector, such as
+# anvil's classical_control, subtracts. The geometry must match can_on_table's
+# (checked by test_table_only_matches_can_on_table).
+name: table_only
+description: The can_on_table table and paper without the can, for a background reference
+available: true
+objects:
+  # Its front edge is 0.15 m ahead of the base, clear of the arms hanging at rest;
+  # the top is at 0.207.
+  - name: table
+    shape: box
+    size: [0.7, 1.2, 0.04]
+    static: true
+    friction: 1.0
+    color: [0.55, 0.45, 0.35, 1.0]
+    pose: {xyz: [0.5, 0.0, 0.187]}
+  # A4, 1 mm thick, its top at 0.208. A body in the world, so cameras see it.
+  - name: paper
+    shape: box
+    size: [0.297, 0.210, 0.001]
+    static: true
+    friction: 0.8
+    color: [0.95, 0.95, 0.95, 1.0]
+    pose: {xyz: [0.40, -0.30, 0.2075]}

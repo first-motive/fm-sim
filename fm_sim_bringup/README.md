@@ -138,6 +138,7 @@ The robot is not reset; a controller under test returns it to its start.
 |----------|---------|---------|
 | `empty` | none | none |
 | `can_on_table` | `table` (top at 0.207), `paper` (A4), `can` (66 mm x 135 mm, 0.35 kg, spawned in a 60 mm x 50 mm box with any yaw) | `can` upright on the paper (`target`) for 2 s within 120 s |
+| `table_only` | `can_on_table`'s `table` and `paper`, no can: the empty scene a background-difference detector subtracts | none |
 
 `can_on_table` takes its geometry from fm-skills (`openarm_v2_skills_config`
 `specs.yaml` and `fake_detections.yaml`): the table top, the can, and the can and
