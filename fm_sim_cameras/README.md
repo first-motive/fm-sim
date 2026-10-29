@@ -46,6 +46,7 @@ contracts §3).
 | `cameras_file` | — | The robot's cameras file |
 | `render_topic` | — | The simulator's `rgb8` render of this camera, at `render_camera`'s size; other sizes or encodings are skipped with a warning |
 | `jpeg_quality` | `90` | 1 to 100 |
+| `rate_hz` | `0.0` | Overrides the cameras file's `rate_hz` when above 0, up to 120 |
 
 ## Tests
 

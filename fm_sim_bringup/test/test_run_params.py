@@ -98,7 +98,7 @@ def test_a_malformed_overrides_file_is_refused(tmp_path, content):
 # -- the launch's own nodes --------------------------------------------------
 
 
-def _launch_setup(monkeypatch, tmp_path, params_file):
+def _launch_setup(monkeypatch, tmp_path, params_file, overrides_file=''):
     """Run run.launch.py's setup for so101 x mujoco x can_on_table x idle."""
     path = os.path.join(get_package_share_directory('fm_sim_bringup'), 'launch', 'run.launch.py')
     spec = importlib.util.spec_from_file_location('run_launch', path)
@@ -111,7 +111,7 @@ def _launch_setup(monkeypatch, tmp_path, params_file):
     context.launch_configurations.update({
         'backend': 'mujoco', 'robot': 'so101', 'scenario': 'can_on_table',
         'controller': 'idle', 'use_sim': 'true', 'seed': '4', 'timeout_s': '',
-        'params_file': params_file, 'overrides_file': '',
+        'params_file': params_file, 'overrides_file': overrides_file,
     })
     return module._launch_setup(context), context
 

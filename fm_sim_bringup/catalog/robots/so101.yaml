@@ -22,3 +22,282 @@ controller_roles:
   gripper: [so101_gripper_controller]
 robot_profile: null
 supported_backends: [mujoco, gazebo, isaac]
+# Run tunables (fm_sim_bringup.params). The MJCF ones patch the vendored model, whose
+# joints take damping 0.6 and actuators forcerange -3.35 3.35 from its sts3215 class.
+params:
+  update_rate:
+    label: Control rate
+    description: The controller_manager's update rate.
+    type: int
+    default: 100
+    min: 25
+    max: 500
+    step: 25
+    unit: Hz
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /controller_manager
+      param: update_rate
+  arm_end_velocity:
+    label: Arm ends moving
+    description: Let a trajectory end with the joints still moving (JTC allow_nonzero_velocity_at_trajectory_end).
+    type: bool
+    default: true
+    advanced: true
+    target:
+      kind: ros_param
+      node: /so101_arm_controller
+      param: allow_nonzero_velocity_at_trajectory_end
+  gripper_end_velocity:
+    label: Gripper ends moving
+    description: Let a trajectory end with the joints still moving (JTC allow_nonzero_velocity_at_trajectory_end).
+    type: bool
+    default: true
+    advanced: true
+    target:
+      kind: ros_param
+      node: /so101_gripper_controller
+      param: allow_nonzero_velocity_at_trajectory_end
+  shoulder_pan_damping:
+    label: Shoulder pan damping
+    type: float
+    default: 0.6
+    min: 0.0
+    max: 10.0
+    step: 0.05
+    unit: N·m·s/rad
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: joint
+        name: shoulder_pan
+        attribute: damping
+  shoulder_lift_damping:
+    label: Shoulder lift damping
+    type: float
+    default: 0.6
+    min: 0.0
+    max: 10.0
+    step: 0.05
+    unit: N·m·s/rad
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: joint
+        name: shoulder_lift
+        attribute: damping
+  elbow_flex_damping:
+    label: Elbow flex damping
+    type: float
+    default: 0.6
+    min: 0.0
+    max: 10.0
+    step: 0.05
+    unit: N·m·s/rad
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: joint
+        name: elbow_flex
+        attribute: damping
+  wrist_flex_damping:
+    label: Wrist flex damping
+    type: float
+    default: 0.6
+    min: 0.0
+    max: 10.0
+    step: 0.05
+    unit: N·m·s/rad
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: joint
+        name: wrist_flex
+        attribute: damping
+  wrist_roll_damping:
+    label: Wrist roll damping
+    type: float
+    default: 0.6
+    min: 0.0
+    max: 10.0
+    step: 0.05
+    unit: N·m·s/rad
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: joint
+        name: wrist_roll
+        attribute: damping
+  gripper_damping:
+    label: Gripper damping
+    type: float
+    default: 0.6
+    min: 0.0
+    max: 10.0
+    step: 0.05
+    unit: N·m·s/rad
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: joint
+        name: gripper
+        attribute: damping
+  shoulder_pan_force_limit:
+    label: Shoulder pan force limit
+    description: The actuator torque range, low then high.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -3.35
+    - 3.35
+    min: -10.0
+    max: 10.0
+    step: 0.05
+    unit: N·m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: shoulder_pan
+        attribute: forcerange
+  shoulder_lift_force_limit:
+    label: Shoulder lift force limit
+    description: The actuator torque range, low then high.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -3.35
+    - 3.35
+    min: -10.0
+    max: 10.0
+    step: 0.05
+    unit: N·m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: shoulder_lift
+        attribute: forcerange
+  elbow_flex_force_limit:
+    label: Elbow flex force limit
+    description: The actuator torque range, low then high.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -3.35
+    - 3.35
+    min: -10.0
+    max: 10.0
+    step: 0.05
+    unit: N·m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: elbow_flex
+        attribute: forcerange
+  wrist_flex_force_limit:
+    label: Wrist flex force limit
+    description: The actuator torque range, low then high.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -3.35
+    - 3.35
+    min: -10.0
+    max: 10.0
+    step: 0.05
+    unit: N·m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: wrist_flex
+        attribute: forcerange
+  wrist_roll_force_limit:
+    label: Wrist roll force limit
+    description: The actuator torque range, low then high.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -3.35
+    - 3.35
+    min: -10.0
+    max: 10.0
+    step: 0.05
+    unit: N·m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: wrist_roll
+        attribute: forcerange
+  gripper_force_limit:
+    label: Gripper force limit
+    description: The actuator torque range, low then high.
+    type: array
+    items: float
+    length: 2
+    ordered: true
+    default:
+    - -3.35
+    - 3.35
+    min: -10.0
+    max: 10.0
+    step: 0.05
+    unit: N·m
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: description
+      mjcf:
+        element: position
+        name: gripper
+        attribute: forcerange

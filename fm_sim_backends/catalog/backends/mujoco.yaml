@@ -8,3 +8,34 @@ launch:
 description_args:
   sim_backend: mujoco
   mujoco_model: '{mjcf_path}'
+# Run tunables (fm_sim_bringup.params): the plugins' rates in
+# config/mujoco_plugins.yaml, on the hardware interface's own node.
+params:
+  object_pose_rate:
+    label: Object pose rate
+    description: How often the engine publishes loose objects' poses, in sim time. /sim/objects needs 10 Hz or more.
+    type: float
+    default: 30.0
+    min: 10.0
+    max: 100.0
+    step: 5.0
+    unit: Hz
+    advanced: true
+    target:
+      kind: ros_param
+      node: /mujoco_ros2_control_node
+      param: mujoco_plugins.object_poses.publish_rate
+  camera_render_rate:
+    label: Camera render rate
+    description: "How often the engine renders its cameras, in sim time. At most 10 Hz: the bridge caps cameras there, and a faster render only loads the engine."
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    advanced: true
+    target:
+      kind: ros_param
+      node: /mujoco_ros2_control_node
+      param: mujoco_plugins.mujoco_cameras.camera_publish_rate
