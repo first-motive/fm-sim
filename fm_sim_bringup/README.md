@@ -206,7 +206,39 @@ file back to its source). An
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
 | `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
-| `controllers` | `idle`, `teleop` | `activate`, `launch` |
+| `controllers` | `idle`, `teleop` | `activate`, `launch`, optional `family` (groups variants of one controller), optional `control` (see [Control Descriptor](#control-descriptor)) |
+
+### Control Descriptor
+
+A controller entry's `control` names a `control.yaml` in its package: the
+controller's pipeline as blocks and edges, shaped by the schema's
+`control_descriptor`. The loader validates it, checks that every edge names a
+block, and adds it to the entry as `control_descriptor`, so `catalog --json`
+carries it for a pre-run preview. An entry yaml may not carry
+`control_descriptor` itself. Each controller's own launch, in its own repo,
+publishes the same descriptor as JSON, latched on `/control/descriptor`
+(`std_msgs/String`, transient local), on the robot and in sim. JSON keeps the
+consumer free of a YAML parser.
+
+```yaml
+name: fm_skills_classical          # the catalog entry's name
+blocks:
+  - id: perception
+    kind: perception               # perception | state_machine | skill | motion
+    variant: YOLO-seg
+    live: /fm_skills/detections    # a topic whose rate shows the block running
+    sim: {variant: ground truth}   # replaces variant or live in sim: a sim stand-in
+  - id: task
+    kind: state_machine
+    variant: pick and place
+    states: [IDLE, PICK, PLACE]
+    source: {topic: /fm_skills/task_state, type: std_msgs/msg/String, field: data}
+edges:
+  - {from: perception, to: task}
+```
+
+`ros2 run fm_sim_bringup catalog --check-control FILE...` validates descriptor
+files on their own, for a controller repo's CI.
 
 The OpenArm entry runs the OpenArm v2 on fm-rob-01 as Anvil modelled it, under the
 loader's names: fm-robot's `fm_control/urdf/openarm_loader.sim.urdf.xacro` over
