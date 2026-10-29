@@ -21,6 +21,8 @@ import stat
 import tempfile
 from pathlib import Path
 
+import yaml
+
 from fm_sim_agent.spec import valid_run_id
 
 SUMMARY_NAME = "summary.json"
@@ -28,6 +30,9 @@ BAG_NAME = "bag"
 #: The recorder's output directory inside ``bag/``. ``ros2 bag record -o``
 #: refuses a directory that already exists, and ``bag/`` does: it is the mount.
 RECORDING_NAME = "recording"
+PARAMS_NAME = "params"
+PARAMS_JSON = "params.json"
+PARAMS_YAML = "params.yaml"
 
 #: The keys every RunSummary carries (contracts §3). A file without them is not
 #: one, whatever its name.
@@ -43,6 +48,20 @@ def default_runs_dir() -> Path:
     state_home = os.environ.get("XDG_STATE_HOME", "").strip()
     base = Path(state_home) if state_home else Path.home() / ".local" / "state"
     return base / "fm-sim" / "runs"
+
+
+def _write_atomic(directory: Path, name: str, text: str) -> Path:
+    """Write ``directory/name`` through its own temporary file, renamed into place."""
+    path = directory / name
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{Path(name).stem}-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return path
 
 
 class RunStore:
@@ -61,6 +80,23 @@ class RunStore:
 
     def recording_dir(self, run_id: str) -> Path:
         return self.bag_dir(run_id) / RECORDING_NAME
+
+    def params_dir(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / PARAMS_NAME
+
+    def write_params(self, run_id: str, params: dict, ros_params: dict) -> None:
+        """Write a run's checked overrides, and its ROS params file when ``ros_params`` has nodes.
+
+        Written before the run's container starts and never after, so the
+        read-only mount sees each file whole.
+        """
+        directory = self.params_dir(run_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        if not stat.S_ISDIR(os.lstat(directory).st_mode):
+            raise OSError(f"{directory} is not a plain directory")
+        _write_atomic(directory, PARAMS_JSON, json.dumps(params, indent=2, sort_keys=True) + "\n")
+        if ros_params:
+            _write_atomic(directory, PARAMS_YAML, yaml.safe_dump(ros_params, sort_keys=True))
 
     def recordings(self, run_id: str) -> list[tuple[str, int]]:
         """The run's MCAP files as (path relative to the runs dir, bytes), in name order.
@@ -96,16 +132,7 @@ class RunStore:
         directory.mkdir(parents=True, exist_ok=True)
         if not stat.S_ISDIR(os.lstat(directory).st_mode):
             raise OSError(f"{directory} is not a plain directory")
-        path = directory / SUMMARY_NAME
-        fd, tmp = tempfile.mkstemp(dir=directory, prefix=".summary-", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")
-            os.replace(tmp, path)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
-        return path
+        return _write_atomic(directory, SUMMARY_NAME, json.dumps(summary, indent=2, sort_keys=True) + "\n")
 
     def read(self, run_id: str) -> dict | None:
         """One run's summary, or ``None`` if absent, a symlink, oversized or not a summary."""

@@ -234,7 +234,7 @@ def test_a_second_up_is_busy(agent, runner):
         {**SPEC, "record": "yes"},
         {**SPEC, "record": 1},
         {**SPEC, "extra": 1},
-        # Caller params are not part of the v1 RunSpec.
+        # A params key that is not <dimension>.<name>.
         {**SPEC, "params": {"world_file": "tabletop.sdf"}},
         {k: v for k, v in SPEC.items() if k != "seed"},
         {k: v for k, v in SPEC.items() if k != "record"},
