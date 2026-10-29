@@ -9,6 +9,7 @@ import copy
 from dataclasses import dataclass
 import json
 import math
+import os
 
 from fm_sim_bringup import catalog, params
 from fm_sim_cameras import cameras_file, fisheye, mount
@@ -175,7 +176,8 @@ def apply_overrides(entries, overrides):
 
     ``overrides`` is keyed ``<dimension>.<name>``. An ``entry`` target is set in
     a copy of its entry, which is then checked again as the catalog checks it.
-    A ``ros_param`` target is checked and left to the params file. Refuses a
+    A ``ros_param`` target is checked and left to the params file, a
+    ``description`` one to ``description_overrides``. Refuses a
     key no entry declares, a value the tunable does not take, and a tunable
     whose ``backends`` leave out the run's backend.
     """
@@ -197,8 +199,6 @@ def apply_overrides(entries, overrides):
             if target['kind'] == 'entry':
                 params.set_entry_value(patched[dimension], target['path'], value)
                 changed.add(dimension)
-            elif target['kind'] == 'description':
-                raise params.ParamError('is a description override, not applied yet')
         except params.ParamError as error:
             raise catalog.CatalogError(f'override {key!r} {error}') from error
     for dimension in changed:
@@ -206,6 +206,64 @@ def apply_overrides(entries, overrides):
         entry = {k: v for k, v in patched[dimension].items() if k != 'params'}
         catalog.validate(_KINDS[dimension], entry)
     return patched
+
+
+@dataclass(frozen=True)
+class DescriptionOverrides:
+    """What a run's overrides change in the robot description and its MJCF."""
+
+    xacro_args: dict
+    mjcf: tuple  # (element, name, attribute, value text), for mujoco_world.robot_with_patches
+
+
+def _text(value):
+    """A checked value as xacro or MJCF attribute text: lowercase bools, space-separated arrays."""
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if isinstance(value, list):
+        return ' '.join(_text(item) for item in value)
+    return str(value)
+
+
+def description_overrides(entries, overrides):
+    """Return the ``DescriptionOverrides`` among ``overrides``.
+
+    ``overrides`` were checked by ``apply_overrides`` against the same entries.
+    """
+    xacro_args, mjcf = {}, []
+    for key, value in sorted(overrides.items()):
+        dimension, _, name = key.partition('.')
+        param = entries[dimension]['params'][name]
+        target = param['target']
+        if target['kind'] != 'description':
+            continue
+        text = _text(params.check_value(param, value))
+        if 'xacro_arg' in target:
+            xacro_args[target['xacro_arg']] = text
+        else:
+            patch = target['mjcf']
+            mjcf.append((patch['element'], patch['name'], patch['attribute'], text))
+    return DescriptionOverrides(xacro_args, tuple(mjcf))
+
+
+def patched_mjcf(robot_mjcf, patches, out_dir):
+    """Return the robot's MJCF with ``patches`` applied, written to ``out_dir``.
+
+    With no patches it is ``robot_mjcf`` itself.
+
+    Applied after fm_sim_models has compiled or found the model, so a patch
+    sees the attributes the sim would otherwise run with.
+    """
+    if not patches:
+        return robot_mjcf
+    try:
+        text = mujoco_world.robot_with_patches(robot_mjcf, patches)
+    except sc.ScenarioError as error:
+        raise catalog.CatalogError(f'description override: {error}') from error
+    path = os.path.join(out_dir, 'robot_patched.xml')
+    with open(path, 'w') as model_file:
+        model_file.write(text)
+    return path
 
 
 def parse_seed(text):

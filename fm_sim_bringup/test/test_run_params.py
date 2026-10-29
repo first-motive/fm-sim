@@ -14,8 +14,8 @@ from fm_sim_backends.params_check import (
     assert_guard_holds, assert_params_file_wins, resolved_parameters,
 )
 from fm_sim_bringup import catalog, params, run
-from fm_sim_scenarios import mujoco_world
 from fm_sim_models.models import mjcf_path
+from fm_sim_scenarios import mujoco_world
 from launch import LaunchContext
 from launch.actions import IncludeLaunchDescription, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
@@ -258,3 +258,69 @@ def test_params_file_is_forwarded_to_role_and_controller_launches(
                            pid=1, returncode=0)
     (role,) = handler.handle(exited, LaunchContext())
     assert dict(role.launch_arguments).get('params_file') == (path or None)
+
+
+# -- description overrides ---------------------------------------------------
+
+DAMPING = {
+    'label': 'Shoulder pan damping', 'type': 'float', 'default': 0.6, 'min': 0.0, 'max': 10.0,
+    'backends': ['mujoco'],
+    'target': {'kind': 'description',
+               'mjcf': {'element': 'joint', 'name': 'shoulder_pan', 'attribute': 'damping'}},
+}
+XACRO = {
+    'label': 'Hand', 'type': 'enum', 'enum': ['loader', 'pinch'], 'default': 'loader',
+    'target': {'kind': 'description', 'xacro_arg': 'hand'},
+}
+
+
+def _robot_entries(**tunables):
+    entries = run.resolve('mujoco', 'so101', 'can_on_table', 'idle')
+    entries['robot']['params'] = tunables
+    return entries
+
+
+def test_a_description_override_changes_the_compiled_mjcf(tmp_path):
+    mujoco = pytest.importorskip('mujoco')
+    entries = _robot_entries(damping=DAMPING)
+    overrides = {'robot.damping': 4}
+    described = run.description_overrides(run.apply_overrides(entries, overrides), overrides)
+    patch = ('joint', 'shoulder_pan', 'damping', '4.0')
+    assert described == run.DescriptionOverrides({}, (patch,))
+    patched = run.patched_mjcf(mjcf_path('so101'), described.mjcf, str(tmp_path))
+    assert patched == str(tmp_path / 'robot_patched.xml')
+
+    def damping(path):
+        model = mujoco.MjModel.from_xml_path(path)
+        joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, 'shoulder_pan')
+        return model.dof_damping[model.jnt_dofadr[joint]]
+
+    assert damping(mjcf_path('so101')) != 4.0
+    assert damping(patched) == 4.0
+    world = run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 0, patched, str(tmp_path)
+    )
+    assert damping(world) == 4.0
+
+
+def test_no_mjcf_patch_keeps_the_registered_model(tmp_path):
+    assert run.patched_mjcf('/models/robot.xml', (), str(tmp_path)) == '/models/robot.xml'
+
+
+def test_a_patch_naming_no_element_is_refused(tmp_path):
+    with pytest.raises(catalog.CatalogError, match="0 <joint> named 'nope'"):
+        run.patched_mjcf(mjcf_path('so101'), (('joint', 'nope', 'damping', '1'),), str(tmp_path))
+
+
+def test_a_xacro_override_becomes_a_description_arg():
+    entries = _robot_entries(hand=XACRO)
+    overrides = {'robot.hand': 'pinch'}
+    described = run.description_overrides(run.apply_overrides(entries, overrides), overrides)
+    assert described == run.DescriptionOverrides({'hand': 'pinch'}, ())
+
+
+def test_an_mjcf_override_off_mujoco_is_refused():
+    entries = run.resolve('gazebo', 'so101', 'can_on_table', 'idle')
+    entries['robot']['params'] = {'damping': DAMPING}
+    with pytest.raises(catalog.CatalogError, match='applies only on mujoco'):
+        run.apply_overrides(entries, {'robot.damping': 4.0})

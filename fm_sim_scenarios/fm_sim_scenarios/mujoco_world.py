@@ -138,6 +138,44 @@ def _absolute_asset_dirs(root, model_dir):
         compilers[0].set(key, value)
 
 
+def _portable_copy(robot_mjcf, why):
+    """Return the parsed model at ``robot_mjcf``, its paths made absolute to resolve from anywhere.
+
+    Refuses a relative path and a model with ``<include>`` (an included file's
+    own relative paths would not resolve from the copy); ``why`` names what the
+    copy is for.
+    """
+    if not os.path.isabs(robot_mjcf):
+        raise sc.ScenarioError(f'robot MJCF path must be absolute, got {robot_mjcf!r}')
+    root = ET.parse(robot_mjcf).getroot()
+    if root.find('.//include') is not None:
+        raise sc.ScenarioError(f'{robot_mjcf}: a model with <include> cannot {why}')
+    model_dir = os.path.dirname(robot_mjcf)
+    _absolute_asset_dirs(root, model_dir)
+    for model in root.iter('model'):
+        model.set('file', os.path.join(model_dir, model.get('file', '')))
+    return root
+
+
+def robot_with_patches(robot_mjcf, patches):
+    """Return the robot model at ``robot_mjcf`` with attributes set, in a portable copy.
+
+    ``patches`` holds ``(element, name, attribute, value)``: the one element of
+    that tag and ``name`` gets ``attribute="value"``, which outranks a default
+    class. Refuses a patch whose element the model does not have exactly once.
+    """
+    root = _portable_copy(robot_mjcf, 'be patched')
+    for element, name, attribute, value in patches:
+        found = [node for node in root.iter(element) if node.get('name') == name]
+        if len(found) != 1:
+            raise sc.ScenarioError(
+                f'the robot model has {len(found)} <{element}> named {name!r}, not one'
+            )
+        found[0].set(attribute, value)
+    ET.indent(root)
+    return ET.tostring(root, encoding='unicode') + '\n'
+
+
 def robot_with_cameras(robot_mjcf, cameras):
     """Return the robot model at ``robot_mjcf`` with ``cameras`` on their bodies.
 
@@ -145,15 +183,7 @@ def robot_with_cameras(robot_mjcf, cameras):
     file's own relative paths would not resolve from the copy) and a camera whose
     body the model does not have exactly once.
     """
-    if not os.path.isabs(robot_mjcf):
-        raise sc.ScenarioError(f'robot MJCF path must be absolute, got {robot_mjcf!r}')
-    root = ET.parse(robot_mjcf).getroot()
-    if root.find('.//include') is not None:
-        raise sc.ScenarioError(f'{robot_mjcf}: a model with <include> cannot take cameras')
-    model_dir = os.path.dirname(robot_mjcf)
-    _absolute_asset_dirs(root, model_dir)
-    for model in root.iter('model'):
-        model.set('file', os.path.join(model_dir, model.get('file', '')))
+    root = _portable_copy(robot_mjcf, 'take cameras')
     for parent in root.iter():
         for own in parent.findall('camera'):
             parent.remove(own)

@@ -38,12 +38,15 @@ directory that is removed when the launch shuts down.
 
 Run params (``fm_sim_bringup.params``): ``overrides_file`` is a JSON object of
 tunable overrides keyed ``<dimension>.<name>``, each checked against the
-tunable its entry declares; ``entry`` targets are merged into the entries
-before anything is built. ``params_file`` is a ROS params file keyed by fully
-qualified node name (``fm_sim_backends.params_file``): it is appended last to
-the camera and scenario nodes, then a guard file re-asserting their
-launch-owned parameters; it is a second ``--param-file`` for every spawner, and
-it is passed on to the backend, launch-role and controller launches.
+tunable its entry declares. ``entry`` targets are merged into the entries
+before anything is built; ``description`` targets set a xacro arg of the robot
+description or an attribute of the robot's MJCF (patched after fm_sim_models
+compiles it, into a copy beside the world). ``params_file`` is a ROS params
+file keyed by fully qualified node name (``fm_sim_backends.params_file``): it
+is appended last to the camera and scenario nodes, then a guard file
+re-asserting their launch-owned parameters; it is a second ``--param-file``
+for every spawner, and it is passed on to the backend, launch-role and
+controller launches.
 """
 
 import os
@@ -146,18 +149,22 @@ def _launch_setup(context):
         for role in run.role_launches(robot, controller)
     ]
 
-    robot_mjcf = mjcf_path(robot['mjcf'])
+    described = run.description_overrides(entries, overrides)
     # The generated world lives for this launch only: the engine has read it by the
     # time the launch shuts down, and the handler removes it then.
     world_dir = tempfile.mkdtemp(prefix='fm_sim_world_')
     controllers_file = catalog.share_file(robot['controllers_file'])
     try:
+        robot_mjcf = run.patched_mjcf(mjcf_path(robot['mjcf']), described.mjcf, world_dir)
         # Where the world carries cameras, the description names it before it
         # exists: the cameras are placed from the description.
         world = run.world_file(backend, scenario, seed, world_dir)
         robot_description = xacro.process_file(
             catalog.share_file(robot['description_file']),
-            mappings=run.description_args(backend, robot, world or robot_mjcf, controllers_file),
+            mappings={
+                **run.description_args(backend, robot, world or robot_mjcf, controllers_file),
+                **described.xacro_args,
+            },
         ).toxml()
         cameras = run.sim_cameras(backend, robot, robot_description, robot_mjcf)
         world = run.world_model(backend, robot, scenario, seed, robot_mjcf, world_dir, cameras)
