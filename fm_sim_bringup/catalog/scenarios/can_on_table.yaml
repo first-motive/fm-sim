@@ -50,4 +50,7 @@ success:
   region: target
   tolerance: 0.01
   hold_s: 2.0
+  # At rest, so the can scores once released: the place lowers it through the target
+  # at 20 mm/s and holds it there about a second before opening.
+  max_speed: 0.005
   timeout_s: 120.0

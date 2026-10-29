@@ -110,8 +110,15 @@ CAN_IN = (0.40, -0.30, 0.2745)
 CAN_OUT = (0.38, -0.15, 0.2745)
 
 
-def test_success_after_hold(can_on_table):
-    monitor = sc.EpisodeMonitor(can_on_table)
+@pytest.fixture
+def hold_only(can_on_table):
+    """can_on_table without the at-rest check, for the hold alone."""
+    del can_on_table['success']['max_speed']
+    return can_on_table
+
+
+def test_success_after_hold(hold_only):
+    monitor = sc.EpisodeMonitor(hold_only)
     monitor.start(10.0)
     assert monitor.observe(11.0, CAN_IN) is None
     assert monitor.observe(12.9, CAN_IN) is None
@@ -122,8 +129,79 @@ def test_success_after_hold(can_on_table):
     assert monitor.observe(14.0, CAN_IN) is None   # one verdict per episode
 
 
-def test_leaving_the_region_restarts_the_hold(can_on_table):
+def test_a_held_object_lowered_through_the_region_does_not_count(can_on_table):
+    # Regression: the place lowers the held can through the target at 20 mm/s.
     monitor = sc.EpisodeMonitor(can_on_table)
+    monitor.start(0.0)
+    for i in range(60):
+        x, y, z = CAN_IN
+        assert monitor.observe(i * 0.05, (x, y, z + 0.01 - 0.02 * i * 0.05)) is None
+
+
+def feed(monitor, start, end, position, dt=0.05):
+    """Observe ``position`` every dt from start to end; the first verdict's time, or None."""
+    for i in range(round((end - start) / dt) + 1):
+        if monitor.observe(start + i * dt, position) is not None:
+            return start + i * dt
+    return None
+
+
+def test_a_settled_object_scores_at_rest(can_on_table):
+    monitor = sc.EpisodeMonitor(can_on_table)
+    monitor.start(0.0)
+    assert monitor.observe(1.0, CAN_IN) is None    # no earlier pose: speed unknown
+    monitor.observe(1.05, CAN_IN)                  # hold starts here
+    assert feed(monitor, 1.1, 3.2, CAN_IN) == pytest.approx(3.05, abs=0.02)
+
+
+def test_the_at_rest_reason_says_so(can_on_table):
+    monitor = sc.EpisodeMonitor(can_on_table)
+    monitor.start(0.0)
+    verdict = None
+    for i in range(50):
+        verdict = verdict or monitor.observe(i * 0.05, CAN_IN)
+    assert verdict.reason == 'can at rest in target for 2 s'
+
+
+def test_without_max_speed_a_moving_object_still_counts(hold_only):
+    monitor = sc.EpisodeMonitor(hold_only)
+    monitor.start(0.0)
+    x, y, z = CAN_IN
+    monitor.observe(1.0, (x, y, z + 0.005))
+    verdict = monitor.observe(3.0, (x, y, z - 0.005))
+    assert verdict.success
+    assert verdict.reason == 'can in target for 2 s'
+
+
+def test_a_missing_pose_resets_the_speed(can_on_table):
+    monitor = sc.EpisodeMonitor(can_on_table)
+    monitor.start(0.0)
+    assert feed(monitor, 1.0, 1.5, CAN_IN) is None
+    monitor.observe(1.55, None)
+    monitor.observe(1.6, CAN_IN)                   # speed unknown again
+    assert feed(monitor, 1.65, 4.0, CAN_IN) == pytest.approx(3.65, abs=0.02)
+
+
+def test_a_repeated_stamp_gives_no_speed(can_on_table):
+    monitor = sc.EpisodeMonitor(can_on_table)
+    monitor.start(0.0)
+    monitor.observe(1.0, CAN_IN)
+    monitor.observe(1.0, CAN_IN)
+    assert monitor.observe(3.0, CAN_IN) is None    # gap too long: the hold never started
+
+
+def test_a_move_across_a_stalled_pose_stream_is_not_at_rest(can_on_table):
+    # 5 mm in 2 s reads as 2.5 mm/s, under max_speed, if the gap is trusted.
+    monitor = sc.EpisodeMonitor(can_on_table)
+    monitor.start(0.0)
+    x, y, z = CAN_IN
+    monitor.observe(1.0, (x, y, z + 0.005))
+    monitor.observe(3.0, CAN_IN)                   # no speed: the hold does not start
+    assert feed(monitor, 3.05, 6.0, CAN_IN) == pytest.approx(5.05, abs=0.02)
+
+
+def test_leaving_the_region_restarts_the_hold(hold_only):
+    monitor = sc.EpisodeMonitor(hold_only)
     monitor.start(0.0)
     monitor.observe(1.0, CAN_IN)
     monitor.observe(2.5, CAN_OUT)
