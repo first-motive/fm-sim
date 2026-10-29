@@ -20,11 +20,16 @@ its CameraPlugin, which renders the world's cameras. ``MUJOCO_GL`` picks how:
 ``egl`` (the default; the GPU where the host has one), ``osmesa`` (Mesa's
 software rasteriser through EGL, for a host with no GPU such as the Mac under
 OrbStack) or ``glfw`` (a hidden window under xvfb-run; the only choice on macOS).
+
+``params_file`` (``fm_sim_backends.params_file``) is appended last to the
+engine node, then a guard file keeping it on sim time with this description.
 """
 
 import os
 import platform
+import shutil
 from shutil import which
+import tempfile
 
 from ament_index_python.packages import (
     get_package_share_directory,
@@ -36,12 +41,20 @@ from fm_sim_backends.description import (
     robot_description_parameter,
     robot_state_publisher_node,
 )
+from fm_sim_backends.params_file import declare_params_file, with_params_file, write_guard
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
+from launch.event_handlers import OnShutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+import yaml
 
 
+# The engine process's two nodes, by fully qualified name: the controller_manager,
+# and the hardware interface's own node that reads mujoco_plugins
+# (config/mujoco_plugins.yaml keys it). The guard file keys both.
+CONTROLLER_MANAGER = '/controller_manager'
+HARDWARE_NODE = '/mujoco_ros2_control_node'
 # MUJOCO_GL values, as MuJoCo's own Python bindings name them.
 RENDERERS = ('egl', 'osmesa', 'glfw')
 # glvnd's vendor file for Mesa: pins EGL to Mesa when a GPU vendor is installed too.
@@ -139,14 +152,78 @@ def _require_backend(renderer):
         )
 
 
+def _guards(robot_description, plugins_file):
+    """Return the engine process's launch-owned params, keyed by its two nodes.
+
+    The ``/**`` dict reaches both: the controller_manager and the hardware
+    interface's own node, which also reads the plugins file. Every plugin key
+    but its rate is the launch's: a plugin's ``type`` names code to load.
+    """
+    with open(plugins_file) as plugins:
+        loaded = yaml.safe_load(plugins)[HARDWARE_NODE.lstrip('/')]['ros__parameters']
+    owned = {'use_sim_time': True, 'robot_description': robot_description}
+    return {
+        CONTROLLER_MANAGER: owned,
+        HARDWARE_NODE: {**owned, 'mujoco_plugins': {
+            name: {key: value for key, value in plugin.items() if not key.endswith('rate')}
+            for name, plugin in loaded['mujoco_plugins'].items()
+        }},
+    }
+
+
+def _engine(context, renderer, plugins_file):
+    """Return the engine node, with the run's params file and its guard when one is given.
+
+    The guard re-asserts what this launch owns on both nodes the process
+    starts (``_guards``), so a params file cannot take the engine off sim time,
+    swap its description or load another plugin. The robot_state_publisher gets
+    no params file: it owns no tunables, and its robot_description is the robot.
+    """
+    robot_description = LaunchConfiguration('robot_description').perform(context)
+    params_file = LaunchConfiguration('params_file').perform(context)
+    actions, guard = [], None
+    if params_file:
+        guard_dir = tempfile.mkdtemp(prefix='fm_sim_guard_')
+        guard = write_guard(guard_dir, _guards(robot_description, plugins_file))
+        actions.append(RegisterEventHandler(OnShutdown(
+            on_shutdown=lambda event, context: shutil.rmtree(guard_dir, ignore_errors=True)
+        )))
+    # controller_manager hosted inside MuJoCo. Steps physics + serves the
+    # hardware interfaces; the caller spawns the controllers.
+    # The cameras' GL context comes from MUJOCO_GL (_render_env, and
+    # _display_prefix for glfw). MJCF path comes from the mujoco_model param.
+    actions.append(Node(
+        package='mujoco_ros2_control',
+        executable='ros2_control_node',
+        prefix=_display_prefix(renderer),
+        additional_env=_render_env(renderer),
+        # Jazzy reads the description from the topic and ignores this
+        # parameter; fm-app's Humble fm_bringup still includes this
+        # backend and needs it until that launch moves to Jazzy.
+        # use_sim_time: the engine publishes /clock, and the controllers
+        # stamp /joint_states (so the robot's /tf) from this node's clock,
+        # which must match the sim-time stamps of /sim/objects and cameras.
+        # The clock comes from this same process, so it runs whenever the
+        # controllers do. The params file reaches the hardware interface's own
+        # node (mujoco_ros2_control_node) too, as the plugins file does.
+        parameters=with_params_file(
+            [
+                {'robot_description': robot_description_parameter(), 'use_sim_time': True},
+                LaunchConfiguration('controllers_file'), plugins_file,
+            ],
+            params_file, guard,
+        ),
+        output='screen',
+    ))
+    return actions
+
+
 def generate_launch_description():
     # Guard before building the description, so a missing backend stops with an
     # actionable message rather than a cryptic one deep in the launch.
     renderer = _renderer()
     _require_backend(renderer)
 
-    robot_description = robot_description_parameter()
-    controllers_file = LaunchConfiguration('controllers_file')
     plugins_file = os.path.join(
         get_package_share_directory('fm_sim_backends'), 'config', 'mujoco_plugins.yaml'
     )
@@ -162,32 +239,11 @@ def generate_launch_description():
                 'controllers_file',
                 description='Path to the controllers.yaml for the active preset.',
             ),
+            declare_params_file(),
             # Publishes /robot_description, which the controller_manager below
             # subscribes to on Jazzy. The caller must not run its own (see the
             # package README).
-            robot_state_publisher_node(robot_description),
-            # controller_manager hosted inside MuJoCo. Steps physics + serves the
-            # hardware interfaces; the caller spawns the controllers.
-            # The cameras' GL context comes from MUJOCO_GL (_render_env, and
-            # _display_prefix for glfw). MJCF path comes from the mujoco_model param.
-            Node(
-                package='mujoco_ros2_control',
-                executable='ros2_control_node',
-                prefix=_display_prefix(renderer),
-                additional_env=_render_env(renderer),
-                # Jazzy reads the description from the topic and ignores this
-                # parameter; fm-app's Humble fm_bringup still includes this
-                # backend and needs it until that launch moves to Jazzy.
-                # use_sim_time: the engine publishes /clock, and the controllers
-                # stamp /joint_states (so the robot's /tf) from this node's clock,
-                # which must match the sim-time stamps of /sim/objects and cameras.
-                # The clock comes from this same process, so it runs whenever the
-                # controllers do.
-                parameters=[
-                    {'robot_description': robot_description, 'use_sim_time': True},
-                    controllers_file, plugins_file,
-                ],
-                output='screen',
-            ),
+            robot_state_publisher_node(robot_description_parameter()),
+            OpaqueFunction(function=_engine, args=[renderer, plugins_file]),
         ]
     )

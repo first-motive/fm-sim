@@ -5,8 +5,12 @@ import os
 
 from fm_sim_backends import description
 from launch import LaunchContext
+from launch.actions import OpaqueFunction
 from launch.utilities import perform_substitutions
+from fm_sim_backends.params_check import assert_guard_holds, assert_params_file_wins
+from launch_ros.actions import Node
 import pytest
+import yaml
 
 LAUNCH_DIR = os.path.join(os.path.dirname(__file__), '..', 'launch')
 BACKENDS = ('mujoco', 'gazebo', 'isaac')
@@ -17,6 +21,8 @@ CONTROLLER_MANAGER_PACKAGES = {
     'isaac': 'controller_manager',
 }
 DESCRIPTION = '<robot name="probe"/>'
+# The node mujoco's ros2_control_node starts; its launch leaves it unnamed.
+CONTROLLER_MANAGER = '/controller_manager'
 
 
 def _load(backend):
@@ -27,10 +33,20 @@ def _load(backend):
     return module
 
 
-def _context():
+def _context(params_file=''):
     context = LaunchContext()
     context.launch_configurations['robot_description'] = DESCRIPTION
+    context.launch_configurations['controllers_file'] = '/c.yaml'
+    context.launch_configurations['params_file'] = params_file
     return context
+
+
+def _run_opaque(module, context=None):
+    """Generate the launch and run its OpaqueFunctions, as a launch would at start."""
+    context = context or _context()
+    for entity in module.generate_launch_description().entities:
+        if isinstance(entity, OpaqueFunction):
+            entity.execute(context)
 
 
 class _NodeRecorder:
@@ -83,7 +99,7 @@ def test_controller_manager_keeps_the_description_parameter(backend, monkeypatch
         monkeypatch.setattr(module, '_require_backend', lambda renderer: None)
     recorder = _NodeRecorder()
     monkeypatch.setattr(module, 'Node', recorder)
-    module.generate_launch_description()
+    _run_opaque(module) if backend == 'mujoco' else module.generate_launch_description()
     (call,) = [
         c for c in recorder.calls
         if c['package'] == CONTROLLER_MANAGER_PACKAGES[backend]
@@ -109,7 +125,7 @@ def test_mujoco_controller_manager_runs_on_sim_time(monkeypatch):
     assert parameters['use_sim_time'] is True
 
 
-def _engine_node(monkeypatch, system='Linux', mujoco_gl=None):
+def _engine_node(monkeypatch, system='Linux', mujoco_gl=None, params_file=''):
     module = _load('mujoco')
     monkeypatch.setattr(module.platform, 'system', lambda: system)
     if mujoco_gl is None:
@@ -119,7 +135,7 @@ def _engine_node(monkeypatch, system='Linux', mujoco_gl=None):
     monkeypatch.setattr(module, '_require_backend', lambda renderer: None)
     recorder = _NodeRecorder()
     monkeypatch.setattr(module, 'Node', recorder)
-    module.generate_launch_description()
+    _run_opaque(module, _context(params_file))
     (call,) = [c for c in recorder.calls if c['package'] == 'mujoco_ros2_control']
     return module, call
 
@@ -156,3 +172,74 @@ def test_mujoco_glfw_runs_under_xvfb_on_linux_only(monkeypatch):
 def test_mujoco_refuses_a_renderer_it_cannot_use(monkeypatch, system, mujoco_gl, message):
     with pytest.raises(RuntimeError, match=message):
         _engine_node(monkeypatch, system=system, mujoco_gl=mujoco_gl)
+
+
+def test_mujoco_without_a_params_file_is_unchanged(monkeypatch):
+    _, call = _engine_node(monkeypatch)
+    assert len(call['parameters']) == 3
+
+
+def _probe_params(tmp_path, values):
+    path = tmp_path / 'params.yaml'
+    path.write_text(yaml.safe_dump(
+        {'/controller_manager': {'ros__parameters': values}}
+    ))
+    return str(path)
+
+
+def _engine_action(monkeypatch, params_file):
+    """The real engine Node action, with the context it was built in."""
+    module = _load('mujoco')
+    monkeypatch.setattr(module, '_require_backend', lambda renderer: None)
+    monkeypatch.delenv('MUJOCO_GL', raising=False)
+    context = _context(params_file)
+    actions = []
+    for entity in module.generate_launch_description().entities:
+        if isinstance(entity, OpaqueFunction):
+            actions += entity.execute(context)
+    (engine,) = [a for a in actions if isinstance(a, Node)]
+    return engine, context
+
+
+def test_mujoco_params_file_beats_the_controllers_file(monkeypatch, tmp_path):
+    controllers = tmp_path / 'controllers.yaml'
+    controllers.write_text(yaml.safe_dump(
+        {'controller_manager': {'ros__parameters': {'update_rate': 100}}}
+    ))
+    engine, context = _engine_action(monkeypatch, _probe_params(tmp_path, {'update_rate': 50}))
+    context.launch_configurations['controllers_file'] = str(controllers)
+    assert_params_file_wins(engine, context, {'update_rate': 50}, CONTROLLER_MANAGER)
+
+
+def test_mujoco_guard_keeps_sim_time_and_the_description(monkeypatch, tmp_path):
+    engine, context = _engine_action(monkeypatch, _probe_params(
+        tmp_path, {'use_sim_time': False, 'robot_description': '<robot name="other"/>'}
+    ))
+    assert_guard_holds(
+        engine, context, {'use_sim_time': True, 'robot_description': DESCRIPTION},
+        CONTROLLER_MANAGER,
+    )
+
+
+def test_mujoco_hardware_node_takes_its_rate_and_keeps_its_plugins(monkeypatch, tmp_path):
+    path = tmp_path / 'params.yaml'
+    path.write_text(yaml.safe_dump({'/mujoco_ros2_control_node': {'ros__parameters': {
+        'use_sim_time': False,
+        'robot_description': '<robot name="other"/>',
+        'mujoco_plugins': {'object_poses': {
+            'publish_rate': 20.0, 'type': 'evil/Plugin', 'topic': '/elsewhere',
+        }},
+    }}}))
+    engine, context = _engine_action(monkeypatch, str(path))
+    hardware = '/mujoco_ros2_control_node'
+    assert_params_file_wins(
+        engine, context, {'mujoco_plugins.object_poses.publish_rate': 20.0}, hardware
+    )
+    assert_guard_holds(engine, context, {
+        'use_sim_time': True,
+        'robot_description': DESCRIPTION,
+        'mujoco_plugins.object_poses.type':
+            'mujoco_ros2_control_plugins/FreeJointStatePublisherPlugin',
+        'mujoco_plugins.object_poses.topic': '/mujoco/free_joint_states',
+        'mujoco_plugins.mujoco_cameras.type': 'mujoco_ros2_control_plugins/CameraPlugin',
+    }, hardware)

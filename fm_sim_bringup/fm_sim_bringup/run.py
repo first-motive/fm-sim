@@ -5,11 +5,12 @@ start active, the scenario world and its cameras) unit-test without a launch
 context, an engine or fm-robot.
 """
 
+import copy
 from dataclasses import dataclass
 import json
 import math
 
-from fm_sim_bringup import catalog
+from fm_sim_bringup import catalog, params
 from fm_sim_cameras import cameras_file, fisheye, mount
 from fm_sim_scenarios import gazebo_world, isaac_stage, mujoco_world, scenario as sc
 
@@ -148,6 +149,65 @@ def resolve(backend, robot, scenario, controller):
     return entries
 
 
+# Run dimension -> its catalog kind.
+_KINDS = {'backend': 'backends', 'robot': 'robots', 'scenario': 'scenarios',
+          'controller': 'controllers'}
+
+
+def load_overrides(path):
+    """Return the overrides file at ``path`` (the agent's params.json); empty path is none."""
+    if not path:
+        return {}
+    try:
+        with open(path) as overrides_file:
+            overrides = json.load(overrides_file)
+    except (OSError, ValueError, RecursionError) as error:
+        raise catalog.CatalogError(
+            f'overrides_file is unreadable ({type(error).__name__})'
+        ) from error
+    if not isinstance(overrides, dict):
+        raise catalog.CatalogError('overrides_file must hold a JSON object')
+    return overrides
+
+
+def apply_overrides(entries, overrides):
+    """Return ``entries`` with ``overrides`` merged in, each checked against its tunable.
+
+    ``overrides`` is keyed ``<dimension>.<name>``. An ``entry`` target is set in
+    a copy of its entry, which is then checked again as the catalog checks it.
+    A ``ros_param`` target is checked and left to the params file. Refuses a
+    key no entry declares, a value the tunable does not take, and a tunable
+    whose ``backends`` leave out the run's backend.
+    """
+    patched = copy.deepcopy(entries)
+    changed = set()
+    for key, value in sorted(overrides.items()):
+        dimension, _, name = str(key).partition('.')
+        param = entries.get(dimension, {}).get('params', {}).get(name)
+        if param is None:
+            raise catalog.CatalogError(f'override {key!r} is not a declared tunable')
+        backends = param.get('backends')
+        if backends and entries['backend']['name'] not in backends:
+            raise catalog.CatalogError(
+                f'override {key!r} applies only on {", ".join(backends)}'
+            )
+        try:
+            value = params.check_value(param, value)
+            target = param['target']
+            if target['kind'] == 'entry':
+                params.set_entry_value(patched[dimension], target['path'], value)
+                changed.add(dimension)
+            elif target['kind'] == 'description':
+                raise params.ParamError('is a description override, not applied yet')
+        except params.ParamError as error:
+            raise catalog.CatalogError(f'override {key!r} {error}') from error
+    for dimension in changed:
+        # Without its params: their defaults are the entry as declared, not as overridden.
+        entry = {k: v for k, v in patched[dimension].items() if k != 'params'}
+        catalog.validate(_KINDS[dimension], entry)
+    return patched
+
+
 def parse_seed(text):
     """Return the ``seed`` launch argument as an int, refusing anything not uint32."""
     try:
@@ -251,6 +311,29 @@ def sim_cameras(backend, robot, robot_description, robot_mjcf):
         )
         for role, (where, render) in sorted(placed.items())
     ]
+
+
+def camera_node_name(camera):
+    """Return the ``sim_camera`` node's name for ``camera``."""
+    return f'{params.CAMERA_NODE_PREFIX}{camera.role}'
+
+
+def forward_params_file(arguments, params_file):
+    """Return an included launch's ``arguments`` with ``params_file`` passed on, when set."""
+    return {**arguments, 'params_file': params_file} if params_file else dict(arguments)
+
+
+def own_node_guards(cameras, scenario_parameters):
+    """Return the guard for the nodes run.launch.py starts: ``{fully qualified node: params}``.
+
+    Each node's own parameters are what the launch owns there; ``params``
+    lists the same keys (``CAMERA_OWNED``, ``SCENARIO_OWNED``) so no tunable
+    targets one.
+    """
+    guards = {f'/{camera_node_name(camera)}': camera_node_parameters(camera) for camera in cameras}
+    if scenario_parameters:
+        guards[f'/{params.SCENARIO_NODE}'] = scenario_parameters
+    return guards
 
 
 def camera_node_parameters(camera):
