@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>mujoco_vendor</name>
+  <version>3.16.0</version>
+  <description>
+    Thin ament wrapper exposing the conda-forge MuJoCo C library to ROS2 packages that
+    expect the upstream mujoco_vendor package (mujoco_ros2_control_plugins hard-fails
+    without it). Upstream ships no mujoco_vendor and RoboStack packages none, but
+    conda-forge's libmujoco already installs a full CMake package (mujocoConfig.cmake
+    exporting mujoco::mujoco) — so this only has to re-export it under the ROS name.
+  </description>
+  <maintainer email="wynand@ubundi.co.za">First Motive</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

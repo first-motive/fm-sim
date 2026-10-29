@@ -32,3 +32,6 @@ plans/
 .idea/
 *.swp
 .DS_Store
+
+# pixi native env (pixi.toml)
+.pixi/

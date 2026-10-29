@@ -1,0 +1,88 @@
+# Native ROS2 Jazzy environment for the Mac sim host, via pixi + RoboStack.
+#
+# Runs MuJoCo on the Mac itself instead of inside the OrbStack container.
+# scripts/native/build.sh builds the managed workspace in this environment and
+# scripts/native/env.sh runs commands in it (scripts/native/README.md).
+# osx-arm64 only: Linux sim hosts run the container.
+#
+# RoboStack ships prebuilt Jazzy binaries on the robostack-jazzy channel. rosdep is
+# unsupported inside pixi, so every ROS dependency the workspace needs is named here:
+# fm-sim's packages, fm-robot's, and the controllers overlay (fm-skills,
+# anvil-embodied-ai, fm-teleop). mujoco_ros2_control has no RoboStack build, so the
+# build script compiles it from source at the image's version.
+[workspace]
+name = "fm-sim"
+channels = ["robostack-jazzy", "conda-forge"]
+# RoboStack's Jazzy MoveIt builds (pick_ik among them) target macOS 14+.
+platforms = [{ platform = "osx-arm64", macos = "14.0" }]
+
+[dependencies]
+ros-jazzy-ros-base = "*"
+colcon-common-extensions = "*"
+vcstool = "*"
+# Jazzy's rosidl_generator_py still uses FindPython idioms CMake 4 dropped.
+cmake = "<4"
+ninja = "*"
+pkg-config = "*"
+compilers = "*"
+
+# Transport and recording, as in fm-docker's Jazzy base.
+ros-jazzy-rmw-cyclonedds-cpp = "*"
+ros-jazzy-rosbag2 = "*"
+ros-jazzy-rosbag2-storage-mcap = "*"
+ros-jazzy-rosbag2-py = "*"
+
+# ros2_control and the controllers fm-robot's descriptions are written against.
+ros-jazzy-ros2-control = "*"
+ros-jazzy-ros2-controllers = "*"
+ros-jazzy-joint-trajectory-controller = "*"
+
+# mujoco_ros2_control's source build: MuJoCo itself (the image's 3.16) and the
+# libraries its CMake finds. RoboStack's ros-jazzy-mujoco-vendor pins an older
+# libmujoco, so the build script supplies a shim mujoco_vendor that exports this
+# one (scripts/native/shims/mujoco_vendor).
+libmujoco = "3.16.*"
+mujoco = "3.16.*"
+glfw = ">=3.4,<4"
+ros-jazzy-backward-ros = "*"
+ros-jazzy-tinyxml2-vendor = "*"
+ros-jazzy-control-toolbox = "*"
+ros-jazzy-ros2-control-cmake = "*"
+lodepng = "*"
+trimesh = "*"
+pycollada = "*"
+
+# fm-sim's own packages.
+ros-jazzy-xacro = "*"
+ros-jazzy-robot-state-publisher = "*"
+ros-jazzy-image-transport = "*"
+ros-jazzy-compressed-image-transport = "*"
+ros-jazzy-domain-coordinator = "*"
+ros-jazzy-python-orocos-kdl-vendor = "*"
+ros-jazzy-urdfdom-py = "*"
+ros-jazzy-tf2-ros-py = "*"
+# unitree_ros2's message packages generate DDS IDL; ros-base does not carry it.
+ros-jazzy-rosidl-generator-dds-idl = "*"
+jsonschema = "*"
+numpy = "*"
+pyyaml = "*"
+scipy = "*"
+# RoboStack Jazzy builds against OpenCV 5 (the image has Noble's 4).
+opencv = "*"
+
+# fm-robot and the controllers overlay: MoveIt (moveit_py, pick_ik, Pilz) and
+# the message packages they build against.
+ros-jazzy-moveit = "*"
+ros-jazzy-moveit-py = "*"
+ros-jazzy-moveit-servo = "*"
+ros-jazzy-pick-ik = "*"
+ros-jazzy-joint-state-publisher = "*"
+ros-jazzy-tf2-geometry-msgs = "*"
+ros-jazzy-rclcpp-components = "*"
+ros-jazzy-eigen3-cmake-module = "*"
+yaml-cpp = "*"
+
+[tasks]
+build = "bash scripts/native/build.sh"
+test-lib = "bash scripts/native/test_lib.sh"
+test-patch = "bash scripts/native/build.sh test"

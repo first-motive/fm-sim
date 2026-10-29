@@ -1,0 +1,359 @@
+diff --git a/mujoco_ros2_control/CMakeLists.txt b/mujoco_ros2_control/CMakeLists.txt
+index b8b0dda..91598d5 100644
+--- a/mujoco_ros2_control/CMakeLists.txt
++++ b/mujoco_ros2_control/CMakeLists.txt
+@@ -30,6 +30,18 @@ find_package(transmission_interface REQUIRED)
+ find_package(backward_ros REQUIRED)
+ find_package(tinyxml2_vendor QUIET)
+ find_package(TinyXML2 REQUIRED)
++# MuJoCo's static TinyXML2 is an ELF symbol-interposition hazard, handled by forcing
++# tinyxml2 first in DT_NEEDED. Mach-O has neither DT_NEEDED nor --as-needed and ld64
++# rejects the flags, so they are empty on Apple.
++if(APPLE)
++  set(TINYXML2_FIRST_LINK_OPTIONS "")
++else()
++  set(TINYXML2_FIRST_LINK_OPTIONS
++    "LINKER:--push-state,--no-as-needed"
++    "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
++    "LINKER:--pop-state"
++  )
++endif()
+ 
+ # Link MuJoCo via the vendor package
+ find_package(mujoco_vendor REQUIRED)
+@@ -160,18 +172,26 @@ add_library(mujoco_ros2_control SHARED
+ # Ensure MuJoCo library can be found at runtime regardless of how it was installed above.
+ # mujoco_vendor installs libmujoco.so under opt/mujoco_vendor/lib/ relative to the
+ # install prefix, so that directory must be in the RPATH alongside the standard lib/.
+-set_target_properties(mujoco_ros2_control PROPERTIES
+-  INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../opt/mujoco_vendor/lib;${CMAKE_INSTALL_PREFIX}/lib"
+-)
++if(APPLE)
++  # Mach-O spells the loader-relative prefix @loader_path. The explicit INSTALL_RPATH
++  # drops the rpath CMake derives from the link line, which a conda env needs: none of
++  # its dylibs are on a global search path. Keep the derived entries too.
++  set_target_properties(mujoco_ros2_control PROPERTIES
++    INSTALL_RPATH "@loader_path/../lib;@loader_path/../opt/mujoco_vendor/lib;${CMAKE_INSTALL_PREFIX}/lib"
++    INSTALL_RPATH_USE_LINK_PATH TRUE
++  )
++else()
++  set_target_properties(mujoco_ros2_control PROPERTIES
++    INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../opt/mujoco_vendor/lib;${CMAKE_INSTALL_PREFIX}/lib"
++  )
++endif()
+ # MuJoCo has TinyXML2 statically linked, which conflicts with the system TinyXML2
+ # used by FastDDS. We need to ensure the system TinyXML2 is loaded first.
+ # Force tinyxml2 to appear first in the DT_NEEDED entries by using LINK_OPTIONS.
+ # TODO: Remove this after the following is resolved and the next ROS sync
+ # https://github.com/pal-robotics/mujoco_vendor/issues/2
+ target_link_options(mujoco_ros2_control PUBLIC
+-  "LINKER:--push-state,--no-as-needed"
+-  "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
+-  "LINKER:--pop-state"
++  ${TINYXML2_FIRST_LINK_OPTIONS}
+ )
+ target_link_libraries(mujoco_ros2_control
+ PUBLIC
+diff --git a/mujoco_ros2_control_plugins/CMakeLists.txt b/mujoco_ros2_control_plugins/CMakeLists.txt
+index 0f58cb3..6facf9c 100644
+--- a/mujoco_ros2_control_plugins/CMakeLists.txt
++++ b/mujoco_ros2_control_plugins/CMakeLists.txt
+@@ -18,7 +18,28 @@ find_package(std_srvs REQUIRED)
+ find_package(visualization_msgs REQUIRED)
+ find_package(mujoco_ros2_control_msgs REQUIRED)
+ find_package(glfw3 REQUIRED)
+-find_package(OpenGL REQUIRED COMPONENTS EGL)
++# macOS has no EGL: cameras render through a CGL context from the OpenGL framework.
++if(APPLE)
++  find_package(OpenGL REQUIRED)
++  set(CAMERA_GL_LIBRARIES OpenGL::GL)
++  # Apple marks all of OpenGL deprecated; it remains what MuJoCo renders with.
++  add_compile_definitions(GL_SILENCE_DEPRECATION)
++else()
++  find_package(OpenGL REQUIRED COMPONENTS EGL)
++  set(CAMERA_GL_LIBRARIES OpenGL::EGL OpenGL::OpenGL)
++endif()
++# MuJoCo's static TinyXML2 is an ELF symbol-interposition hazard, handled by forcing
++# tinyxml2 first in DT_NEEDED. Mach-O has neither DT_NEEDED nor --as-needed and ld64
++# rejects the flags, so they are empty on Apple.
++if(APPLE)
++  set(TINYXML2_FIRST_LINK_OPTIONS "")
++else()
++  set(TINYXML2_FIRST_LINK_OPTIONS
++    "LINKER:--push-state,--no-as-needed"
++    "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
++    "LINKER:--pop-state"
++  )
++endif()
+ 
+ # Attempt to link MuJoCo via the vendor package, if available
+ find_package(mujoco_vendor QUIET)
+@@ -66,8 +87,7 @@ target_link_libraries(mujoco_ros2_control_plugins_impl PUBLIC
+   ${visualization_msgs_TARGETS}
+   ${mujoco_ros2_control_msgs_TARGETS}
+   glfw
+-  OpenGL::EGL
+-  OpenGL::OpenGL
++  ${CAMERA_GL_LIBRARIES}
+ )
+ target_compile_definitions(mujoco_ros2_control_plugins_impl PRIVATE
+   REALTIME_TOOLS_VERSION_MAJOR=${realtime_tools_VERSION_MAJOR}
+@@ -109,9 +129,7 @@ if(BUILD_TESTING)
+   # TODO: Remove this after the following is resolved and the next ROS sync
+   # https://github.com/pal-robotics/mujoco_vendor/issues/2
+   target_link_options(test_external_wrench_plugin PUBLIC
+-    "LINKER:--push-state,--no-as-needed"
+-    "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
+-    "LINKER:--pop-state"
++    ${TINYXML2_FIRST_LINK_OPTIONS}
+   )
+ 
+   ament_add_gtest(test_free_joint_state_publisher_plugin
+@@ -125,9 +143,7 @@ if(BUILD_TESTING)
+     ${mujoco_ros2_control_msgs_TARGETS}
+   )
+   target_link_options(test_free_joint_state_publisher_plugin PUBLIC
+-    "LINKER:--push-state,--no-as-needed"
+-    "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
+-    "LINKER:--pop-state"
++    ${TINYXML2_FIRST_LINK_OPTIONS}
+   )
+ 
+   ament_add_gtest(test_camera_plugin
+@@ -142,9 +158,7 @@ if(BUILD_TESTING)
+     ${std_srvs_TARGETS}
+   )
+   target_link_options(test_camera_plugin PUBLIC
+-    "LINKER:--push-state,--no-as-needed"
+-    "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
+-    "LINKER:--pop-state"
++    ${TINYXML2_FIRST_LINK_OPTIONS}
+   )
+ 
+   ament_add_gtest(test_3d_lidar_plugin
+@@ -159,9 +173,7 @@ if(BUILD_TESTING)
+     ament_index_cpp::ament_index_cpp
+   )
+   target_link_options(test_3d_lidar_plugin PUBLIC
+-    "LINKER:--push-state,--no-as-needed"
+-    "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
+-    "LINKER:--pop-state"
++    ${TINYXML2_FIRST_LINK_OPTIONS}
+   )
+ 
+   ament_add_gtest(test_base_velocity_plugin
+@@ -175,9 +187,7 @@ if(BUILD_TESTING)
+     ${geometry_msgs_TARGETS}
+   )
+   target_link_options(test_base_velocity_plugin PUBLIC
+-    "LINKER:--push-state,--no-as-needed"
+-    "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
+-    "LINKER:--pop-state"
++    ${TINYXML2_FIRST_LINK_OPTIONS}
+   )
+ endif()
+ 
+diff --git a/mujoco_ros2_control_plugins/src/camera_plugin.cpp b/mujoco_ros2_control_plugins/src/camera_plugin.cpp
+index 74741ff..60476c8 100644
+--- a/mujoco_ros2_control_plugins/src/camera_plugin.cpp
++++ b/mujoco_ros2_control_plugins/src/camera_plugin.cpp
+@@ -50,6 +50,12 @@ bool CameraPlugin::init(rclcpp::Node::SharedPtr node, const mjModel* model, mjDa
+   }
+ 
+   // Start the rendering thread process
++#ifdef __APPLE__
++  // Cocoa allows GLFW windows only on the main thread, and this renders on its own
++  // thread, so macOS always takes the offscreen path: a CGL context (init_egl_context).
++  (void)glfw_init_fn;
++  use_egl_ = true;
++#else
+   // Try GLFW first, fall back to EGL for headless environments
+   if (glfw_init_fn())
+   {
+@@ -60,6 +66,7 @@ bool CameraPlugin::init(rclcpp::Node::SharedPtr node, const mjModel* model, mjDa
+     RCLCPP_WARN(node_->get_logger(), "Failed to initialize GLFW. Attempting EGL for headless rendering.");
+     use_egl_ = true;
+   }
++#endif
+   rendering_thread_ = std::thread(&CameraPlugin::update_loop, this);
+   return true;
+ }
+@@ -326,6 +333,60 @@ void CameraPlugin::close()
+   }
+ }
+ 
++#ifdef __APPLE__
++bool CameraPlugin::init_egl_context()
++{
++  // The pixel format MuJoCo's own Python bindings use for their CGL backend: the legacy
++  // (compatibility) profile MuJoCo's renderer needs, rendering into its offscreen FBO.
++  const CGLPixelFormatAttribute attribs[] = { kCGLPFAOpenGLProfile,
++                                              static_cast<CGLPixelFormatAttribute>(kCGLOGLPVersion_Legacy),
++                                              kCGLPFAColorSize,
++                                              static_cast<CGLPixelFormatAttribute>(24),
++                                              kCGLPFAAlphaSize,
++                                              static_cast<CGLPixelFormatAttribute>(8),
++                                              kCGLPFADepthSize,
++                                              static_cast<CGLPixelFormatAttribute>(24),
++                                              kCGLPFAStencilSize,
++                                              static_cast<CGLPixelFormatAttribute>(8),
++                                              kCGLPFAAccelerated,
++                                              static_cast<CGLPixelFormatAttribute>(0) };
++  CGLPixelFormatObj pixel_format = nullptr;
++  GLint num_formats = 0;
++  CGLError err = CGLChoosePixelFormat(attribs, &pixel_format, &num_formats);
++  if (err != kCGLNoError || pixel_format == nullptr)
++  {
++    RCLCPP_ERROR(node_->get_logger(), "CGL: Failed to choose pixel format (%s)", CGLErrorString(err));
++    return false;
++  }
++  err = CGLCreateContext(pixel_format, nullptr, &cgl_context_);
++  CGLReleasePixelFormat(pixel_format);
++  if (err != kCGLNoError)
++  {
++    RCLCPP_ERROR(node_->get_logger(), "CGL: Failed to create context (%s)", CGLErrorString(err));
++    cgl_context_ = nullptr;
++    return false;
++  }
++  err = CGLSetCurrentContext(cgl_context_);
++  if (err != kCGLNoError)
++  {
++    RCLCPP_ERROR(node_->get_logger(), "CGL: Failed to make context current (%s)", CGLErrorString(err));
++    cleanup_egl_context();
++    return false;
++  }
++  RCLCPP_INFO(node_->get_logger(), "CGL: Successfully initialized offscreen OpenGL context");
++  return true;
++}
++
++void CameraPlugin::cleanup_egl_context()
++{
++  if (cgl_context_ != nullptr)
++  {
++    CGLSetCurrentContext(nullptr);
++    CGLReleaseContext(cgl_context_);
++    cgl_context_ = nullptr;
++  }
++}
++#else
+ bool CameraPlugin::init_egl_context()
+ {
+   // Get EGL display
+@@ -433,6 +494,8 @@ void CameraPlugin::cleanup_egl_context()
+   }
+ }
+ 
++#endif
++
+ void CameraPlugin::update_loop()
+ {
+   GLFWwindow* window = nullptr;
+@@ -462,7 +525,11 @@ void CameraPlugin::update_loop()
+   }
+ 
+   // Determine rendering backend name for logging
++#ifdef __APPLE__
++  const char* backend = "CGL";
++#else
+   const char* backend = use_egl_ ? "EGL" : "GLFW";
++#endif
+ 
+   // Initialization of the context and data structures has to happen in the rendering thread
+   RCLCPP_INFO(node_->get_logger(), "Initializing rendering for cameras (using %s)", backend);
+diff --git a/mujoco_ros2_control_plugins/src/camera_plugin.hpp b/mujoco_ros2_control_plugins/src/camera_plugin.hpp
+index 89b4dda..15c2db7 100644
+--- a/mujoco_ros2_control_plugins/src/camera_plugin.hpp
++++ b/mujoco_ros2_control_plugins/src/camera_plugin.hpp
+@@ -34,8 +34,12 @@
+ 
+ #include "mujoco_ros2_control_plugins/mujoco_ros2_control_plugins_base.hpp"
+ 
++#ifdef __APPLE__
++#include <OpenGL/OpenGL.h>
++#else
+ #include <EGL/egl.h>
+ #include <EGL/eglext.h>
++#endif
+ #include <GLFW/glfw3.h>
+ #include <mujoco/mujoco.h>
+ 
+@@ -268,9 +272,14 @@ private:
+   bool new_data_{ false };
+ 
+   // EGL context for headless rendering (used when GLFW is unavailable)
++#ifdef __APPLE__
++  // macOS: an offscreen CGL context stands in for EGL (see init_egl_context).
++  CGLContextObj cgl_context_{ nullptr };
++#else
+   EGLDisplay egl_display_{ EGL_NO_DISPLAY };
+   EGLContext egl_context_{ EGL_NO_CONTEXT };
+   EGLSurface egl_surface_{ EGL_NO_SURFACE };
++#endif
+   bool use_egl_{ false };
+ 
+   /**
+diff --git a/mujoco_ros2_control_plugins/test/test_3d_lidar_plugin.cpp b/mujoco_ros2_control_plugins/test/test_3d_lidar_plugin.cpp
+index c80ef0e..dbb9659 100644
+--- a/mujoco_ros2_control_plugins/test/test_3d_lidar_plugin.cpp
++++ b/mujoco_ros2_control_plugins/test/test_3d_lidar_plugin.cpp
+@@ -31,6 +31,13 @@
+ 
+ #include "mujoco_3d_lidar_plugin.hpp"
+ 
++// CMake names a shared library .dylib on macOS.
++#ifdef __APPLE__
++static const char* const kSharedLibrarySuffix = ".dylib";
++#else
++static const char* const kSharedLibrarySuffix = ".so";
++#endif
++
+ class Mujoco3dLidarPluginTest : public ::testing::Test
+ {
+ protected:
+@@ -59,14 +66,14 @@ protected:
+     if (resource.resourcePath.has_value())
+     {
+       const std::string plugin_dir = (resource.resourcePath.value() / resource.contents).string();
+-      mj_loadPluginLibrary((plugin_dir + "/libmujoco_3d_lidar.so").c_str());
++      mj_loadPluginLibrary((plugin_dir + "/libmujoco_3d_lidar" + kSharedLibrarySuffix).c_str());
+     }
+ #else
+     std::string content, prefix;
+     if (ament_index_cpp::get_resource("mujoco_plugins", "mujoco_3d_lidar", content, &prefix))
+     {
+       const std::string plugin_dir = prefix + "/" + content;
+-      mj_loadPluginLibrary((plugin_dir + "/libmujoco_3d_lidar.so").c_str());
++      mj_loadPluginLibrary((plugin_dir + "/libmujoco_3d_lidar" + kSharedLibrarySuffix).c_str());
+     }
+ #endif
+ 
+diff --git a/mujoco_ros2_control_plugins/test/test_camera_plugin.cpp b/mujoco_ros2_control_plugins/test/test_camera_plugin.cpp
+index e3947df..c782721 100644
+--- a/mujoco_ros2_control_plugins/test/test_camera_plugin.cpp
++++ b/mujoco_ros2_control_plugins/test/test_camera_plugin.cpp
+@@ -192,6 +192,12 @@ TEST_F(CameraPluginTest, InitSucceedsWithNoCameras)
+ // Verify init finds cameras and returns true, ensure the egl context does the rendering.
+ TEST_F(CameraPluginTest, InitAndPublish)
+ {
++#ifdef __APPLE__
++  // trigger_update() renders on the calling thread, where no GL context is current
++  // (camera_plugin.hpp documents it as running without one). macOS's libGL crashes on
++  // GL calls without a context; runs render on the plugin's own thread instead.
++  GTEST_SKIP() << "trigger_update() renders without a current GL context on macOS";
++#endif
+   load_model(R"(<?xml version="1.0"?>
+ <mujoco model="with_camera">
+   <worldbody>
+@@ -299,6 +305,12 @@ TEST_F(CameraPluginTest, OnlyPolledCamerasCreateTriggerService)
+ // and exactly once per trigger.
+ TEST_F(CameraPluginTest, PolledCameraPublishesOncePerTrigger)
+ {
++#ifdef __APPLE__
++  // trigger_update() renders on the calling thread, where no GL context is current
++  // (camera_plugin.hpp documents it as running without one). macOS's libGL crashes on
++  // GL calls without a context; runs render on the plugin's own thread instead.
++  GTEST_SKIP() << "trigger_update() renders without a current GL context on macOS";
++#endif
+   load_model(R"(<?xml version="1.0"?>
+ <mujoco model="polled_only">
+   <worldbody>
