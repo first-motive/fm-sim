@@ -74,6 +74,8 @@ scenario node. The seven steps, in order, are in
 
 Source: [`diagrams/run.d2`](diagrams/run.d2). Entry fields, the `catalog --json`
 output and its schema: [`fm_sim_bringup`](../fm_sim_bringup/README.md#catalog).
+An entry may also declare `params`, tunables a run overrides by
+`<dimension>.<name>`: [Run Params](../fm_sim_bringup/README.md#run-params).
 An unknown name fails before anything starts and lists the registered ones; an
 entry marked `available: false` is listed but refused, as is one whose
 `requires_packages` are not all installed, and so is a robot on a backend missing
@@ -247,7 +249,7 @@ is a Zenoh error reply carrying `{"ok": false, "error": {"code", "message"}}`.
 |------|------|---------|-------|
 | `status` | queryable, and published at 1 Hz | none | host, state, `run_id`, spec, since, version |
 | `catalog` | queryable | none | the image's `catalog --json` |
-| `up` | queryable | RunSpec `{backend, robot, scenario, controller, seed, record}` | `run_id` |
+| `up` | queryable | RunSpec `{backend, robot, scenario, controller, seed, record, params?}` | `run_id` |
 | `down` | queryable | optional `run_id` | the run summary |
 | `reset` | queryable | `seed` | ok; calls the run's `/sim/reset` |
 | `runs` | queryable | optional `limit` | run summaries, newest first |
@@ -268,7 +270,7 @@ MCAP. Run lifecycle, on-disk layout and flags:
 | Code | Refused because |
 |------|-----------------|
 | `invalid_request` | The body is too large, not a JSON object, or a field is malformed |
-| `invalid_spec` | The RunSpec has a bad name, seed or flag, or an extra key such as `params` |
+| `invalid_spec` | The RunSpec has a bad name, seed or flag, an extra key, or a `params` override no entry declares or its tunable refuses |
 | `unknown_entry` | A name is not in the image's catalog |
 | `unavailable_entry` | The entry is `available: false`, or the four entries do not go together: a backend the robot does not list in `supported_backends`, a controller with a launch on a robot with no `robot_profile`, or a controller activating a role the robot lacks. The message names which; the code stays one so clients already in the field read it |
 | `catalog_unavailable` | The catalog could not be read from the image, or the robot names no broadcasters |
@@ -331,8 +333,9 @@ router's port 7447, as fm-robot-agent does: **any tailnet node that can reach
 runs. Per-caller authentication is a fleet-wide follow-up.
 
 The agent's account runs Docker, which is root-equivalent, so the agent keeps
-what a caller chooses narrow: four catalog names, a seed and a record flag. No
-caller value reaches a shell. Each run container runs as the agent's uid with
+what a caller chooses narrow: four catalog names, a seed, a record flag and
+overrides of the tunables the catalog declares, which reach the run as checked
+values in read-only files. No caller value reaches a shell or a command line. Each run container runs as the agent's uid with
 every capability dropped and process and memory ceilings, sees only its own
 `bag/` directory (an isaac run also its `stage/`, which its Isaac container
 shares under the same confinement), and keeps DDS discovery on the host, so no sim topic reaches a

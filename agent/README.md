@@ -71,12 +71,26 @@ idle ─up─▶ starting ─broadcasters active─▶ running ─down─▶ sto
 - `up` validates the RunSpec strictly. Each of `backend`, `robot`, `scenario`
   and `controller` must match `^[a-z][a-z0-9_]*$` and name an available entry
   in the image's catalog. `seed` is an integer from 0 to 2³²−1 and `record` is
-  a boolean. Any other key, `params` included, is refused: v1 takes no
-  caller-supplied launch arguments.
+  a boolean. Any other key is refused.
+- `params` is optional: overrides of the tunables the four entries declare,
+  keyed `<dimension>.<name>` (`{"controller.max_joint_speed": 1.5}`), changed
+  values only. Each key must name a tunable the entry of that dimension
+  declares, on a backend its `backends` allow, and each value must be its type
+  (`true` is not a number, an int is a float, nothing non-finite), within its
+  bounds and, for an array, its length; otherwise `invalid_spec`, naming the
+  key and never the value. Two overrides that set one ROS param, or one
+  inside another, are refused too. The checked values are kept in the spec, so
+  `status` and the run summary carry `spec.params`; a spec without overrides
+  has no `params`. The rules mirror `fm_sim_bringup.params`, and both suites
+  check them against `fm_sim_bringup/test/param_cases.json`.
 - `up` refuses with `busy` while a run is active. Otherwise it runs
   `docker run --detach <image> /ros_entrypoint.sh ros2 launch fm_sim_bringup
   run.launch.py backend:=… robot:=… scenario:=… controller:=… use_sim:=true`
-  and answers with the run id.
+  and answers with the run id. A run with params also gets its `params/`
+  directory mounted read-only at `/fm-run/params` and
+  `overrides_file:=/fm-run/params/params.json`, plus
+  `params_file:=/fm-run/params/params.yaml` when an override targets a node:
+  constant paths, never a value.
 - The run stays `starting` until controller_manager's `list_controllers`
   reports every broadcaster in the robot's catalog entry
   (`controller_roles.broadcasters`) as active. A robot entry without that list
@@ -157,7 +171,16 @@ Isaac container (isaac-sim)  waits for stage.json, then python.sh fm_sim_isaac.p
 <runs_dir>/<run_id>/summary.json   written at up (ended_at null), rewritten at the end
 <runs_dir>/<run_id>/bag/           mounted into the run's container at /fm-run/bag
 <runs_dir>/<run_id>/bag/recording/ the MCAP files, only when record is true
+<runs_dir>/<run_id>/params/        a run with params, mounted read-only at /fm-run/params
+<runs_dir>/<run_id>/params/params.json  the checked overrides
+<runs_dir>/<run_id>/params/params.yaml  the ROS params file for overrides that target a node
 ```
+
+`params.yaml` is keyed by each target's fully qualified node name, then
+`ros__parameters`, with a dotted param nested one map per segment. Its node and
+param names come only from the catalog's declarations, which are checked
+again here (fully qualified, no wildcard), never from the caller. Both files
+are written before the container starts.
 
 A summary's `mcap` names the first MCAP file, relative to the runs directory
 (`<run_id>/bag/recording/recording_0.mcap`), so it names the same file wherever
@@ -171,8 +194,8 @@ is skipped.
 
 `<runs_dir>` defaults to `$XDG_STATE_HOME/fm-sim/runs`
 (`~/.local/state/fm-sim/runs`). Only the run's `bag/` directory is mounted into
-its container, so a run cannot read or overwrite another run's files, nor its
-own summary.
+its container for writing, and its `params/` read-only, so a run cannot read or
+overwrite another run's files, nor its own summary.
 
 At start-up the agent removes any container labelled `fm.sim.agent=<host>`, and
 closes any summary still open. Both are left over from an agent that died
@@ -190,8 +213,11 @@ The agent's account runs `docker`, and membership of the `docker` group is
 root-equivalent on the host. The agent therefore keeps what a caller can choose
 narrow, and confines what it starts:
 
-- A caller picks four catalog names, a seed and a record flag. Nothing else a
-  caller sends reaches a command line, and no command goes through a shell.
+- A caller picks four catalog names, a seed, a record flag and overrides of
+  the tunables the catalog declares. Nothing else a caller sends reaches a
+  command line, and no command goes through a shell. An override is a checked
+  value in a read-only file; the node and param it sets come from the image's
+  catalog, and the launch re-asserts what it owns after it.
 - Every container runs as the agent's own uid and gid, with
   `--cap-drop ALL --security-opt no-new-privileges`, a process ceiling
   (`--pids-limit`, 4096 by default) and a memory ceiling (`--memory`, 16 GiB by
@@ -259,12 +285,18 @@ machine name (`fm-ws-01`, sent as `fm_ws_01`) or `local`.
 ```bash
 fm sim catalog --host fm-ws-01                  # what the host can run
 fm sim status  --host fm-ws-01                  # state and active run
-fm sim up      --host fm-ws-01 [--backend B] [--robot R] [--scenario S] [--controller C] [--seed N] [--record]
+fm sim up      --host fm-ws-01 [--backend B] [--robot R] [--scenario S] [--controller C] [--seed N] [--record] [--param DIM.NAME=VALUE ...]
 fm sim logs    --host fm-ws-01 [--run-id ID]    # follow the run's log records; Ctrl-C stops
 fm sim down    --host fm-ws-01 [--run-id ID]    # stop the run; prints its outcome
 fm sim runs    --host fm-ws-01 [--limit N]      # summaries, newest first
 fm sim trial   --host fm-ws-01 (--seeds 0..19 | --count 20 [--seed-start 0]) [--run-timeout S] [--report PATH]
 ```
+
+`catalog` lists each entry's tunables under its dimension, as
+`<entry>  <dimension>.<name> = <default>  [<bounds> <unit>]`, marking the
+advanced ones. `--param`, on `up` and `trial`, overrides one; it repeats.
+VALUE is JSON (`1.5`, `true`, `[0, 1]`) or else a bare string, and the host
+checks it against its catalog.
 
 The spec flags default to `mujoco`, `so101`, `empty`, `idle`, seed 0, no
 recording: so101's description is public, so every sim image runs it. Pass
@@ -293,7 +325,7 @@ ends as soon as it is scored.
 Each run prints one row as it finishes. The trial then prints a table and the
 success rate, and writes a JSON report to `--report`, by default
 `$XDG_STATE_HOME/fm-sim/trials/<UTC stamp>-<backend>-<robot>-<scenario>-<controller>.json`.
-The report holds the spec, the seeds, one row per run (`seed`, `run_id`,
+The report holds the spec (with its `params`, when the trial had any), the seeds, one row per run (`seed`, `run_id`,
 `success`, `reason`, `elapsed_s`, `wall_s`, `seed_applied`), and `attempted`,
 `successes`, `unscored` and `success_rate`. A run with no outcome counts as a
 failure in `success_rate`. A run whose `down` was refused and whose summary
@@ -572,3 +604,7 @@ the in-process agent with the fake runner. It runs
 against a stand-in `docker` on `PATH` and spawns, signals and identifies a
 stand-in agent process through the real `ps`. No router, Docker daemon,
 image or AWS account is needed.
+`tests/test_params.py` checks RunSpec `params`: their shape (non-finite JSON
+literals included), the check against declared tunables with the shared
+`param_cases.json`, the rendered `params.yaml` holding only declared targets,
+and the files and read-only mount a run gets.
