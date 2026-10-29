@@ -226,3 +226,47 @@ params:
         element: position
         name: follower_r_finger_joint1_position
         attribute: forcerange
+  # MoveIt Servo, which the teleop and policy_serve controllers activate as the servo
+  # role (fm-robot fm_control/config/openarm/servo_sim.yaml). Defaults are that
+  # file's; the joint scale stops at 2.5 rad/s, the arm's slowest motor limit.
+  servo_joint_speed:
+    label: Servo joint speed
+    description: Joint speed at a full-scale jog command.
+    type: float
+    default: 0.5
+    min: 0.05
+    max: 2.5
+    step: 0.05
+    unit: rad/s
+    target:
+      kind: ros_param
+      node: /servo_node
+      param: moveit_servo.scale.joint
+  servo_linear_speed:
+    label: Servo linear speed
+    description: End-effector speed at a full-scale twist command.
+    type: float
+    default: 0.4
+    min: 0.05
+    max: 1.0
+    step: 0.05
+    unit: m/s
+    advanced: true
+    target:
+      kind: ros_param
+      node: /servo_node
+      param: moveit_servo.scale.linear
+  servo_rotational_speed:
+    label: Servo rotational speed
+    description: End-effector turn rate at a full-scale twist command.
+    type: float
+    default: 0.8
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    unit: rad/s
+    advanced: true
+    target:
+      kind: ros_param
+      node: /servo_node
+      param: moveit_servo.scale.rotational

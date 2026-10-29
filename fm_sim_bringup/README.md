@@ -160,7 +160,7 @@ only rclpy and launch_ros). `test/test_run_params.py` uses them on this launch.
 | `mujoco` | Object pose and camera render rates of the MuJoCo plugins (advanced) |
 | `so101` | Control rate (mujoco), each JTC's end-velocity flag, and each joint's damping and actuator force limit in the MJCF (all advanced) |
 | `axol` | Control rate (mujoco, advanced) |
-| `openarm` | Control rate, each arm JTC's end-velocity flag, each camera's rate (at most the 10 Hz the engine renders and the bridge carries) and JPEG quality, each finger's stiffness and force limit (mujoco for all but the JTC flags; camera rates basic) |
+| `openarm` | Control rate, each arm JTC's end-velocity flag, each camera's rate (at most the 10 Hz the engine renders and the bridge carries) and JPEG quality, each finger's stiffness and force limit (mujoco for all but the JTC flags; camera rates basic), and MoveIt Servo's joint speed (basic) and linear and rotational speeds for the `servo` launch role, on every backend, used only by a controller that activates `servo` |
 | `can_on_table` | Can mass, friction and timeout (basic); can size (no taller than it is, since it spawns at a fixed height on the paper), spawn ranges, and the success tolerance, hold and at-rest speed, bounded so a success is still a can standing placed on the paper (advanced) |
 
 Not tunable, by design: frames, joint and controller names, topics, paths,

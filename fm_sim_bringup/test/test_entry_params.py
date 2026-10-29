@@ -19,6 +19,8 @@ from test_run_params import _launch_setup
 
 # Every node an fm-sim entry tunes, and the file it otherwise reads that param from.
 PLUGINS_FILE = ('fm_sim_backends', 'config/mujoco_plugins.yaml')
+# The servo role's own file (fm-robot), which the openarm servo tunables default to.
+SERVO_FILE = ('fm_control', 'config/openarm/servo_sim.yaml')
 # The sim_camera node's own default for a param no file sets.
 CAMERA_DEFAULTS = {'jpeg_quality': 90}
 
@@ -73,6 +75,8 @@ def test_ros_param_defaults_are_what_the_nodes_read(kind, name):
             )
         elif node == '/mujoco_ros2_control_node':
             expected = _node_yaml_value(_share_yaml(*PLUGINS_FILE), node, param)
+        elif node == '/servo_node':
+            expected = _node_yaml_value(_share_yaml(*SERVO_FILE), node, param)
         else:
             controllers = _share_yaml(**entry['controllers_file'])
             expected = _node_yaml_value(controllers, node, param)
