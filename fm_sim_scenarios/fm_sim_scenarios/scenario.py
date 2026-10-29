@@ -14,6 +14,9 @@ import re
 # the same poses whichever backend asks.
 SPAWN_KEYS = ('x', 'y', 'z', 'yaw')
 SEED_MAX = 2 ** 32 - 1
+# Poses further apart than this give no speed for the at-rest check: a move across a
+# stalled pose stream would otherwise average out as slow. Engines publish at ~25 Hz.
+MAX_POSE_GAP_S = 0.5
 # Names that become MJCF bodies, files, markers or frames (the schema's frame_name).
 # Use fullmatch: with match, '$' also accepts a trailing newline.
 FRAME_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
@@ -174,6 +177,10 @@ class EpisodeMonitor:
     object's position (or None when it has no fresh pose, which never counts as
     inside); ``tick`` checks the timeout between observations. Each returns a
     Verdict once per episode, then None until the next ``start``.
+
+    With ``max_speed`` set, the hold also needs the object at rest: a robot still
+    lowering it through the region does not count, so a held object scores only
+    once it has been let go and settled.
     """
 
     def __init__(self, scenario, timeout_s=None):
@@ -184,9 +191,13 @@ class EpisodeMonitor:
         (self._region,) = [r for r in scenario['regions'] if r['name'] == success['region']]
         self._tolerance = success['tolerance']
         self._hold_s = success['hold_s']
+        self._max_speed = success.get('max_speed')
+        region = self._region['name']
+        self._where = f'at rest in {region}' if self._max_speed is not None else f'in {region}'
         self.timeout_s = timeout_s if timeout_s else success['timeout_s']
         self._start = None
         self._inside_since = None
+        self._last = None  # (t, position) of the previous fresh pose
         self._done = False
 
     @property
@@ -196,23 +207,40 @@ class EpisodeMonitor:
     def start(self, t):
         self._start = t
         self._inside_since = None
+        self._last = None
         self._done = False
 
     def _finish(self, success, reason, t):
         self._done = True
         return Verdict(success, reason, t - self._start)
 
+    def _speed_since(self, last, t, position):
+        """Speed from the previous fresh pose, or None when there is no usable one: none
+        yet, a repeated or older stamp, or a gap long enough to hide a move."""
+        if last is None or not 0 < t - last[0] <= MAX_POSE_GAP_S:
+            return None
+        # tradeoff: a finite difference of two poses, so engine jitter over one pose
+        # interval must stay under max_speed (MuJoCo's settled can: 0.02 mm/s against
+        # 5 mm/s); smooth over a window if a backend's poses are noisier.
+        return math.dist(position, last[1]) / (t - last[0])
+
     def observe(self, t, position):
         if not self.running:
             return None
-        region = self._region['name']
-        if position is not None and in_region(position, self._region, self._tolerance):
+        if position is None:
+            self._last = None
+            self._inside_since = None
+            return self.tick(t)
+        last, self._last = self._last, (t, position)
+        at_rest = True
+        if self._max_speed is not None:
+            speed = self._speed_since(last, t, position)
+            at_rest = speed is not None and speed <= self._max_speed
+        if at_rest and in_region(position, self._region, self._tolerance):
             if self._inside_since is None:
                 self._inside_since = t
             if t - self._inside_since >= self._hold_s:
-                return self._finish(
-                    True, f'{self.object} in {region} for {self._hold_s:g} s', t
-                )
+                return self._finish(True, f'{self.object} {self._where} for {self._hold_s:g} s', t)
         else:
             self._inside_since = None
         return self.tick(t)

@@ -262,7 +262,7 @@
       }
     },
     "success": {
-      "description": "object_in_region: the object's origin stays inside the region, grown by tolerance on every side, for hold_s seconds; the episode fails at timeout_s.",
+      "description": "object_in_region: the object's origin stays inside the region, grown by tolerance on every side, for hold_s seconds, and with max_speed set moves no faster than it; the episode fails at timeout_s.",
       "type": "object",
       "required": ["type", "object", "region", "tolerance", "hold_s", "timeout_s"],
       "additionalProperties": false,
@@ -272,6 +272,7 @@
         "region": {"$ref": "#/definitions/frame_name"},
         "tolerance": {"type": "number", "minimum": 0, "description": "m"},
         "hold_s": {"type": "number", "minimum": 0},
+        "max_speed": {"type": "number", "exclusiveMinimum": 0, "description": "m/s; optional: the hold also needs the object this slow, so a held object being lowered does not count"},
         "timeout_s": {"type": "number", "exclusiveMinimum": 0}
       }
     },

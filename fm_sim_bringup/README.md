@@ -107,7 +107,7 @@ flowchart LR
 | `objects[].static` | Fixed to the world: a geom with no joint, never respawned |
 | `objects[].spawn` | `x`, `y`, `z`, `yaw` as `[low, high]`: uniform offsets added to `pose`, drawn from `seed`: objects in yaml order, per object in x, y, z, yaw order |
 | `regions[]` | `name`, `size` (full extents), `pose`, `color`: a box volume, drawn as a marker, never a body |
-| `success` | `type: object_in_region`: `object`'s origin stays inside `region` grown by `tolerance` for `hold_s`; the episode fails at `timeout_s` |
+| `success` | `type: object_in_region`: `object`'s origin stays inside `region` grown by `tolerance` for `hold_s`, moving no faster than the optional `max_speed` (m/s); the episode fails at `timeout_s` |
 
 Names match `^[A-Za-z][A-Za-z0-9_]*$` and are unique across objects and
 regions; the success references and spawn ranges are checked on every load.

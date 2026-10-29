@@ -198,7 +198,7 @@ def test_success_when_the_can_holds_in_the_target(ros):
     FakeObjects.last.positions['can'] = INSIDE
     assert _until(lambda: outcomes)
     assert outcomes[0].success
-    assert outcomes[0].reason == 'can in target for 0.2 s'
+    assert outcomes[0].reason == 'can at rest in target for 0.2 s'
 
 
 def test_a_failed_reset_keeps_the_seed(ros):
