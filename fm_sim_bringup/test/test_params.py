@@ -65,6 +65,9 @@ def _with(**changes):
     (_with(target={'kind': 'service', 'node': '/x'}), "'service' is not one of"),
     (_with(target={'kind': 'ros_param', 'node': 'motion_server', 'param': 'x'}),
      'does not match'),
+    (_with(target={'kind': 'ros_param', 'node': '/**', 'param': 'x'}), 'does not match'),
+    (_with(target={'kind': 'ros_param', 'node': '/**/motion_server', 'param': 'x'}),
+     'does not match'),
     (_with(target={'kind': 'ros_param', 'node': '/x'}), "'param' is a required property"),
     (_with(target={'kind': 'description', 'xacro_arg': 'a', 'mjcf': {
         'element': 'joint', 'name': 'j', 'attribute': 'damping'}}), 'valid under each'),
@@ -99,7 +102,8 @@ def _with(**changes):
 ], ids=[
     'default out of bounds', 'default of the wrong type', 'min above max', 'no max',
     'float default for an int', 'enum default not a member', 'array default too short',
-    'unknown target kind', 'relative node name', 'ros_param without param',
+    'unknown target kind', 'relative node name', 'wildcard node', 'wildcard namespace',
+    'ros_param without param',
     'description with two targets', 'mjcf without backends', 'guarded ros param',
     'guarded topic', 'guarded path param', 'guarded description', 'scenario node param',
     'camera node param',

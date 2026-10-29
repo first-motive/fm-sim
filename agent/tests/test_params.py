@@ -128,8 +128,10 @@ def test_check_refuses_a_tunable_off_its_backends():
         params.check({"controller.rate": 10.0}, entries)
 
 
-def test_a_malformed_ros_param_declaration_is_not_a_tunable():
-    bad = {**SPEED, "target": {"kind": "ros_param", "node": "/x\n/y", "param": "p"}}
+@pytest.mark.parametrize("node", ["/x\n/y", "/**", "/**/motion_server", "motion_server"])
+def test_a_malformed_ros_param_declaration_is_not_a_tunable(node):
+    # A wildcard key would sit in the tier of launch dicts, under every node-keyed guard.
+    bad = {**SPEED, "target": {"kind": "ros_param", "node": node, "param": "p"}}
     with pytest.raises(SpecError, match="not a tunable"):
         params.check({"controller.speed": 1.0}, entries_with(speed=bad))
 
