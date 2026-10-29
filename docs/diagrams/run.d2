@@ -4,7 +4,10 @@
 # model the description names; on Gazebo and Isaac the scenario half the backend host
 # completes), includes the backend host, spawns the robot's controllers by role,
 # starts the launch roles the controller activates, includes the controller entry's
-# launch, and starts the scenario node for a scenario with objects.
+# launch, and starts the scenario node for a scenario with objects. A run's
+# params, checked by the agent, arrive as two read-only files: entry and
+# description overrides, and a ROS params file every launch applies before
+# its own node-keyed guard.
 # Each block: role, package, artifact.
 ...@styles
 direction: down
@@ -15,6 +18,14 @@ run: "" {
   r: Run Launch { class: role }
   p: fm_sim_bringup { class: pkg }
   a: "run.launch.py backend robot scenario controller" { class: art }
+}
+
+params: "" {
+  grid-rows: 3
+  class: block
+  r: Run Params { class: role }
+  p: fm-sim agent { class: pkg }
+  a: "params.json · params.yaml (read-only)" { class: art }
 }
 
 index: "" {
@@ -89,3 +100,4 @@ spawn -> backend
 spawn -> roles
 index -> ctl
 index -> scenario
+params -> run: overrides_file · params_file
