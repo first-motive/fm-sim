@@ -27,7 +27,9 @@ pixi run --locked build                                  # ~/.local/share/fm-sim
 pixi run --locked bash scripts/native/env.sh \
   ros2 launch fm_sim_bringup run.launch.py \
   backend:=mujoco robot:=openarm scenario:=empty controller:=idle use_sim:=true
+scripts/native/bench.sh                                  # container vs native (needs Docker + image)
 pixi run test-lib                                        # lib.sh tests
+pixi run test-bench                                      # bench_verdict.py tests
 pixi run --locked test-patch                             # mujoco_ros2_control tests
 ```
 
@@ -36,6 +38,7 @@ pixi run --locked test-patch                             # mujoco_ros2_control t
 | `build.sh` | Stages and builds `ws` and `ws_ctl`; `build.sh ws`, `ctl` or `test` runs one stage |
 | `lib.sh` | Pinned fetch, manifest pin check and input hash, sourced by `build.sh` |
 | `env.sh` | Runs a command in the built workspace with discovery held to this host |
+| `bench.sh`, `bench_probe.py`, `bench_verdict.py` | Runs one spec in the container and natively, and prints the go/no-go gate |
 | `patches/mujoco-ros2-control-macos.patch` | mujoco_ros2_control 0.1.2 on macOS (below) |
 | `shims/mujoco_vendor` | Re-exports conda-forge's libmujoco under the ROS package name |
 
