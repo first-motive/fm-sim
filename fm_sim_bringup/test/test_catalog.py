@@ -44,7 +44,7 @@ def test_schema_is_valid_json_schema():
 def test_registered_entries():
     assert {'mujoco', 'gazebo', 'isaac'} <= set(catalog.names('backends'))
     assert {'openarm', 'so101', 'axol'} <= set(catalog.names('robots'))
-    assert {'empty', 'can_on_table'} <= set(catalog.names('scenarios'))
+    assert {'empty', 'can_on_table', 'table_only'} <= set(catalog.names('scenarios'))
     assert {'idle', 'teleop'} <= set(catalog.names('controllers'))
 
 
@@ -194,6 +194,14 @@ def test_can_on_table_uses_fm_skills_geometry():
     assert entry['success']['object'] == 'can'
     (target,) = entry['regions']
     assert target['pose']['xyz'][:2] == paper['pose']['xyz'][:2]
+
+
+def test_table_only_matches_can_on_table():
+    scene = {obj['name']: obj for obj in _can_on_table()['objects']}
+    del scene['can']
+    table_only = catalog.load('scenarios', 'table_only')
+    assert {obj['name']: obj for obj in table_only['objects']} == scene
+    assert 'success' not in table_only
 
 
 @pytest.mark.parametrize('change, match', [
