@@ -103,7 +103,14 @@ def generate_launch_description():
                 # Jazzy reads the description from the topic and ignores this
                 # parameter; fm-app's Humble fm_bringup still includes this
                 # backend and needs it until that launch moves to Jazzy.
-                parameters=[{'robot_description': robot_description}, controllers_file],
+                # use_sim_time: the Isaac stage, a process beside this launch,
+                # publishes /clock from simulation time; a manager on wall time
+                # stamps /joint_states off it. Until the stage plays, this
+                # manager's clock stands still.
+                parameters=[
+                    {'robot_description': robot_description, 'use_sim_time': True},
+                    controllers_file,
+                ],
                 output='screen',
             ),
             OpaqueFunction(function=_stage_setup),
