@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import threading
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -153,6 +155,8 @@ def test_remote_catalog_lists_each_dimension(remote, capsys):
 def test_a_host_that_does_not_answer_is_a_precondition_failure(remote, capsys, monkeypatch):
     host, _, _ = remote
     monkeypatch.setattr(client, "QUERY_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(client, "RETRY_WINDOW_S", 0.5)
+    monkeypatch.setattr(client, "RETRY_PAUSE_S", 0.01)
     code, _, err = run(["status", "--host", "fm-ws-02"], KeptOpen(host.session, "fm_ws_02"), capsys)
     assert code == 3 and "did not answer" in err
 
@@ -192,6 +196,116 @@ def test_remote_trial_gives_each_run_its_time_then_downs_it(remote, capsys, tmp_
     assert report["success_rate"] == 1.0  # each run latches its own success; down reads it
     assert runner.names().count("stop") == 2
     assert "success 2/2 (100.0%), 0 unscored" in out
+
+
+def refusal(body: dict) -> SimpleNamespace:
+    """An error reply carrying the agent's body, as a refusal comes back."""
+    return SimpleNamespace(ok=None, err=SimpleNamespace(payload=Payload(json.dumps(body).encode())))
+
+
+BUSY = {"ok": False, "error": {"code": "busy", "message": "retry"}}
+
+
+class FlakySession:
+    """The real session, except a verb's first queries get what ``first`` lists.
+
+    ``None`` is no reply at all, which is what a router routing a starting run's
+    DDS entities does to a query; a dict is that body as a refusal.
+    """
+
+    def __init__(self, session, first: dict[str, list[dict | None]]) -> None:
+        self.session = session
+        self.first = {verb: list(replies) for verb, replies in first.items()}
+        self.asked: list[str] = []
+
+    def get(self, key, **kwargs):
+        verb = key.rsplit("/", 1)[-1]
+        self.asked.append(verb)
+        if self.first.get(verb):
+            canned = self.first[verb].pop(0)
+            return [] if canned is None else [refusal(canned)]
+        return self.session.get(key, **kwargs)
+
+
+@pytest.fixture
+def flaky(remote, monkeypatch):
+    monkeypatch.setattr(client, "RETRY_WINDOW_S", 1.0)
+    monkeypatch.setattr(client, "RETRY_PAUSE_S", 0.01)
+    host, agent, runner = remote
+
+    def over(first: dict[str, list[dict | None]]) -> tuple[KeptOpen, FlakySession]:
+        session = FlakySession(host.session, first)
+        return KeptOpen(session, HOST), session
+
+    return over, agent, runner
+
+
+def test_an_unanswered_read_is_asked_again(flaky):
+    over, _, _ = flaky
+    host, session = over({"status": [None, None]})
+    assert host.call("status")["ok"] is True
+    assert session.asked == ["status"] * 3
+
+
+def test_a_read_unanswered_for_the_whole_window_is_no_answer(flaky):
+    over, _, _ = flaky
+    host, session = over({"status": [None] * 1000})
+    started = time.monotonic()
+    with pytest.raises(client.NoAnswer):
+        host.call("status")
+    elapsed = time.monotonic() - started
+    assert client.RETRY_WINDOW_S - client.RETRY_PAUSE_S <= elapsed < 2 * client.RETRY_WINDOW_S
+    assert len(session.asked) > 1
+
+
+def test_an_unanswered_up_is_never_asked_again(flaky):
+    over, _, runner = flaky
+    host, session = over({"up": [None]})
+    with pytest.raises(client.NoAnswer):
+        host.call("up", {**SPEC, "record": False})
+    assert session.asked == ["up"]
+    assert "start" not in runner.names()
+
+
+def test_a_bare_down_is_never_asked_again(flaky):
+    over, _, _ = flaky
+    host, session = over({"down": [None]})
+    with pytest.raises(client.NoAnswer):
+        host.call("down", {})
+    assert session.asked == ["down"]
+
+
+def test_a_down_naming_its_run_waits_out_busy(flaky):
+    over, agent, _ = flaky
+    host, session = over({"down": [None, BUSY]})
+    run_id = host.call("up", {**SPEC, "record": False})["run_id"]
+    wait_for(lambda: agent.status()["state"] == "running")
+    answer = host.call("down", {"run_id": run_id})
+    assert answer["ok"] is True and answer["summary"]["run_id"] == run_id
+    assert session.asked.count("down") == 3
+
+
+def test_a_trial_rides_out_unanswered_status_and_down(flaky, capsys, tmp_path):
+    over, _, runner = flaky
+    runner.latch_each_episode()
+    host, _ = over({"status": [None], "down": [None]})
+    report_path = tmp_path / "report.json"
+    argv = [
+        "trial",
+        "--host",
+        "fm-ws-01",
+        "--seeds",
+        "0",
+        "--run-timeout",
+        "0.3",
+        "--report",
+        str(report_path),
+    ]
+    code, _, _ = run(argv, host, capsys)
+    assert code == 0
+    report = json.loads(report_path.read_text())
+    assert report["complete"] is True and report["success_rate"] == 1.0
+    assert runner.names().count("stop") == 1
 
 
 # -- --host local ------------------------------------------------------------

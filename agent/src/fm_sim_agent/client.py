@@ -66,6 +66,7 @@ import os
 import re
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -104,6 +105,17 @@ LOCAL = "local"
 #: outcome, the recorder and ``docker stop``. Everything else answers at once.
 QUERY_TIMEOUT_S = 15.0
 VERB_TIMEOUT_S = {"catalog": 150.0, "up": 240.0, "down": 120.0}
+#: Verbs asked again when no answer comes, or ``busy``: the reads, and a ``down``
+#: naming its run, which a repeat answers with ``not_running`` once the first has
+#: landed. A bare ``down`` is sent once, since a repeat could stop a run someone
+#: started in between; ``up`` is sent once, since a repeat could start a second.
+REPEATABLE_VERBS = frozenset({"status", "catalog", "runs", "description", "asset", "down"})
+#: tradeoff: a sim host's router stalls or drops queries while a starting run's
+#: DDS entities are routed (5-20 s measured on fm-ws-01). A repeatable verb is
+#: asked again every RETRY_PAUSE_S until RETRY_WINDOW_S has passed, so a call
+#: waits at most its own timeout plus the window; a longer outage is NoAnswer.
+RETRY_WINDOW_S = 30.0
+RETRY_PAUSE_S = 2.0
 
 #: Every RunSpec field, with the default a flag left out takes. The robot is so101
 #: because its description is public, so every sim image runs it; the OpenArm's is
@@ -143,6 +155,12 @@ def decode(payload) -> dict | None:
     return decoded if isinstance(decoded, dict) else None
 
 
+def is_busy(answer: dict) -> bool:
+    """Whether the agent refused for now: too many queries in hand, or a run still stopping."""
+    error = answer.get("error")
+    return answer.get("ok") is False and isinstance(error, dict) and error.get("code") == "busy"
+
+
 class NoAnswer(Exception):
     """The host did not answer a verb."""
 
@@ -156,6 +174,19 @@ class Remote:
 
     def call(self, verb: str, body: dict | None = None) -> dict:
         payload = json.dumps(body).encode() if body is not None else None
+        repeatable = verb in REPEATABLE_VERBS and (verb != "down" or bool(body and body.get("run_id")))
+        deadline = time.monotonic() + RETRY_WINDOW_S
+        while True:
+            answer = self._ask(verb, payload)
+            settled = answer is not None and not (repeatable and is_busy(answer))
+            if settled or not repeatable or time.monotonic() + RETRY_PAUSE_S > deadline:
+                break
+            time.sleep(RETRY_PAUSE_S)
+        if answer is None:
+            raise NoAnswer(f"{self.host} did not answer {verb}")
+        return answer
+
+    def _ask(self, verb: str, payload: bytes | None) -> dict | None:
         timeout_s = VERB_TIMEOUT_S.get(verb, QUERY_TIMEOUT_S)
         for reply in self.session.get(key_of(self.host, verb), payload=payload, timeout=timeout_s):
             # A refusal is an error reply carrying the agent's body; read it the
@@ -164,7 +195,7 @@ class Remote:
             decoded = decode(sample.payload)
             if decoded is not None:
                 return decoded
-        raise NoAnswer(f"{self.host} did not answer {verb}")
+        return None
 
     def outcome(self, _run_id: str) -> dict | None:
         return None  # the agent shows the outcome only at down
