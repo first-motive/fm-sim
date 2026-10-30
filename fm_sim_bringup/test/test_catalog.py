@@ -111,6 +111,20 @@ def test_malformed_entry_is_rejected(extra_prefix):
         catalog.load('controllers', 'broken')
 
 
+def test_controller_scenarios_must_be_registered(extra_prefix):
+    extra_prefix('listed', dict(PLACEHOLDER, name='listed', scenarios=['can_on_table']))
+    assert catalog.load('controllers', 'listed')['scenarios'] == ['can_on_table']
+    extra_prefix('misspelt', dict(PLACEHOLDER, name='misspelt', scenarios=['can_on_tabel']))
+    with pytest.raises(catalog.CatalogError, match='unknown scenarios can_on_tabel'):
+        catalog.load('controllers', 'misspelt')
+
+
+def test_controller_scenarios_cannot_be_empty(extra_prefix):
+    extra_prefix('none', dict(PLACEHOLDER, name='none', scenarios=[]))
+    with pytest.raises(catalog.CatalogError, match='is too short|should be non-empty'):
+        catalog.load('controllers', 'none')
+
+
 def test_entry_must_name_itself(extra_prefix):
     extra_prefix('alias', PLACEHOLDER)
     with pytest.raises(catalog.CatalogError, match="names itself 'wam'"):

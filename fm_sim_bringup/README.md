@@ -299,7 +299,7 @@ file back to its source). An
 | `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
 | every kind | | optional `params` (see [Run Params](#run-params)) |
-| `controllers` | `idle`, `teleop` | `activate`, `launch`, optional `family` (groups variants of one controller), optional `control` (see [Control Descriptor](#control-descriptor)) |
+| `controllers` | `idle`, `teleop` | `activate`, `launch`, optional `family` (groups variants of one controller), optional `scenarios` (the only scenarios it runs on; absent means all), optional `control` (see [Control Descriptor](#control-descriptor)) |
 
 ### Control Descriptor
 

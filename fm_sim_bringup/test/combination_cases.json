@@ -1,5 +1,5 @@
 {
-  "_comment": "Robot/controller pairs and whether run.launch.py refuses them. test_run.py checks fm_sim_bringup.run against this table; agent/tests/test_agent.py checks the sim agent's combination_refusal against it, so the agent refuses exactly what the launch refuses. A refused case's reason is a phrase both refusals carry.",
+  "_comment": "Robot, controller and scenario combinations and whether run.launch.py refuses them. test_run.py checks fm_sim_bringup.run against this table; agent/tests/test_agent.py checks the sim agent's combination_refusal against it, so the agent refuses exactly what the launch refuses. A refused case's reason is a phrase both refusals carry.",
   "cases": [
     {
       "name": "a launch-free controller on a robot with no profile",
@@ -193,6 +193,76 @@
       },
       "refused": true,
       "reason": "which is not a controller role"
+    },
+    {
+      "name": "a controller on a scenario it lists",
+      "backend": "mujoco",
+      "scenario": "can_on_table",
+      "robot": {
+        "robot_profile": "openarm",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [],
+        "launch": null,
+        "scenarios": [
+          "can_on_table"
+        ]
+      },
+      "refused": false
+    },
+    {
+      "name": "a controller on a scenario it does not list",
+      "backend": "mujoco",
+      "scenario": "empty",
+      "robot": {
+        "robot_profile": "openarm",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [],
+        "launch": null,
+        "scenarios": [
+          "can_on_table"
+        ]
+      },
+      "refused": true,
+      "reason": "runs only on scenarios"
+    },
+    {
+      "name": "a controller listing no scenarios runs on any",
+      "backend": "mujoco",
+      "scenario": "empty",
+      "robot": {
+        "robot_profile": "openarm",
+        "supported_backends": [
+          "mujoco"
+        ],
+        "controller_roles": {
+          "broadcasters": [
+            "jsb"
+          ]
+        }
+      },
+      "controller": {
+        "activate": [],
+        "launch": null
+      },
+      "refused": false
     }
   ]
 }
