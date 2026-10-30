@@ -233,6 +233,7 @@ The robot is not reset; a controller under test returns it to its start.
 | `empty` | none | none |
 | `can_on_table` | `table` (top at 0.207), `paper` (A4), `can` (66 mm x 135 mm, 0.35 kg, spawned in a 60 mm x 50 mm box with any yaw) | `can` upright on the paper (`target`) for 2 s within 120 s |
 | `table_only` | `can_on_table`'s `table` and `paper`, no can: the empty scene a background-difference detector subtracts | none |
+| `tabletop_can`, `tabletop_block`, `tabletop_puck` | `can_on_table`'s `table` and `paper`, and one shared layout: green `can` (66 mm x 135 mm, 0.35 kg), red `block` (120 mm x 50 mm x 40 mm, 0.15 kg), blue `puck` (60 mm x 40 mm, 0.10 kg), each spawned in a 40 mm x 40 mm box with any yaw | The named object on the paper (`target`, at its resting height) for 2 s within 120 s |
 
 `can_on_table` takes its geometry from fm-skills (`openarm_v2_skills_config`
 `specs.yaml` and `fake_detections.yaml`): the table top, the can, and the can and
@@ -402,6 +403,7 @@ is the contract for that output.
 | Test | Checks |
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, `requires_packages` (a missing package lists the entry as unavailable and is named when it is refused), schema validation (`robot_profile` a name or `null`, launch role shape, controller `launch_args`), run-owned `launch_args` names refused, `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
+| `test_tabletop_scenarios.py` | The three tabletop entries share one layout; the named object is the success object; target at its resting height; worst-case spawns never overlap, start on the paper or as a success, and stay reachable and on the table; colours clearly apart |
 | `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, the controller launch's arguments, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose. The OpenArm rows skip without its private description |
 | `test_params.py` | Tunable declarations the loader refuses (default out of bounds or of the wrong type, `min` above `max`, an unknown target kind, a relative or wildcard node, a guarded param, an `mjcf` target without `backends`, an entry path naming nothing or not holding the default) and the shared value cases in `param_cases.json` |
 | `test_run_params.py` | Overrides through the launch: an entry override changes the generated world (can mass), an override the entry would refuse is refused, a description override changes the compiled MJCF (joint damping) and a xacro arg; through rcl, the params file beats the scenario node's own parameters and the controllers file, and the guard keeps what the launch owns |
