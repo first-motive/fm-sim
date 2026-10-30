@@ -546,12 +546,12 @@ def test_resolve_matches_the_shared_combination_cases(monkeypatch, case):
     entries = {
         'backends': {'name': case['backend']},
         'robots': {'name': 'robot', **case['robot']},
-        'scenarios': catalog.load('scenarios', 'empty'),
+        'scenarios': catalog.load('scenarios', case.get('scenario', 'empty')),
         'controllers': {'name': 'controller', **case['controller']},
     }
     monkeypatch.setattr(catalog, 'require_available', lambda kind, name: entries[kind])
     try:
-        resolved = run.resolve(case['backend'], 'robot', 'empty', 'controller')
+        resolved = run.resolve(case['backend'], 'robot', case.get('scenario', 'empty'), 'controller')
         run.controller_sets(resolved['robot'], resolved['controller'])
     except catalog.CatalogError as error:
         refusal = str(error)

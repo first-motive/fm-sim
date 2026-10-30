@@ -313,6 +313,7 @@ def test_combination_refusal_matches_the_launch(case):
     entries = {
         "backend": entry(case["backend"]),
         "robot": {**entry("robot"), **case["robot"]},
+        "scenario": entry(case.get("scenario", "empty")),
         "controller": {**entry("controller"), **case["controller"]},
     }
     refusal = combination_refusal(entries)
@@ -975,3 +976,15 @@ def test_asset_refuses_any_file_the_description_does_not_draw(agent, runner, uri
 def test_asset_needs_a_uri(agent):
     up_running(agent)
     assert code(ask(agent, "asset", {})) == "invalid_request"
+
+
+def test_combination_refusal_fails_closed_on_a_malformed_scenarios_list():
+    entries = {
+        "backend": entry("mujoco"),
+        "robot": {**entry("robot"), "supported_backends": ["mujoco"]},
+        "scenario": entry("can_on_table"),
+        "controller": {**entry("controller"), "scenarios": "can_on_table"},
+    }
+    assert (
+        combination_refusal(entries) == "controller controller runs only on scenarios none; not can_on_table"
+    )

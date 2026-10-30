@@ -275,6 +275,11 @@ def combination_refusal(entries: dict) -> str | None:
         unmet = [name for name in needed if name not in controller_roles]
         if unmet:
             return f"robot {robot['name']} launch role {role} requires {', '.join(map(str, unmet))}, which is not a controller role"
+    # Fails closed: a scenarios value that is not a list is refused, as the schema refuses it.
+    scenarios, scenario = controller.get("scenarios"), entries["scenario"]["name"]
+    if scenarios is not None and (not isinstance(scenarios, list) or scenario not in scenarios):
+        listed = ", ".join(map(str, scenarios)) if isinstance(scenarios, list) else "none"
+        return f"controller {controller['name']} runs only on scenarios {listed}; not {scenario}"
     return None
 
 

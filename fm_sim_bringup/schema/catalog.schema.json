@@ -483,6 +483,13 @@
               "oneOf": [{"type": "null"}, {"$ref": "#/definitions/share_file"}],
               "description": "Launch file run.launch.py includes, or null for none."
             },
+            "scenarios": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"$ref": "#/definitions/name"},
+              "description": "Optional scenarios the controller runs on, such as a pick and place that knows only can_on_table's objects. Absent means every scenario; run.launch.py and the sim agent refuse any other."
+            },
             "family": {
               "$ref": "#/definitions/name",
               "description": "Optional group for variants of one controller, such as fm_skills for fm_skills_classical and fm_skills_learned. Absent means the entry is its own family."

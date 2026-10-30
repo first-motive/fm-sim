@@ -128,8 +128,9 @@ def resolve(backend, robot, scenario, controller):
     """Load and check the four entries.
 
     Refuses unknown or unavailable entries, a robot on a backend it does not list
-    in ``supported_backends``, and a controller with a launch on a robot with no
-    ``robot_profile`` (that launch reads its names from the profile).
+    in ``supported_backends``, a controller with a launch on a robot with no
+    ``robot_profile`` (that launch reads its names from the profile), and a
+    controller on a scenario its ``scenarios`` list leaves out.
     """
     entries = {
         'backend': catalog.require_available('backends', backend),
@@ -146,6 +147,12 @@ def resolve(backend, robot, scenario, controller):
     if entries['controller']['launch'] and entries['robot']['robot_profile'] is None:
         raise catalog.CatalogError(
             f'controller {controller!r} needs a robot profile; robot {robot!r} has none yet'
+        )
+    scenarios = entries['controller'].get('scenarios')
+    if scenarios is not None and scenario not in scenarios:
+        raise catalog.CatalogError(
+            f'controller {controller!r} runs only on scenarios {", ".join(scenarios)}; '
+            f'not {scenario!r}'
         )
     return entries
 

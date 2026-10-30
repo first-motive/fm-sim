@@ -150,6 +150,11 @@ def validate(kind, entry, schema=None):
         where = '/'.join(map(str, error.absolute_path))
         at = f' (at {where})' if where else ''
         raise CatalogError(f'{kind[:-1]} {name!r}: {error.message}{at}') from error
+    if kind == 'controllers':
+        # A misspelt scenario would leave the controller refused on every scenario.
+        unknown = [s for s in entry.get('scenarios', []) if s not in names('scenarios')]
+        if unknown:
+            raise CatalogError(f'controller {name!r}: unknown scenarios {", ".join(unknown)}')
     try:
         if kind == 'scenarios':
             scenario.check(entry)
