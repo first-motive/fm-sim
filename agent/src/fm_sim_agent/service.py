@@ -52,6 +52,8 @@ from fm_sim_agent.runner import (
     DEFAULT_PIDS_LIMIT,
     DDS_RANGES,
     DockerRunner,
+    RunnerError,
+    check_models_path,
 )
 from fm_sim_agent.runs import RunStore, default_runs_dir
 from fm_sim_agent.spec import NAME_PATTERN, valid_name
@@ -336,6 +338,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--isaac-memory", default=isaac.MEMORY, help="Memory ceiling of a run's Isaac container."
     )
     parser.add_argument(
+        "--models-dir",
+        type=Path,
+        default=None,
+        help="Object packs every run mounts read-only at /workspace/models. An absolute path to a real "
+        "directory; a run is refused while any symlink is under it.",
+    )
+    parser.add_argument(
         "--no-host-network", action="store_true", help="Do not share the host's network (macOS)."
     )
     parser.add_argument(
@@ -443,6 +452,14 @@ def main(argv: list[str] | None = None) -> int:
     except ImageError as exc:
         print(f"fm-sim-agent: {exc}", file=sys.stderr)
         return 1
+    # Only the path's shape: the tree is checked before each run (DockerRunner.start).
+    # Not resolved like runs_dir: that would hide the symlink each run's check refuses.
+    if args.models_dir is not None:
+        try:
+            check_models_path(args.models_dir)
+        except RunnerError as exc:
+            print(f"fm-sim-agent: {exc}", file=sys.stderr)
+            return 1
     # Absolute, so the bind mount names the same directory whatever the cwd.
     runs_dir = (args.runs_dir or default_runs_dir()).expanduser().resolve()
     runner = DockerRunner(
@@ -465,6 +482,7 @@ def main(argv: list[str] | None = None) -> int:
         .expanduser()
         .resolve(),
         isaac_memory=args.isaac_memory,
+        models_dir=args.models_dir,
     )
     agent = SimAgent(host, runner, RunStore(runs_dir))
     agent.keep_foreign_runs = label != host  # a label shared with other processes
