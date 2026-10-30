@@ -17,7 +17,7 @@ from ament_index_python.packages import get_package_share_directory
 from controller_manager_msgs.srv import ListControllers, ListHardwareComponents
 from fm_sim_bringup import catalog
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import ExecuteProcess, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 import launch_testing
 import launch_testing.actions
@@ -25,6 +25,20 @@ import pytest
 import rclpy
 
 TIMEOUT_S = 180.0
+# Stands in for the Isaac stage's /clock: the isaac controller_manager runs on sim
+# time and ticks only while something publishes it. No Isaac Sim runs in CI.
+STAGE_CLOCK = """
+import rclpy, time
+from rosgraph_msgs.msg import Clock
+rclpy.init()
+node = rclpy.create_node('stage_clock')
+pub = node.create_publisher(Clock, '/clock', 10)
+while rclpy.ok():
+    msg = Clock()
+    msg.clock = node.get_clock().now().to_msg()
+    pub.publish(msg)
+    time.sleep(0.01)
+"""
 EXPECTED_ACTIVE = {'joint_state_broadcaster'}
 # Per robot: the controllers idle loads inactive.
 EXPECTED_INACTIVE = {
@@ -67,8 +81,10 @@ def generate_test_description(robot, backend):
     run_launch = os.path.join(
         get_package_share_directory('fm_sim_bringup'), 'launch', 'run.launch.py'
     )
+    stage_clock = [ExecuteProcess(cmd=['python3', '-c', STAGE_CLOCK])] if backend == 'isaac' else []
     # The returned dict is how launch_testing hands the parameters to the test.
     return LaunchDescription([
+        *stage_clock,
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(run_launch),
             launch_arguments={
