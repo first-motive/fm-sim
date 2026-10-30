@@ -11,9 +11,10 @@ import os
 import subprocess
 
 from ament_index_python.packages import get_package_prefix
-from conftest import ARM_MJCF
+from conftest import ARM_MJCF, CATALOG_SCENARIOS
 from fm_sim_scenarios import mujoco_world, scenario as sc
 import pytest
+import yaml
 
 MOUNT = [0.0, 0.0, 0.698]
 
@@ -105,6 +106,19 @@ def test_objects_settle_on_the_table(mujoco, can_on_table, tmp_path):
     assert data.body('can').xpos[2] == pytest.approx(table_top + 0.135 / 2, abs=1e-3)
     assert data.body('can').xpos[:2] == pytest.approx(spawn['can'][0][:2], abs=2e-3)
     assert data.body('ball').xpos[2] == pytest.approx(table_top + 0.02, abs=1e-3)
+
+
+@pytest.mark.parametrize('name', ['tabletop_can', 'tabletop_block', 'tabletop_puck'])
+def test_tabletop_objects_settle_where_they_spawn(mujoco, name, tmp_path):
+    with open(os.path.join(CATALOG_SCENARIOS, f'{name}.yaml')) as entry_file:
+        scenario = yaml.safe_load(entry_file)
+    model, data = _load(mujoco, scenario, 4, tmp_path)
+    spawn = sc.spawn_poses(scenario, 4)
+    mujoco.mj_step(model, data, nstep=int(1.0 / model.opt.timestep))
+    table_top = 0.207
+    for body, height in (('can', 0.135), ('block', 0.040), ('puck', 0.040)):
+        assert data.body(body).xpos[2] == pytest.approx(table_top + height / 2, abs=1e-3)
+        assert data.body(body).xpos[:2] == pytest.approx(spawn[body][0][:2], abs=2e-3)
 
 
 # A camera on the arm's moving link, looking along the link's +x (optical z), and

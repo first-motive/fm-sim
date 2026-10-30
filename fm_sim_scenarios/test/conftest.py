@@ -44,9 +44,8 @@ TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 ARM_MJCF = os.path.join(TEST_DIR, 'fixtures', 'arm', 'arm.xml')
 # The catalog entry fm_sim_bringup ships, read from the source tree: fm_sim_bringup
 # depends on this package, so it cannot be a dependency here.
-CAN_ON_TABLE_YAML = os.path.join(
-    TEST_DIR, '..', '..', 'fm_sim_bringup', 'catalog', 'scenarios', 'can_on_table.yaml'
-)
+CATALOG_SCENARIOS = os.path.join(TEST_DIR, '..', '..', 'fm_sim_bringup', 'catalog', 'scenarios')
+CAN_ON_TABLE_YAML = os.path.join(CATALOG_SCENARIOS, 'can_on_table.yaml')
 # A test-only extra: a sphere, and a free object with no spawn ranges.
 BALL = {
     'name': 'ball', 'shape': 'sphere', 'size': [0.02], 'mass': 0.05, 'friction': 0.5,
