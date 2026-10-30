@@ -125,6 +125,17 @@ def test_mujoco_controller_manager_runs_on_sim_time(monkeypatch):
     assert parameters['use_sim_time'] is True
 
 
+def test_isaac_controller_manager_runs_on_sim_time(monkeypatch):
+    # The stage publishes /clock; fm-skills' sim guard refuses a manager on wall time.
+    module = _load('isaac')
+    recorder = _NodeRecorder()
+    monkeypatch.setattr(module, 'Node', recorder)
+    module.generate_launch_description()
+    (call,) = [c for c in recorder.calls if c['package'] == 'controller_manager']
+    (parameters,) = [p for p in call['parameters'] if isinstance(p, dict)]
+    assert parameters['use_sim_time'] is True
+
+
 def _engine_node(monkeypatch, system='Linux', mujoco_gl=None, params_file=''):
     module = _load('mujoco')
     monkeypatch.setattr(module.platform, 'system', lambda: system)
