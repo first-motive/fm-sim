@@ -125,6 +125,29 @@ def test_controller_scenarios_cannot_be_empty(extra_prefix):
         catalog.load('controllers', 'none')
 
 
+def test_controller_carries_its_launch_args(extra_prefix):
+    launch_args = {'perception': 'model', 'pack': 'can_paper_seg'}
+    extra_prefix('wam', dict(PLACEHOLDER, launch_args=launch_args))
+    assert catalog.load('controllers', 'wam')['launch_args'] == launch_args
+
+
+@pytest.mark.parametrize('launch_args, match', [
+    ({'Bad-Key': 'x'}, 'does not match'),
+    ({'perception': 1}, 'is not of type'),
+], ids=['key_name', 'not_a_string'])
+def test_malformed_controller_launch_args_are_rejected(extra_prefix, launch_args, match):
+    extra_prefix('wam', dict(PLACEHOLDER, launch_args=launch_args))
+    with pytest.raises(catalog.CatalogError, match=match):
+        catalog.load('controllers', 'wam')
+
+
+@pytest.mark.parametrize('owned', sorted(catalog.CONTROLLER_LAUNCH_OWNED))
+def test_controller_launch_args_cannot_set_what_the_run_owns(extra_prefix, owned):
+    extra_prefix('wam', dict(PLACEHOLDER, launch_args={'pack': 'x', owned: 'y'}))
+    with pytest.raises(catalog.CatalogError, match=f'launch_args may not set {owned}; '):
+        catalog.load('controllers', 'wam')
+
+
 def test_entry_must_name_itself(extra_prefix):
     extra_prefix('alias', PLACEHOLDER)
     with pytest.raises(catalog.CatalogError, match="names itself 'wam'"):
