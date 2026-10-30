@@ -52,6 +52,8 @@ from fm_sim_agent.runner import (
     DEFAULT_PIDS_LIMIT,
     DDS_RANGES,
     DockerRunner,
+    RunnerError,
+    check_models_path,
 )
 from fm_sim_agent.runs import RunStore, default_runs_dir
 from fm_sim_agent.spec import NAME_PATTERN, valid_name
@@ -67,14 +69,14 @@ DEFAULT_IMAGE = "ghcr.io/first-motive/fm-sim:jazzy"
 #: amd64 and arm64), or None to follow the tag. CI pushes the tag on every main
 #: push; this pin moves only when it is bumped here. Read the tag's current one
 #: with ``docker buildx imagetools inspect <DEFAULT_IMAGE>``.
-DEFAULT_IMAGE_DIGEST: str | None = "sha256:2bb53e3286dfefac22efcedd0769879e055f157bf7e7ecfdd05eec23d1afce66"
+DEFAULT_IMAGE_DIGEST: str | None = "sha256:5ea9709026e0756c74b69f4999fb0df717650c1a4a453b5fa4445b40cc8a39d1"
 #: The private image with First Motive's controllers, which ``fm sim host …
 #: local --controllers`` (or ``FM_SIM_CONTROLLERS=1``) runs instead, and its
 #: pin, moved as ``DEFAULT_IMAGE_DIGEST`` is. Pulling it needs ``docker login
 #: ghcr.io`` with access to it.
 CONTROLLERS_IMAGE = "ghcr.io/first-motive/fm-sim-controllers:jazzy"
 CONTROLLERS_IMAGE_DIGEST: str | None = (
-    "sha256:90cb161b0cfc2506e7b34acbbd1cba5a1e16e5860696b72ad7d898a12dcd9ee8"
+    "sha256:cd0c33f21de662d698d985004719ab32d98b63736f4e183caa4a6dabfe81e807"
 )
 CONTROLLERS_ENV = "FM_SIM_CONTROLLERS"
 IMAGE_ENV = "FM_SIM_IMAGE"
@@ -336,6 +338,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--isaac-memory", default=isaac.MEMORY, help="Memory ceiling of a run's Isaac container."
     )
     parser.add_argument(
+        "--models-dir",
+        type=Path,
+        default=None,
+        help="Object packs every run mounts read-only at /workspace/models. An absolute path to a real "
+        "directory; a run is refused while any symlink is under it.",
+    )
+    parser.add_argument(
         "--no-host-network", action="store_true", help="Do not share the host's network (macOS)."
     )
     parser.add_argument(
@@ -443,6 +452,14 @@ def main(argv: list[str] | None = None) -> int:
     except ImageError as exc:
         print(f"fm-sim-agent: {exc}", file=sys.stderr)
         return 1
+    # Only the path's shape: the tree is checked before each run (DockerRunner.start).
+    # Not resolved like runs_dir: that would hide the symlink each run's check refuses.
+    if args.models_dir is not None:
+        try:
+            check_models_path(args.models_dir)
+        except RunnerError as exc:
+            print(f"fm-sim-agent: {exc}", file=sys.stderr)
+            return 1
     # Absolute, so the bind mount names the same directory whatever the cwd.
     runs_dir = (args.runs_dir or default_runs_dir()).expanduser().resolve()
     runner = DockerRunner(
@@ -465,6 +482,7 @@ def main(argv: list[str] | None = None) -> int:
         .expanduser()
         .resolve(),
         isaac_memory=args.isaac_memory,
+        models_dir=args.models_dir,
     )
     agent = SimAgent(host, runner, RunStore(runs_dir))
     agent.keep_foreign_runs = label != host  # a label shared with other processes
