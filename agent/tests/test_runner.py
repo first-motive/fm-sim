@@ -29,6 +29,7 @@ from fm_sim_agent.runner import (
     RunnerError,
     capped_lines,
     launch_args,
+    mark_isaac_unavailable,
     parse_description,
     parse_outcome,
     parse_reset,
@@ -207,6 +208,42 @@ def test_catalog_runs_the_catalog_command_in_the_image(docker):
     assert argv[argv.index("--name") + 1] == "fm-sim-catalog-abc"
     assert "fm.sim.agent=fm_ws_01" in argv
     assert argv[argv.index("fm-sim:jazzy") :] == ["fm-sim:jazzy", ENTRYPOINT, *CATALOG]
+
+
+def isaac_listed(monkeypatch) -> None:
+    doc = json.loads(json.dumps(CATALOG_DOC))
+    doc["backends"] = [{**b, "available": True} if b["name"] == "isaac" else b for b in doc["backends"]]
+    monkeypatch.setenv("FAKE_CATALOG", json.dumps(doc))
+
+
+def test_a_host_with_no_isaac_image_lists_isaac_unavailable(docker, monkeypatch):
+    isaac_listed(monkeypatch)
+    backends = {b["name"]: b for b in docker.catalog()["backends"]}
+    assert backends["isaac"]["available"] is False
+    assert backends["isaac"]["description"].endswith("no Isaac Sim image to run the stage in")
+    assert backends["mujoco"]["available"] is True
+
+
+def test_a_host_with_an_isaac_image_lists_isaac_as_the_image_does(docker, monkeypatch):
+    isaac_listed(monkeypatch)
+    docker.isaac_image = "nvcr.io/nvidia/isaac-sim@sha256:" + "0" * 64
+    backends = {b["name"]: b for b in docker.catalog()["backends"]}
+    assert backends["isaac"]["available"] is True and backends["isaac"]["description"] == "isaac"
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        [],
+        {"backends": "isaac"},
+        {"backends": ["isaac"]},
+        {"backends": [{"name": "isaac", "available": False}]},
+    ],
+    ids=["not an object", "backends not a list", "a backend not an object", "isaac already unavailable"],
+)
+def test_marking_isaac_leaves_any_other_doc_as_it_is(doc):
+    before = json.loads(json.dumps(doc))
+    assert mark_isaac_unavailable(doc) == before
 
 
 def test_image_id_reads_the_local_image(docker):

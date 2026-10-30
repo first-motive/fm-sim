@@ -253,7 +253,7 @@ uv run fm-sim-agent --host local --no-host-network --image fm-sim:jazzy
 | `--image REF` | `$FM_SIM_IMAGE`, else `ghcr.io/first-motive/fm-sim:jazzy` | image runs use; pin a digest on a host |
 | `--runs-dir DIR` | `$XDG_STATE_HOME/fm-sim/runs` | where summaries and bags go |
 | `--gpus` | off | `--gpus all` for every run (an isaac run's Isaac container gets the GPUs whatever this says) |
-| `--isaac-image REF` | none | Isaac Sim image an `isaac` run's stage runs in, beside the run; pin a digest on a host. Without it an `isaac` run only logs the runner command |
+| `--isaac-image REF` | none | Isaac Sim image an `isaac` run's stage runs in, beside the run; pin a digest on a host. Without it the catalog lists `isaac` unavailable, so `up` refuses it |
 | `--isaac-cache DIR` | `~/.cache/fm-sim-isaac/<label>` | where Isaac Sim's shader caches persist between runs |
 | `--isaac-memory SIZE` | `24g` | memory ceiling of a run's Isaac container |
 | `--no-host-network` | host network on | macOS, where the container cannot share the host's network; each run then gets a bridge (see [Live Topics](#live-topics)) |

@@ -167,7 +167,10 @@ class Runner(Protocol):
         """An id that changes whenever the image does. The catalog is cached on it."""
 
     def catalog(self) -> dict:
-        """The image's catalog JSON (contracts §1), parsed but not yet checked."""
+        """The image's catalog JSON (contracts §1), parsed but not yet checked.
+
+        DockerRunner also lists a backend this host cannot run as unavailable.
+        """
 
     def start(self, run_id: str, spec: dict) -> None:
         """Start the run's launch and return once it is started, not once it is ready."""
@@ -282,6 +285,31 @@ def parse_controllers(text: str) -> dict[str, str]:
     return dict(CONTROLLER_STATE.findall(text))
 
 
+#: Why an isaac backend is listed unavailable on a host started with no ``--isaac-image``.
+NO_ISAAC_IMAGE = "Not available on this host: it has no Isaac Sim image to run the stage in"
+
+
+def mark_isaac_unavailable(doc: object) -> object:
+    """``doc`` with an available ``isaac`` backend listed unavailable, and why.
+
+    Without an Isaac Sim image an isaac run starts its launch, but no stage ever
+    steps the robot (a Mac never has one: Isaac Sim is Linux + NVIDIA). Listing it
+    unavailable makes ``up`` refuse it and the desktop leave it out. A doc of any
+    other shape is returned as it is, for ``check_catalog`` to refuse.
+    """
+    backends = doc.get("backends") if isinstance(doc, dict) else None
+    for backend in backends if isinstance(backends, list) else []:
+        if isinstance(backend, dict) and backend.get("name") == "isaac" and backend.get("available") is True:
+            description = backend.get("description")
+            backend["available"] = False
+            backend["description"] = (
+                f"{description}. {NO_ISAAC_IMAGE}"
+                if isinstance(description, str) and description
+                else NO_ISAAC_IMAGE
+            )
+    return doc
+
+
 def launch_args(spec: dict, overrides: bool = False, params_file: bool = False) -> list[str]:
     """The ``name:=value`` arguments one RunSpec launches with.
 
@@ -360,7 +388,7 @@ class DockerRunner:
         #: beside it) each run's bridge reads; None runs no bridge.
         self.bridge_config = bridge_config
         #: The Isaac Sim image an isaac run's stage runs in, and where its shader
-        #: caches persist; with no image an isaac run only logs the runner command.
+        #: caches persist; with no image the catalog lists isaac unavailable.
         self.isaac_image = isaac_image
         self.isaac_cache = isaac_cache
         self.isaac_memory = isaac_memory
@@ -425,9 +453,10 @@ class DockerRunner:
                 pass  # never created, or already gone
             raise
         try:
-            return json.loads(done.stdout)
+            doc = json.loads(done.stdout)
         except ValueError as exc:
             raise RunnerError(f"catalog is not JSON: {exc}") from exc
+        return doc if self.isaac_image else mark_isaac_unavailable(doc)
 
     def _confinement(self) -> list[str]:
         """What every container of the image runs under, whatever it is for.
