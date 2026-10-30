@@ -235,6 +235,8 @@ narrow, and confines what it starts:
   mode 0700; a start refuses a cache directory that is a symlink, another
   user's, or open to the group or others, since Isaac Sim loads compiled code
   from it.
+- A run reads `--models-dir` read-only, and a run is refused while a symlink is
+  under it (see [Object Packs](#object-packs)).
 - A run's length and the disk it needs are bounded: a maximum run duration,
   MCAP file splitting, and a free-space check at `up`.
 
@@ -256,6 +258,7 @@ uv run fm-sim-agent --host local --no-host-network --image fm-sim:jazzy
 | `--isaac-image REF` | none | Isaac Sim image an `isaac` run's stage runs in, beside the run; pin a digest on a host. Without it the catalog lists `isaac` unavailable, so `up` refuses it |
 | `--isaac-cache DIR` | `~/.cache/fm-sim-isaac/<label>` | where Isaac Sim's shader caches persist between runs |
 | `--isaac-memory SIZE` | `24g` | memory ceiling of a run's Isaac container |
+| `--models-dir DIR` | none | object packs every run mounts read-only at `/workspace/models` (see [Object Packs](#object-packs)) |
 | `--no-host-network` | host network on | macOS, where the container cannot share the host's network; each run then gets a bridge (see [Live Topics](#live-topics)) |
 | `--bridge-config PATH` | `$FM_SIM_BRIDGE_CONFIG`, else `~/.config/fm-comms/bridge-sim.json5` | with `--no-host-network`: the config each run's bridge reads, `cyclonedds.xml` beside it |
 | `--docker-arg ARG` | none | extra `docker run` argument, repeatable |
@@ -275,6 +278,32 @@ read from the environment or from `/etc/fm-comms.env`. Runs inherit
 `FM_COMMS_PROFILE` and, through `FM_CYCLONEDDS_XML`, the
 host's Cyclone profile. These are fm-docker's compose base passthroughs, less
 `ROS_LOCALHOST_ONLY`: discovery range is set by `--dds-range` instead.
+
+### Object Packs
+
+`--models-dir DIR` bind-mounts a host directory into every run's container at
+`/workspace/models`, where the robot image reads object packs
+(`models/<pack>/{best.xml,best.bin,pack.yaml}`). Without the flag nothing is
+mounted. The Isaac container and the bridge do not get it.
+
+The mount is read-only because every run shares it: a run must not change what
+the next one loads. The directory is treated as hostile input, since people copy
+packs into it.
+
+The agent refuses to start when the path:
+
+- is not absolute,
+- does not exist,
+- is not a directory,
+- is itself a symlink, or
+- has a `:` or `,`, which docker mount values split on.
+
+Before each run the agent checks the path again and walks the tree without
+following symlinks. It refuses that run if the tree holds any symlink, since one
+would reach outside the mount or dangle inside the container, or if it cannot
+read a directory. The walk runs per run, not at startup, because the tree changes
+while the agent is up. A refused run fails like any other that does not start,
+with the reason in the agent's log; no container is started for it.
 
 ## The fm sim CLI
 

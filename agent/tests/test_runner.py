@@ -24,10 +24,12 @@ from fm_sim_agent.runner import (
     CATALOG,
     ENTRYPOINT,
     LAUNCH,
+    MODELS_MOUNT,
     RECORD_SCRIPT,
     DockerRunner,
     RunnerError,
     capped_lines,
+    check_models_path,
     launch_args,
     mark_isaac_unavailable,
     parse_description,
@@ -685,3 +687,146 @@ def test_a_cache_open_to_others_is_refused_not_changed(with_isaac, tmp_path, mak
     with pytest.raises(RunnerError, match="Isaac stage or caches"):
         with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
     assert with_isaac.calls() == []
+
+
+@pytest.fixture
+def packs(tmp_path):
+    """A models directory with one pack, as the robot image expects it."""
+    root = tmp_path / "models"
+    (root / "cube").mkdir(parents=True)
+    for name in ("best.xml", "best.bin", "pack.yaml"):
+        (root / "cube" / name).write_text("x")
+    return root
+
+
+def test_a_run_mounts_the_models_directory_read_only(docker, packs):
+    docker.models_dir = packs
+    docker.start(RUN_ID, SPEC)
+    (argv,) = docker.calls()
+    assert argv[argv.index(f"{packs}:/workspace/models:ro") - 1] == "--volume"
+
+
+def test_no_models_directory_mounts_nothing(docker):
+    assert not any(MODELS_MOUNT in arg for arg in docker.run_argv(RUN_ID, SPEC))
+
+
+def test_only_a_run_mounts_the_models_directory(docker, packs):
+    docker.models_dir = packs
+    docker.catalog()
+    assert not any(MODELS_MOUNT in arg for arg in docker.calls()[-1])
+    assert not any(MODELS_MOUNT in arg for arg in docker.bridge_argv(RUN_ID, packs / "bridge-sim.json5"))
+
+
+def _relative(root: Path) -> Path:
+    return Path(os.path.relpath(root))
+
+
+def _missing(root: Path) -> Path:
+    return root / "absent"
+
+
+def _file(root: Path) -> Path:
+    return root / "cube" / "best.xml"
+
+
+def _symlink(root: Path) -> Path:
+    link = root.with_name("link")
+    link.symlink_to(root)
+    return link
+
+
+def _comma(root: Path) -> Path:
+    path = root.with_name("a,readonly=false")
+    path.mkdir()
+    return path
+
+
+def _colon(root: Path) -> Path:
+    path = root.with_name("a:rw")
+    path.mkdir()
+    return path
+
+
+BAD_PATHS = [
+    (_relative, "not an absolute path"),
+    (_missing, "No such file"),
+    (_file, "not a directory"),
+    (_symlink, "is a symlink"),
+    (_comma, "':' or ','"),
+    (_colon, "':' or ','"),
+]
+
+
+@pytest.mark.parametrize(("make", "message"), BAD_PATHS)
+def test_a_bad_models_path_is_refused(packs, make, message):
+    with pytest.raises(RunnerError, match=message):
+        check_models_path(make(packs))
+
+
+@pytest.mark.parametrize(("make", "message"), BAD_PATHS)
+def test_the_agent_will_not_start_on_a_bad_models_path(packs, monkeypatch, capsys, make, message):
+    from fm_sim_agent import service
+
+    monkeypatch.setenv("FM_ROUTER_ENDPOINT", "tcp/router:7447")
+    assert service.main(["--host", "local", "--models-dir", str(make(packs))]) == 1
+    assert message in capsys.readouterr().err
+
+
+def test_the_models_flag_reaches_the_runner(packs, monkeypatch):
+    from fm_sim_agent import service
+
+    made = {}
+
+    class Stop(Exception):
+        pass
+
+    def stand_in(*args, **kwargs):
+        made.update(kwargs)
+        raise Stop
+
+    monkeypatch.setenv("FM_ROUTER_ENDPOINT", "tcp/router:7447")
+    monkeypatch.setattr(service, "DockerRunner", stand_in)
+    with pytest.raises(Stop):
+        service.main(["--host", "local", "--models-dir", str(packs)])
+    assert made["models_dir"] == packs
+    assert service.build_parser().parse_args([]).models_dir is None
+
+
+@pytest.mark.parametrize("target", ["cube/best.bin", "/etc", "absent", "."], ids=str)
+def test_a_symlink_in_a_pack_refuses_the_run_not_the_agent(docker, packs, target):
+    (packs / "cube" / "nested").mkdir()
+    (packs / "cube" / "nested" / "link").symlink_to(target)
+    check_models_path(packs)  # its shape is fine: only a run looks inside
+    docker.models_dir = packs
+    with pytest.raises(RunnerError, match="nested/link"):
+        docker.start(RUN_ID, SPEC)
+    assert docker.calls() == []
+
+
+def test_a_symlink_copied_in_after_a_clean_run_refuses_the_next(docker, packs):
+    docker.models_dir = packs
+    docker.start(RUN_ID, SPEC)
+    (packs / "evil").symlink_to("/etc")
+    with pytest.raises(RunnerError, match="evil"):
+        docker.start(RUN_ID, SPEC)
+
+
+def test_a_models_directory_replaced_since_startup_refuses_the_run(docker, packs):
+    docker.models_dir = packs
+    packs.rename(packs.with_name("moved"))
+    packs.symlink_to(packs.with_name("moved"))
+    with pytest.raises(RunnerError, match="is a symlink"):
+        docker.start(RUN_ID, SPEC)
+    assert docker.calls() == []
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root reads every directory")
+def test_a_directory_the_walk_cannot_read_refuses_the_run(docker, packs):
+    docker.models_dir = packs
+    (packs / "cube").chmod(0o000)
+    try:
+        with pytest.raises(RunnerError, match="cannot read"):
+            docker.start(RUN_ID, SPEC)
+    finally:
+        (packs / "cube").chmod(0o700)
+    assert docker.calls() == []
