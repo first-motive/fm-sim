@@ -439,6 +439,19 @@ def backend_launch_arguments(backend, robot, robot_description, controllers_file
     return arguments
 
 
+def controller_launch_arguments(controller, robot, scenario, use_sim):
+    """Return the controller launch's arguments: its ``launch_args``, then the run's own.
+
+    The loader refuses a ``launch_args`` name in ``catalog.CONTROLLER_LAUNCH_OWNED``.
+    """
+    return {
+        **controller.get('launch_args', {}),
+        'use_sim': use_sim,
+        'robot_profile': robot['robot_profile'],
+        'scenario': scenario,
+    }
+
+
 def scenario_node_parameters(backend, scenario, seed, timeout_s):
     """Return the scenario node's parameters, or None when the scenario needs none.
 
