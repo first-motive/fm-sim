@@ -19,8 +19,8 @@ What comes up:
    as OpenArm's ``servo``), once the active spawner has exited cleanly, given the
    role's ``launch_args`` and the run's ``robot_description``; a failed spawner
    shuts the run down instead;
-5. the controller entry's launch, if it has one, given ``use_sim``,
-   ``robot_profile`` and ``scenario``;
+5. the controller entry's launch, if it has one, given its ``launch_args``,
+   ``use_sim``, ``robot_profile`` and ``scenario``;
 6. for a scenario with objects, the scenario node (fm_sim_scenarios), serving
    ``/sim/objects``, ``/sim/markers``, ``/sim/reset`` and ``/sim/outcome``;
 7. on a backend that renders cameras (mujoco), one ``sim_camera`` node
@@ -201,11 +201,9 @@ def _launch_setup(context):
         actions.append(
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(catalog.share_file(controller['launch'])),
-                launch_arguments=run.forward_params_file({
-                    'use_sim': use_sim,
-                    'robot_profile': robot['robot_profile'],
-                    'scenario': choice['scenario'],
-                }, params_file).items(),
+                launch_arguments=run.forward_params_file(run.controller_launch_arguments(
+                    controller, robot, choice['scenario'], use_sim
+                ), params_file).items(),
             )
         )
     for camera in cameras:
