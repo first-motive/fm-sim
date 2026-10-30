@@ -1,0 +1,84 @@
+# Catalog entry (fm_sim.scenarios): pick the can from among all three objects and
+# place it on the paper. tabletop_can, tabletop_block and tabletop_puck share one
+# layout, so a run compares targets and nothing else. They differ only in name,
+# description, success.object and the target's z (checked by
+# test_tabletop_scenarios). The table and paper are can_on_table's.
+name: tabletop_can
+description: Pick the can and place it on the paper, with the block and puck beside it (right arm)
+available: true
+objects:
+  # Its front edge is 0.15 m ahead of the base, clear of the arms hanging at rest;
+  # the top is at 0.207.
+  - name: table
+    shape: box
+    size: [0.7, 1.2, 0.04]
+    static: true
+    friction: 1.0
+    color: [0.55, 0.45, 0.35, 1.0]
+    pose: {xyz: [0.5, 0.0, 0.187]}
+  # A4, 1 mm thick, its top at 0.208. A body in the world, so cameras see it.
+  - name: paper
+    shape: box
+    size: [0.297, 0.210, 0.001]
+    static: true
+    friction: 0.8
+    color: [0.95, 0.95, 0.95, 1.0]
+    pose: {xyz: [0.40, -0.30, 0.2075]}
+  # Each object spawns with its base level with the paper top (1 mm above the table),
+  # as in can_on_table, and settles onto the table. The nominal positions keep every
+  # spawn clear of the others at any yaw, and of the sheet, whose near edge is at
+  # y -0.195. can_on_table's can at y -0.15 could overlap that edge, so this one
+  # starts 10 mm further from it, and 20 mm along to leave the block room. Colours
+  # are flat red, green and blue, so a model can tell the objects apart.
+  - name: can
+    shape: cylinder
+    size: [0.033, 0.135]
+    mass: 0.35
+    friction: 1.0
+    color: [0.1, 0.6, 0.2, 1.0]
+    pose: {xyz: [0.40, -0.14, 0.2755]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+      yaw: [-3.14159, 3.14159]
+  # Lies flat: 120 mm x 50 mm in plan, 40 mm tall. At any yaw its corners sweep a
+  # 65 mm radius: x 0.24 keeps that on the table and off the can.
+  - name: block
+    shape: box
+    size: [0.120, 0.050, 0.040]
+    mass: 0.15
+    friction: 1.0
+    color: [0.8, 0.1, 0.1, 1.0]
+    pose: {xyz: [0.24, -0.10, 0.228]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+      yaw: [-3.14159, 3.14159]
+  - name: puck
+    shape: cylinder
+    size: [0.030, 0.040]
+    mass: 0.10
+    friction: 1.0
+    color: [0.1, 0.2, 0.8, 1.0]
+    pose: {xyz: [0.50, -0.06, 0.228]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+      yaw: [-3.14159, 3.14159]
+regions:
+  # Where the can's centre sits when it rests on the paper: the sheet's footprint,
+  # 30 mm tall about its resting height (paper top + half its height), which is why
+  # z alone differs between the three.
+  - name: target
+    size: [0.297, 0.210, 0.03]
+    pose: {xyz: [0.40, -0.30, 0.2755]}
+    color: [0.2, 0.4, 1.0, 0.3]
+success:
+  type: object_in_region
+  object: can
+  region: target
+  tolerance: 0.01
+  hold_s: 2.0
+  # At rest, so the can scores once released, as on can_on_table.
+  max_speed: 0.005
+  timeout_s: 120.0
