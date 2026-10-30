@@ -483,6 +483,12 @@
               "oneOf": [{"type": "null"}, {"$ref": "#/definitions/share_file"}],
               "description": "Launch file run.launch.py includes, or null for none."
             },
+            "launch_args": {
+              "description": "Optional fixed arguments for that launch, such as perception: model. The loader refuses a name the run sets itself (catalog.CONTROLLER_LAUNCH_OWNED). ROS launch does not scope them: a launch role started later reads one for a name it declares and its own launch_args leave unset.",
+              "type": "object",
+              "propertyNames": {"$ref": "#/definitions/name"},
+              "additionalProperties": {"type": "string"}
+            },
             "scenarios": {
               "type": "array",
               "minItems": 1,

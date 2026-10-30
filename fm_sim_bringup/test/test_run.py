@@ -270,6 +270,27 @@ def test_isaac_writes_the_scenario_half_of_its_stage(tmp_path):
     assert can['translate'] == list(sc.spawn_poses(entries['scenario'], 3)['can'][0])
 
 
+def test_run_values_win_over_controller_launch_args():
+    arguments = run.controller_launch_arguments(
+        # The loader refuses use_sim here; this is the backstop for an entry it never saw.
+        {'launch_args': {'perception': 'model', 'use_sim': 'false'}},
+        {'robot_profile': 'loader_openarm_v2'}, 'can_on_table', 'true',
+    )
+    assert arguments == {
+        'perception': 'model',
+        'use_sim': 'true',
+        'robot_profile': 'loader_openarm_v2',
+        'scenario': 'can_on_table',
+    }
+
+
+def test_controller_launch_args_are_optional():
+    arguments = run.controller_launch_arguments(
+        {}, {'robot_profile': 'loader_openarm_v2'}, 'empty', 'true'
+    )
+    assert set(arguments) == {'use_sim', 'robot_profile', 'scenario'}
+
+
 def test_mujoco_gets_only_its_own_launch_arguments():
     entries = _entries('mujoco', 'can_on_table')
     arguments = run.backend_launch_arguments(

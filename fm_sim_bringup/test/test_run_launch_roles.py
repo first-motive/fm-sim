@@ -52,6 +52,7 @@ def setup_actions(monkeypatch):
         def resolve_with(**choice):
             entries = resolve(**dict(choice, controller='idle'))
             entries['robot']['launch_roles'] = {'servo': SERVO_ROLE}
+            entries['robot']['robot_profile'] = 'probe_profile'
             entries['controller'] = controller
             return entries
         monkeypatch.setattr(run, 'resolve', resolve_with)
@@ -149,6 +150,40 @@ def test_missing_launch_file_fails_at_setup(setup_actions, monkeypatch, tmp_path
         setup_actions(SERVO_CONTROLLER)
     # It fails before the generated world exists, so nothing is left behind.
     assert not list(tmp_path.iterdir())
+
+
+def test_controller_launch_gets_its_launch_args(setup_actions):
+    actions = setup_actions(dict(
+        SERVO_CONTROLLER, activate=[], launch=SERVO_ROLE['launch'],
+        launch_args={'perception': 'model', 'pack': 'can_paper_seg'},
+    ))
+    (controller,) = [
+        a for a in actions if isinstance(a, IncludeLaunchDescription)
+        and 'robot_profile' in _launch_args(a)
+    ]
+    assert _launch_args(controller) == {
+        'perception': 'model',
+        'pack': 'can_paper_seg',
+        'use_sim': 'true',
+        'robot_profile': 'probe_profile',
+        'scenario': 'empty',
+    }
+
+
+def test_launch_args_refuse_exactly_the_names_the_run_sets():
+    declared = [arg.name for arg in _run_launch().generate_launch_description()
+                .get_launch_arguments()]
+    entries = run.resolve('gazebo', 'so101', 'empty', 'idle')
+    # Without its launch_args: those are the backend's own, not the run's.
+    backend = dict(entries['backend'], launch_args={})
+    sets = {
+        *declared,
+        *run.backend_launch_arguments(
+            backend, entries['robot'], robot_description='', controllers_file='', world=None
+        ),
+        *run.controller_launch_arguments(entries['controller'], entries['robot'], 'empty', 'true'),
+    }
+    assert sets == catalog.CONTROLLER_LAUNCH_OWNED
 
 
 def test_unknown_role_fails_the_launch(setup_actions):

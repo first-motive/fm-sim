@@ -48,6 +48,15 @@ _DEFINITIONS = {
     'scenarios': 'scenario',
     'controllers': 'controller',
 }
+# Every name a run sets: run.launch.py's arguments and what it passes the backend
+# and controller launches. Launch configurations are one shared namespace, so a
+# controller's launch reads these even where it is not handed them, and a
+# launch_args entry of the same name would have it disagree with the run.
+CONTROLLER_LAUNCH_OWNED = frozenset((
+    'backend', 'robot', 'scenario', 'controller', 'use_sim', 'seed', 'timeout_s',
+    'params_file', 'overrides_file', 'robot_profile', 'robot_description',
+    'controllers_file', 'world', 'cameras_file', 'mesh_roots',
+))
 
 
 class CatalogError(RuntimeError):
@@ -137,9 +146,11 @@ def load(kind, name, schema=None, registered=None):
 def validate(kind, entry, schema=None):
     """Check one entry of ``kind`` against the schema and what the schema cannot say.
 
-    For a scenario: unique names, ranges and success references. For every
-    entry: its ``params`` (``fm_sim_bringup.params.check_params``). Run again on
-    an entry a run's overrides changed.
+    For a scenario: unique names, ranges and success references. For a
+    controller: registered ``scenarios`` and no ``launch_args`` name in
+    ``CONTROLLER_LAUNCH_OWNED``. For every entry: its ``params``
+    (``fm_sim_bringup.params.check_params``). Run again on an entry a run's
+    overrides changed.
     """
     name = entry.get('name')
     try:
@@ -155,6 +166,12 @@ def validate(kind, entry, schema=None):
         unknown = [s for s in entry.get('scenarios', []) if s not in names('scenarios')]
         if unknown:
             raise CatalogError(f'controller {name!r}: unknown scenarios {", ".join(unknown)}')
+        owned = sorted(CONTROLLER_LAUNCH_OWNED & set(entry.get('launch_args', {})))
+        if owned:
+            raise CatalogError(
+                f'controller {name!r}: launch_args may not set {", ".join(owned)}; '
+                'run.launch.py owns them'
+            )
     try:
         if kind == 'scenarios':
             scenario.check(entry)
