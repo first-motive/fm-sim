@@ -19,6 +19,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import tarfile
 import threading
@@ -50,6 +51,12 @@ BAG_MOUNT = "/fm-run/bag"
 #: Where a run's ``params/`` directory is mounted, read-only, when it has params.
 #: The launch reads the files by these constant paths: no value is on its command line.
 PARAMS_MOUNT = "/fm-run/params"
+
+#: Where ``--models-dir`` is mounted, read-only: the path the robot image reads
+#: object packs from (``models/<pack>/{best.xml,best.bin,pack.yaml}``). Read-only
+#: because a pack is shared by every run: a run must not be able to change what
+#: the next one loads.
+MODELS_MOUNT = "/workspace/models"
 
 #: The host's loopback Cyclone profile, mounted where fm-docker's compose base
 #: mounts it, so CYCLONEDDS_URI reads the same on every host.
@@ -282,6 +289,45 @@ def parse_controllers(text: str) -> dict[str, str]:
     return dict(CONTROLLER_STATE.findall(text))
 
 
+def check_models_path(path: Path) -> None:
+    """Refuse a ``--models-dir`` that is not an absolute path to a real directory."""
+    if not path.is_absolute():
+        raise RunnerError(f"--models-dir {path} is not an absolute path")
+    # Either would end the path early in a docker mount value (':' in --volume,
+    # ',' in --mount) and let the rest of it read as docker's own options.
+    if ":" in str(path) or "," in str(path):
+        raise RunnerError(f"--models-dir {path} has a ':' or ',', which docker mount values split on")
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError as exc:
+        raise RunnerError(f"--models-dir {path}: {exc.strerror}") from None
+    if stat.S_ISLNK(mode):
+        raise RunnerError(f"--models-dir {path} is a symlink")
+    if not stat.S_ISDIR(mode):
+        raise RunnerError(f"--models-dir {path} is not a directory")
+
+
+def check_models_tree(path: Path) -> None:
+    """Refuse a models directory with a symlink anywhere under it, or one it cannot walk.
+
+    A symlink would reach outside the mount or dangle inside the container.
+    tradeoff: a symlink made between this walk and ``docker run`` gets through;
+    whoever can write here is already trusted with what runs load.
+    tradeoff: unbounded, and fine for the few files a pack holds; cap the entries
+    if a directory ever holds thousands of packs.
+    """
+
+    def unreadable(exc: OSError) -> None:
+        raise RunnerError(f"--models-dir {path}: cannot read {exc.filename}: {exc.strerror}")
+
+    # os.walk drops a directory it cannot list unless told: unchecked is not clean.
+    for parent, dirs, files in os.walk(path, onerror=unreadable, followlinks=False):
+        for name in (*dirs, *files):
+            entry = Path(parent, name)
+            if entry.is_symlink():
+                raise RunnerError(f"--models-dir {path} holds a symlink: {str(entry.relative_to(path))!r}")
+
+
 def launch_args(spec: dict, overrides: bool = False, params_file: bool = False) -> list[str]:
     """The ``name:=value`` arguments one RunSpec launches with.
 
@@ -337,6 +383,7 @@ class DockerRunner:
         isaac_image: str | None = None,
         isaac_cache: Path | None = None,
         isaac_memory: str = isaac.MEMORY,
+        models_dir: Path | None = None,
     ) -> None:
         if dds_range not in DDS_RANGES:
             raise ValueError(f"dds_range must be one of {DDS_RANGES}")
@@ -364,6 +411,8 @@ class DockerRunner:
         self.isaac_image = isaac_image
         self.isaac_cache = isaac_cache
         self.isaac_memory = isaac_memory
+        #: Object packs every run mounts at MODELS_MOUNT; None mounts nothing.
+        self.models_dir = models_dir
         #: The runs this runner started an Isaac container beside.
         self._isaac_runs: set[str] = set()
 
@@ -462,6 +511,8 @@ class DockerRunner:
         overrides = (params / PARAMS_JSON).is_file()
         if overrides:
             argv += ["--volume", f"{params}:{PARAMS_MOUNT}:ro"]
+        if self.models_dir is not None:
+            argv += ["--volume", f"{self.models_dir}:{MODELS_MOUNT}:ro"]
         if self._runs_isaac(spec):
             # The launch writes the stage under TMPDIR, which the Isaac container reads.
             stage = isaac.stage_dir(self.runs_dir, run_id)
@@ -579,6 +630,13 @@ class DockerRunner:
         return self._workspaces()
 
     def start(self, run_id: str, spec: dict) -> None:
+        # Before each run, not only at startup: packs are copied in while the
+        # agent is up, and a long-lived agent's startup check says nothing about
+        # today's tree. One bad pack then refuses a run, which the agent reports,
+        # instead of a restart loop that takes the host down for every run.
+        if self.models_dir is not None:
+            check_models_path(self.models_dir)
+            check_models_tree(self.models_dir)
         (self.runs_dir / run_id / BAG_NAME).mkdir(parents=True, exist_ok=True)
         workspaces = self._prepare_isaac(run_id) if self._runs_isaac(spec) else None
         self._run(self.run_argv(run_id, spec), RUN_TIMEOUT_S)
