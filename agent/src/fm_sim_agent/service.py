@@ -67,14 +67,14 @@ DEFAULT_IMAGE = "ghcr.io/first-motive/fm-sim:jazzy"
 #: amd64 and arm64), or None to follow the tag. CI pushes the tag on every main
 #: push; this pin moves only when it is bumped here. Read the tag's current one
 #: with ``docker buildx imagetools inspect <DEFAULT_IMAGE>``.
-DEFAULT_IMAGE_DIGEST: str | None = "sha256:2bb53e3286dfefac22efcedd0769879e055f157bf7e7ecfdd05eec23d1afce66"
+DEFAULT_IMAGE_DIGEST: str | None = "sha256:5ea9709026e0756c74b69f4999fb0df717650c1a4a453b5fa4445b40cc8a39d1"
 #: The private image with First Motive's controllers, which ``fm sim host …
 #: local --controllers`` (or ``FM_SIM_CONTROLLERS=1``) runs instead, and its
 #: pin, moved as ``DEFAULT_IMAGE_DIGEST`` is. Pulling it needs ``docker login
 #: ghcr.io`` with access to it.
 CONTROLLERS_IMAGE = "ghcr.io/first-motive/fm-sim-controllers:jazzy"
 CONTROLLERS_IMAGE_DIGEST: str | None = (
-    "sha256:90cb161b0cfc2506e7b34acbbd1cba5a1e16e5860696b72ad7d898a12dcd9ee8"
+    "sha256:cd0c33f21de662d698d985004719ab32d98b63736f4e183caa4a6dabfe81e807"
 )
 CONTROLLERS_ENV = "FM_SIM_CONTROLLERS"
 IMAGE_ENV = "FM_SIM_IMAGE"
