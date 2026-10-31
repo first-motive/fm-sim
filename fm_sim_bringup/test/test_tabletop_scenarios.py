@@ -10,8 +10,11 @@ import pytest
 TARGETS = {'tabletop_can': 'can', 'tabletop_block': 'block', 'tabletop_puck': 'puck'}
 PAPER_TOP = 0.208
 # Where the right arm reaches on the table, for an object's centre.
-REACH_X = (0.20, 0.52)
-REACH_Y = (-0.17, -0.02)
+REACH_X = (0.20, 0.43)
+REACH_Y = (-0.25, -0.04)
+# A top-down grasp's reach at table height, for the block and puck. REACH_X's far end is the
+# can's side grasp.
+TOP_DOWN_MAX_X = 0.30
 
 
 @pytest.fixture(params=TARGETS, ids=str)
@@ -74,11 +77,11 @@ def test_scenarios_share_one_layout():
     assert all(other == first for other in others)
 
 
-def test_table_and_paper_match_can_on_table(entry):
+def test_table_and_paper_size_match_can_on_table(entry):
     scene = _objects(catalog.load('scenarios', 'can_on_table'))
     objects = _objects(entry)
     assert objects['table'] == scene['table']
-    assert objects['paper'] == scene['paper']
+    assert objects['paper']['size'] == scene['paper']['size']
 
 
 def test_success_object_is_the_one_the_name_says(entry):
@@ -143,3 +146,14 @@ def test_colours_are_opaque_and_clearly_apart(entry):
         # 0.4 in RGB is well above what lighting shifts a flat colour by in a render.
         assert math.dist(first['color'][:3], second['color'][:3]) > 0.4, (
             f'{first["name"]} and {second["name"]}')
+
+
+def test_top_down_objects_spawn_within_a_top_down_grasps_reach(entry):
+    objects = _objects(entry)
+    assert all(_centre_range(objects[name], 'x')[1] <= TOP_DOWN_MAX_X for name in ('block', 'puck'))
+
+
+def test_the_puck_spawns_at_a_fixed_yaw(entry):
+    # Guards the config only: at one drawn yaw the fingers passed through the puck in MuJoCo,
+    # which only a run shows.
+    assert 'yaw' not in _objects(entry)['puck']['spawn']
