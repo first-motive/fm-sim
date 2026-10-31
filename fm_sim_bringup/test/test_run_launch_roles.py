@@ -3,7 +3,8 @@
 Resolves the real SO-101 entry, given OpenArm's ``servo`` launch role, with a
 controller that activates it, and checks what the launch would start: Servo waits on
 the active spawner, gets the run's robot description and its launch args, and a
-failed spawner shuts the run down instead. SO-101 stands in for the OpenArm, whose
+failed spawner shuts the run down instead, and the spawner waits long enough
+for a sim clock that starts late. SO-101 stands in for the OpenArm, whose
 description is private, so this runs in every image; the setup only has to find
 fm-robot's sim Servo launch, not start it.
 """
@@ -120,6 +121,18 @@ def test_servo_starts_after_the_active_spawner(setup_actions):
     assert args['command_type'] == 'joint_jog'
     assert args['names'] == 'loader'
     assert args['robot_description'] == _launch_args(backend)['robot_description']
+
+
+def test_spawner_waits_for_a_late_sim_clock(setup_actions):
+    actions = setup_actions(SERVO_CONTROLLER)
+    _, active_spawner = _backend_and_active_spawner(actions)
+    args = [
+        perform_substitutions(LaunchContext(), arg) for arg in active_spawner.cmd[1:]
+    ]
+    switch = float(args[args.index('--switch-timeout') + 1])
+    service_call = float(args[args.index('--service-call-timeout') + 1])
+    assert switch >= 60
+    assert service_call > switch
 
 
 def test_failed_spawner_shuts_the_run_down(setup_actions):

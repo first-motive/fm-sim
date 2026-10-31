@@ -72,6 +72,13 @@ import xacro
 # Spawners wait this long for the controller_manager; a software-GL engine on a
 # small host can take most of it to come up.
 _CONTROLLER_MANAGER_TIMEOUT_S = '120'
+# A manager on sim time cycles only once /clock flows, and the Isaac stage, a
+# process beside the launch, starts publishing it well after the spawners do.
+# The switch waits that long; the service call around it waits a little longer.
+# tradeoff: a /clock that never comes delays the spawner's failure, and so the
+# run's shutdown, by up to 130 s; gate the spawners on /clock if that matters.
+_SWITCH_TIMEOUT_S = '120'
+_SERVICE_CALL_TIMEOUT_S = '130'
 
 _logger = launch.logging.get_logger('run')
 
@@ -84,6 +91,8 @@ def _spawner(controllers, controllers_file, params_file, inactive=False):
         '--param-file', controllers_file,
         *(['--param-file', params_file] if params_file else []),
         '--controller-manager-timeout', _CONTROLLER_MANAGER_TIMEOUT_S,
+        '--switch-timeout', _SWITCH_TIMEOUT_S,
+        '--service-call-timeout', _SERVICE_CALL_TIMEOUT_S,
     ]
     if inactive:
         arguments.append('--inactive')
