@@ -89,7 +89,7 @@ and is listed as unavailable in the public fm-sim image.
 |-----------|---------------|---------|---------------|
 | Backend | `fm_sim.backends` | `mujoco`, `gazebo`, `isaac` | `fm_sim_backends` |
 | Robot | `fm_sim.robots` | `openarm`, `so101`, `axol` | `fm_sim_bringup` |
-| Scenario | `fm_sim.scenarios` | `empty`, `can_on_table`, `table_only`, `tabletop_can`, `tabletop_block`, `tabletop_puck` | `fm_sim_bringup` |
+| Scenario | `fm_sim.scenarios` | `empty`, `can_on_table`, `table_only`, `tabletop_can`, `tabletop_block`, `tabletop_puck`, `tabletop_simready` | `fm_sim_bringup` |
 | Controller | `fm_sim.controllers` | `idle`, `teleop` | `fm_sim_bringup` |
 | | | `fm_skills_classical`; `fm_skills_learned` (unavailable), family `fm_skills` | fm-skills `fm_skills_sim` |
 | | | `anvil_classical` (unavailable), family `anvil` | anvil-embodied-ai `classical_control` |

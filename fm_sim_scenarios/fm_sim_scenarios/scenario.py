@@ -20,6 +20,10 @@ MAX_POSE_GAP_S = 0.5
 # Names that become MJCF bodies, files, markers or frames (the schema's frame_name).
 # Use fullmatch: with match, '$' also accepts a trailing newline.
 FRAME_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
+# A USD asset, relative to the assets directory. No segment can start with a dot, so none
+# can climb out of it. Use fullmatch, as above.
+_USD_SEGMENT = r'[A-Za-z0-9_-][A-Za-z0-9_.-]*'
+USD_PATH = re.compile(rf'(?:{_USD_SEGMENT}/)*{_USD_SEGMENT}\.usd[ac]?')
 
 
 class ScenarioError(ValueError):
@@ -58,6 +62,8 @@ def check(scenario):
     if duplicates:
         raise ScenarioError(f'names used twice: {", ".join(duplicates)}')
     for obj in scenario['objects']:
+        if 'usd' in obj and not USD_PATH.fullmatch(str(obj['usd'])):
+            raise ScenarioError(f'{obj["name"]}: usd {obj["usd"]!r} is not a path inside the assets')
         for key, (low, high) in obj.get('spawn', {}).items():
             if low > high:
                 raise ScenarioError(
@@ -72,6 +78,16 @@ def check(scenario):
         raise ScenarioError(f'success object {success["object"]!r} is not one of the objects')
     if success['region'] not in regions:
         raise ScenarioError(f'success region {success["region"]!r} is not one of the regions')
+
+
+def refuse_usd_objects(scenario, backend):
+    """Refuse a scenario with a USD object on ``backend``: only Isaac Sim loads USD."""
+    usd = [obj['name'] for obj in scenario['objects'] if 'usd' in obj]
+    if usd:
+        raise ScenarioError(
+            f'scenario {scenario["name"]!r}: {", ".join(usd)} are USD assets, which only the '
+            f'isaac backend loads; backend {backend!r} cannot build them'
+        )
 
 
 def check_seed(seed):

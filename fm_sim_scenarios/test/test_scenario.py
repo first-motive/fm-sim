@@ -250,3 +250,14 @@ def test_unknown_success_type_is_refused(can_on_table):
     can_on_table['success']['type'] = 'object_upright'
     with pytest.raises(sc.ScenarioError, match="unknown success type 'object_upright'"):
         sc.EpisodeMonitor(can_on_table)
+
+
+def test_a_scenario_without_usd_objects_is_not_refused(can_on_table):
+    sc.refuse_usd_objects(can_on_table, 'mujoco')
+
+
+def test_a_usd_object_is_refused_naming_the_object_and_the_backend(can_on_table):
+    can_on_table['objects'][-1]['usd'] = 'pkg/prop.usd'
+    name = can_on_table['objects'][-1]['name']
+    with pytest.raises(sc.ScenarioError, match=f"{name} are USD assets.*backend 'mock'"):
+        sc.refuse_usd_objects(can_on_table, 'mock')

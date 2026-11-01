@@ -21,6 +21,9 @@ then steps the world and applies object teleports from
 ``object_commands_topic`` (tf2_msgs/TFMessage, through Isaac's rclpy): a free
 object, a finite pose inside ``object_workspace``, a non-zero quaternion.
 
+An object naming a ``usd`` asset is read from the directory ``FM_ISAAC_ASSETS_DIR``
+names (the agent's ``--assets-dir``), which ``tools/fetch_simready.py`` fills.
+
 Every omni import is inside a function: the module imports without Isaac Sim,
 so its pure helpers unit-test in fm-sim's CI. The Isaac half has not run in CI.
 """
@@ -35,6 +38,7 @@ import traceback
 STAGE_SCHEMA_VERSION = 1
 # Set by the sim agent's Isaac container (agent/src/fm_sim_agent/isaac.py).
 READY_FILE_ENV = 'FM_ISAAC_READY_FILE'
+ASSETS_DIR_ENV = 'FM_ISAAC_ASSETS_DIR'
 # Placeholder the spec uses for the articulation root (isaac_stage.ARTICULATION_ROOT).
 ARTICULATION_ROOT = '$ARTICULATION_ROOT'
 ROS2_BRIDGE_EXTENSION = 'isaacsim.ros2.bridge'
@@ -59,6 +63,25 @@ def load_spec(path):
             f'this runner reads {STAGE_SCHEMA_VERSION}'
         )
     return spec
+
+
+def usd_path(usd, assets_dir):
+    """Return the file a spec's ``usd`` names inside ``assets_dir``, which must hold it.
+
+    Checked before Isaac Sim starts: a cold start takes minutes to reach the same error.
+    """
+    if not assets_dir:
+        raise SpecError(
+            f'{usd}: {ASSETS_DIR_ENV} is not set; start the agent with --assets-dir, '
+            'filled by tools/fetch_simready.py'
+        )
+    root = os.path.realpath(assets_dir)
+    path = os.path.realpath(os.path.join(root, usd))
+    if not path.startswith(root + os.sep):
+        raise SpecError(f'{usd} is outside the assets directory {root}')
+    if not os.path.isfile(path):
+        raise SpecError(f'{usd} is not in {root}; tools/fetch_simready.py downloads it')
+    return path
 
 
 def graph_edit(graph, articulation_root, keys, to_prim_path):
@@ -203,6 +226,23 @@ def _add_object(stage, obj):
     )
 
 
+def _add_usd_object(stage, obj, path):
+    from pxr import Usd, UsdGeom, UsdPhysics
+
+    prim = UsdGeom.Xform.Define(stage, obj['prim_path']).GetPrim()
+    prim.GetReferences().AddReference(path)
+    variant_set, selection = obj['variant']
+    prim.GetVariantSets().GetVariantSet(variant_set).SetVariantSelection(selection)
+    _set_xform(prim, obj['translate'], obj['orient_wxyz'])
+    # A SimReady asset's body is a prim below its root, and the bridge names a pose after the
+    # prim it tracks. The body moves up to the object's own prim, so poses and teleports use
+    # its name; the colliders below keep their authored mass and materials.
+    for descendant in Usd.PrimRange(prim):
+        if descendant != prim and descendant.HasAPI(UsdPhysics.RigidBodyAPI):
+            descendant.RemoveAPI(UsdPhysics.RigidBodyAPI)
+    UsdPhysics.RigidBodyAPI.Apply(prim)
+
+
 def _add_camera(stage, camera):
     from pxr import Gf, UsdGeom
 
@@ -316,6 +356,11 @@ def _mark_ready():
 
 def run(spec, headless):
     """Start Isaac Sim, build the stage from ``spec`` and step it until closed."""
+    usd_files = {
+        obj['name']: usd_path(obj['usd'], os.environ.get(ASSETS_DIR_ENV))
+        for obj in spec['objects'] if 'usd' in obj
+    }
+
     from isaacsim import SimulationApp
 
     app = SimulationApp({'headless': headless})
@@ -338,7 +383,10 @@ def run(spec, headless):
         articulation_root = _import_robot(spec['robot'])
         _apply_drives(stage, spec['robot'])
         for obj in spec['objects']:
-            _add_object(stage, obj)
+            if obj['name'] in usd_files:
+                _add_usd_object(stage, obj, usd_files[obj['name']])
+            else:
+                _add_object(stage, obj)
         for camera in spec['cameras']:
             _add_camera(stage, camera)
         _build_graph(spec['graph'], articulation_root)

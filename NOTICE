@@ -2,3 +2,9 @@ First Motive
 Copyright (c) 2026 First Motive
 
 This product includes software developed by First Motive.
+
+The tabletop_simready scenario names assets from NVIDIA SimReady
+(https://huggingface.co/datasets/nvidia/simready-assets), licensed under CC-BY-4.0
+(https://creativecommons.org/licenses/by/4.0/). This repository does not redistribute
+them: tools/fetch_simready.py downloads them unchanged and writes this attribution
+beside them.

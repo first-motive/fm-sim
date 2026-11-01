@@ -381,3 +381,43 @@ def test_launch_hands_its_arguments_to_the_stage(tmp_path, monkeypatch):
     context.launch_configurations['isaac_gui'] = 'yes'
     with pytest.raises(ValueError, match='isaac_gui'):
         module._stage_setup(context)
+
+
+@pytest.fixture
+def assets(tmp_path):
+    (tmp_path / 'assets' / 'pkg').mkdir(parents=True)
+    (tmp_path / 'assets' / 'pkg' / 'prop.usd').write_text('#usda 1.0\n')
+    (tmp_path / 'outside.usd').write_text('#usda 1.0\n')
+    return tmp_path / 'assets'
+
+
+def test_a_usd_asset_resolves_inside_the_assets_directory(assets):
+    assert _load_runner().usd_path('pkg/prop.usd', str(assets)) == str(assets.resolve() / 'pkg' / 'prop.usd')
+
+
+@pytest.mark.parametrize('usd,message', [
+    ('../outside.usd', 'outside the assets directory'),
+    ('pkg/link.usd', 'outside the assets directory'),
+    ('pkg/absent.usd', 'fetch_simready'),
+])
+def test_a_usd_asset_outside_or_missing_is_refused(assets, usd, message):
+    (assets / 'pkg' / 'link.usd').symlink_to(assets.parent / 'outside.usd')
+    runner = _load_runner()
+    with pytest.raises(runner.SpecError, match=message):
+        runner.usd_path(usd, str(assets))
+
+
+@pytest.mark.parametrize('assets_dir', [None, ''])
+def test_a_usd_asset_with_no_assets_directory_says_how_to_give_one(assets_dir):
+    runner = _load_runner()
+    with pytest.raises(runner.SpecError, match='--assets-dir'):
+        runner.usd_path('pkg/prop.usd', assets_dir)
+
+
+def test_a_stage_with_a_missing_asset_stops_before_isaac_sim_starts(monkeypatch):
+    # No isaacsim module exists here: reaching the import would raise something else.
+    runner = _load_runner()
+    monkeypatch.delenv(runner.ASSETS_DIR_ENV, raising=False)
+    spec = {'objects': [{'name': 'prop', 'usd': 'pkg/prop.usd'}]}
+    with pytest.raises(runner.SpecError, match='--assets-dir'):
+        runner.run(spec, headless=True)

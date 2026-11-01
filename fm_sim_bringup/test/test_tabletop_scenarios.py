@@ -5,6 +5,7 @@ import itertools
 import math
 
 from fm_sim_bringup import catalog
+from fm_sim_scenarios import gazebo_world, isaac_stage, mujoco_world, scenario as sc
 import pytest
 
 TARGETS = {'tabletop_can': 'can', 'tabletop_block': 'block', 'tabletop_puck': 'puck'}
@@ -167,3 +168,81 @@ def test_the_puck_spawns_at_a_fixed_yaw(entry):
 
 def test_the_sheet_is_a5(entry):
     assert _objects(entry)['paper']['size'] == [0.210, 0.148, 0.001]
+
+
+@pytest.fixture
+def simready():
+    return catalog.load('scenarios', 'tabletop_simready')
+
+
+def test_simready_keeps_the_tabletop_table_and_sheet(simready):
+    tabletop = _objects(catalog.load('scenarios', 'tabletop_can'))
+    for name in ('table', 'paper'):
+        assert _objects(simready)[name] == tabletop[name]
+
+
+def test_simready_uses_the_tabletop_slots_and_spawn_boxes(simready):
+    tabletop = _objects(catalog.load('scenarios', 'tabletop_can'))
+    objects = _objects(simready)
+    for name, slot in (('can', 'can'), ('boxed_food', 'block'), ('canned_food', 'puck')):
+        assert objects[name]['pose']['xyz'][:2] == tabletop[slot]['pose']['xyz'][:2], name
+        assert objects[name]['spawn'] == tabletop[slot]['spawn'], name
+
+
+def test_simready_scores_perception_only(simready):
+    assert 'success' not in simready and 'regions' not in simready
+
+
+def test_simready_objects_are_the_chosen_packages_with_their_base_on_the_sheet(simready):
+    # A SimReady asset's origin is at its base: pose z is the sheet's top, not a centre.
+    packages = {
+        'can': 'food_beverage_can_e01',
+        'canned_food': 'food_can_tomatoSoup_a01',
+        'boxed_food': 'food_box_gelatin_a01',
+    }
+    assert {obj['name'] for obj in _free(simready)} == set(packages)
+    for obj in _free(simready):
+        assert obj['usd'].startswith(f'{packages[obj["name"]]}/simready_usd/'), obj['name']
+        assert obj['pose']['xyz'][2] == pytest.approx(PAPER_TOP), obj['name']
+
+
+def test_simready_objects_fit_the_gripper_across_their_grasp(simready):
+    # The gripper opens to 2 x 0.045 m; each object's narrowest plan width is its grasp.
+    for obj in _free(simready):
+        width = min(obj['size'][:2]) if obj['shape'] == 'box' else 2 * obj['size'][0]
+        assert width < 0.080, obj['name']
+
+
+def test_simready_objects_cannot_overlap_or_start_on_the_sheet(simready):
+    for first, second in itertools.combinations(_free(simready), 2):
+        distance = math.dist(first['pose']['xyz'][:2], second['pose']['xyz'][:2])
+        assert distance > (_max_jitter(first) + _max_jitter(second)
+                           + _bounding_radius(first) + _bounding_radius(second))
+    paper = _footprint(_objects(simready)['paper'])
+    for obj in _free(simready):
+        radius = _bounding_radius(obj)
+        low_y, high_y = _centre_range(obj, 'y')
+        low_x, high_x = _centre_range(obj, 'x')
+        assert (_clear((low_x - radius, high_x + radius), paper['x'])
+                or _clear((low_y - radius, high_y + radius), paper['y'])), obj['name']
+
+
+def test_simready_objects_spawn_reachable_and_on_the_table(simready):
+    table = _footprint(_objects(simready)['table'])
+    for obj in _free(simready):
+        radius = _bounding_radius(obj)
+        low_x, high_x = _centre_range(obj, 'x')
+        low_y, high_y = _centre_range(obj, 'y')
+        assert REACH_X[0] <= low_x and high_x <= REACH_X[1], obj['name']
+        assert REACH_Y[0] <= low_y and high_y <= REACH_Y[1], obj['name']
+        assert table['x'][0] < low_x - radius and high_x + radius < table['x'][1], obj['name']
+        assert table['y'][0] < low_y - radius and high_y + radius < table['y'][1], obj['name']
+
+
+def test_only_isaac_builds_simready(simready):
+    specs = {spec['name']: spec for spec in isaac_stage.generate(simready, 1)['objects']}
+    assert specs['can']['usd'] == _objects(simready)['can']['usd']
+    with pytest.raises(sc.ScenarioError, match="only the isaac backend loads; backend 'mujoco'"):
+        mujoco_world.generate('/robot.xml', [0.0, 0.0, 0.0], simready, 1)
+    with pytest.raises(sc.ScenarioError, match="only the isaac backend loads; backend 'gazebo'"):
+        gazebo_world.generate_world(simready, 1)
