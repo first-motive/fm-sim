@@ -234,11 +234,18 @@ The robot is not reset; a controller under test returns it to its start.
 | `can_on_table` | `table` (top at 0.207), `paper` (A4), `can` (66 mm x 135 mm, 0.35 kg, spawned in a 60 mm x 50 mm box with any yaw) | `can` upright on the paper (`target`) for 2 s within 120 s |
 | `table_only` | `can_on_table`'s `table` and `paper`, no can: the empty scene a background-difference detector subtracts | none |
 | `tabletop_can`, `tabletop_block`, `tabletop_puck` | `can_on_table`'s `table`, an A5 `paper` whose centre a top-down release reaches, and one shared layout: green `can` (66 mm x 135 mm, 0.35 kg), red `block` (120 mm x 50 mm x 40 mm, 0.15 kg), blue `puck` (60 mm x 40 mm, 0.10 kg), each spawned in a 40 mm x 40 mm box, can and block with any yaw and puck at a fixed yaw | The named object on the paper (`target`, at its resting height) for 2 s within 120 s |
+| `tabletop_simready` | The tabletop `table` and `paper`, with a SimReady can, canned food and boxed food in the three object slots. Isaac only: its entry records each asset's choice and bounds | none: it scores perception, with no closed-loop grasp |
 
 `can_on_table` takes its geometry from fm-skills (`openarm_v2_skills_config`
 `specs.yaml` and `fake_detections.yaml`): the table top, the can, and the can and
 paper positions on the right arm's side. Its table starts 0.15 m ahead of the base
 so the arms hanging at rest clear it.
+
+An object may name a `usd` asset, relative to the assets directory, instead of
+taking its geometry and physics from the entry. Only Isaac loads USD, so MuJoCo and
+Gazebo refuse such a scenario. The assets are NVIDIA SimReady packages under
+CC-BY-4.0; [`tools/README.md`](../tools/README.md) says how to fetch them and carries
+their attribution.
 
 ## Cameras
 

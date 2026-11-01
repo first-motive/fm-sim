@@ -29,7 +29,7 @@ from fm_sim_agent.runner import (
     DockerRunner,
     RunnerError,
     capped_lines,
-    check_models_path,
+    check_mount_path,
     launch_args,
     mark_isaac_unavailable,
     parse_description,
@@ -717,6 +717,50 @@ def test_only_a_run_mounts_the_models_directory(docker, packs):
     assert not any(MODELS_MOUNT in arg for arg in docker.bridge_argv(RUN_ID, packs / "bridge-sim.json5"))
 
 
+def test_an_isaac_container_mounts_the_assets_read_only_and_says_where(with_isaac, packs):
+    with_isaac.assets_dir = packs
+    argv = with_isaac.isaac_argv(ISAAC_RUN_ID, ("ws",))
+    assert argv[argv.index(f"{packs}:{isaac.ASSETS_MOUNT}:ro") - 1] == "--volume"
+    assert f"{isaac.ASSETS_DIR_ENV}={isaac.ASSETS_MOUNT}" in argv
+
+
+def test_no_assets_directory_mounts_nothing(with_isaac):
+    argv = with_isaac.isaac_argv(ISAAC_RUN_ID, ("ws",))
+    assert not any(isaac.ASSETS_MOUNT in arg for arg in argv)
+
+
+def test_only_the_isaac_container_mounts_the_assets(with_isaac, packs):
+    with_isaac.assets_dir = packs
+    assert not any(isaac.ASSETS_MOUNT in arg for arg in with_isaac.run_argv(ISAAC_RUN_ID, ISAAC_SPEC))
+    assert not any(
+        isaac.ASSETS_MOUNT in arg for arg in with_isaac.bridge_argv(ISAAC_RUN_ID, packs / "bridge.json5")
+    )
+
+
+def test_a_symlink_in_the_assets_refuses_an_isaac_run(with_isaac, packs):
+    with_isaac.assets_dir = packs
+    (packs / "evil").symlink_to("/etc")
+    with pytest.raises(RunnerError, match="--assets-dir .* holds a symlink"):
+        with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    assert with_isaac.calls() == []
+
+
+def test_assets_replaced_since_startup_refuse_the_isaac_run(with_isaac, packs):
+    with_isaac.assets_dir = packs
+    packs.rename(packs.with_name("moved"))
+    packs.symlink_to(packs.with_name("moved"))
+    with pytest.raises(RunnerError, match="--assets-dir .* is a symlink"):
+        with_isaac.start(ISAAC_RUN_ID, ISAAC_SPEC)
+    assert with_isaac.calls() == []
+
+
+def test_a_run_on_another_backend_does_not_walk_the_assets(docker, packs):
+    docker.assets_dir = packs
+    (packs / "evil").symlink_to("/etc")
+    docker.start(RUN_ID, SPEC)
+    assert len(docker.calls()) == 1
+
+
 def _relative(root: Path) -> Path:
     return Path(os.path.relpath(root))
 
@@ -760,7 +804,7 @@ BAD_PATHS = [
 @pytest.mark.parametrize(("make", "message"), BAD_PATHS)
 def test_a_bad_models_path_is_refused(packs, make, message):
     with pytest.raises(RunnerError, match=message):
-        check_models_path(make(packs))
+        check_mount_path(make(packs), "--models-dir")
 
 
 @pytest.mark.parametrize(("make", "message"), BAD_PATHS)
@@ -770,6 +814,36 @@ def test_the_agent_will_not_start_on_a_bad_models_path(packs, monkeypatch, capsy
     monkeypatch.setenv("FM_ROUTER_ENDPOINT", "tcp/router:7447")
     assert service.main(["--host", "local", "--models-dir", str(make(packs))]) == 1
     assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("make", "message"), BAD_PATHS)
+def test_the_agent_will_not_start_on_a_bad_assets_path(packs, monkeypatch, capsys, make, message):
+    from fm_sim_agent import service
+
+    monkeypatch.setenv("FM_ROUTER_ENDPOINT", "tcp/router:7447")
+    assert service.main(["--host", "local", "--assets-dir", str(make(packs))]) == 1
+    error = capsys.readouterr().err
+    assert message in error and "--assets-dir" in error
+
+
+def test_the_assets_flag_reaches_the_runner(packs, monkeypatch):
+    from fm_sim_agent import service
+
+    made = {}
+
+    class Stop(Exception):
+        pass
+
+    def stand_in(*args, **kwargs):
+        made.update(kwargs)
+        raise Stop
+
+    monkeypatch.setenv("FM_ROUTER_ENDPOINT", "tcp/router:7447")
+    monkeypatch.setattr(service, "DockerRunner", stand_in)
+    with pytest.raises(Stop):
+        service.main(["--host", "local", "--assets-dir", str(packs)])
+    assert made["assets_dir"] == packs
+    assert service.build_parser().parse_args([]).assets_dir is None
 
 
 def test_the_models_flag_reaches_the_runner(packs, monkeypatch):
@@ -796,7 +870,7 @@ def test_the_models_flag_reaches_the_runner(packs, monkeypatch):
 def test_a_symlink_in_a_pack_refuses_the_run_not_the_agent(docker, packs, target):
     (packs / "cube" / "nested").mkdir()
     (packs / "cube" / "nested" / "link").symlink_to(target)
-    check_models_path(packs)  # its shape is fine: only a run looks inside
+    check_mount_path(packs, "--models-dir")  # its shape is fine: only a run looks inside
     docker.models_dir = packs
     with pytest.raises(RunnerError, match="nested/link"):
         docker.start(RUN_ID, SPEC)

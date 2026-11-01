@@ -53,7 +53,7 @@ from fm_sim_agent.runner import (
     DDS_RANGES,
     DockerRunner,
     RunnerError,
-    check_models_path,
+    check_mount_path,
 )
 from fm_sim_agent.runs import RunStore, default_runs_dir
 from fm_sim_agent.spec import NAME_PATTERN, valid_name
@@ -345,6 +345,13 @@ def build_parser() -> argparse.ArgumentParser:
         "directory; a run is refused while any symlink is under it.",
     )
     parser.add_argument(
+        "--assets-dir",
+        type=Path,
+        default=None,
+        help="USD assets (tools/fetch_simready.py) each isaac run's Isaac container mounts read-only. "
+        "An absolute path to a real directory; an isaac run is refused while any symlink is under it.",
+    )
+    parser.add_argument(
         "--no-host-network", action="store_true", help="Do not share the host's network (macOS)."
     )
     parser.add_argument(
@@ -454,9 +461,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     # Only the path's shape: the tree is checked before each run (DockerRunner.start).
     # Not resolved like runs_dir: that would hide the symlink each run's check refuses.
-    if args.models_dir is not None:
+    for flag, path in (("--models-dir", args.models_dir), ("--assets-dir", args.assets_dir)):
+        if path is None:
+            continue
         try:
-            check_models_path(args.models_dir)
+            check_mount_path(path, flag)
         except RunnerError as exc:
             print(f"fm-sim-agent: {exc}", file=sys.stderr)
             return 1
@@ -483,6 +492,7 @@ def main(argv: list[str] | None = None) -> int:
         .resolve(),
         isaac_memory=args.isaac_memory,
         models_dir=args.models_dir,
+        assets_dir=args.assets_dir,
     )
     agent = SimAgent(host, runner, RunStore(runs_dir))
     agent.keep_foreign_runs = label != host  # a label shared with other processes

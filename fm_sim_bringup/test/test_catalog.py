@@ -261,6 +261,45 @@ def test_malformed_scenario_is_rejected(extra_prefix, change, match):
         catalog.load('scenarios', 'broken')
 
 
+def _usd_object(**changes):
+    return {
+        'name': 'prop', 'usd': 'pkg/simready_usd/prop.usd', 'shape': 'box', 'size': [0.1, 0.1, 0.1],
+        'color': [1.0, 0.0, 0.0, 1.0], 'pose': {'xyz': [0.0, 0.0, 0.0]}, **changes,
+    }
+
+
+def _object_problem(obj):
+    schema = {**catalog.load_schema(), '$ref': '#/definitions/scenario_object'}
+    try:
+        jsonschema.validate(obj, schema)
+    except jsonschema.ValidationError as error:
+        return error.message
+    return None
+
+
+def test_a_usd_object_needs_no_mass_or_friction_of_its_own():
+    assert _object_problem(_usd_object()) is None
+
+
+@pytest.mark.parametrize('field,value', [('mass', 0.1), ('friction', 1.0), ('static', True)])
+def test_a_usd_object_refuses_what_its_asset_decides(field, value):
+    assert _object_problem(_usd_object(**{field: value})) is not None
+
+
+@pytest.mark.parametrize('usd', [
+    '../secret.usd', 'a/../../secret.usd', '/etc/secret.usd', 'a/.hidden.usd', 'prop.txt', 'a b.usd',
+])
+def test_a_usd_path_must_stay_inside_the_assets(usd):
+    assert _object_problem(_usd_object(usd=usd)) is not None
+
+
+@pytest.mark.parametrize('field,missing', [('mass', "'mass'"), ('friction', "'friction'")])
+def test_a_shape_object_still_needs_its_physics(field, missing):
+    obj = _usd_object(mass=0.1, friction=1.0)
+    del obj['usd'], obj[field]
+    assert missing in _object_problem(obj)
+
+
 @pytest.mark.parametrize('profile,valid', [('fm_openarm_v2', True), (None, True), ('', False)])
 def test_schema_robot_profile_is_a_name_or_null(profile, valid):
     robot = dict(catalog.load('robots', 'so101'), robot_profile=profile)

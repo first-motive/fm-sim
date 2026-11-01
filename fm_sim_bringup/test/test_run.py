@@ -218,6 +218,22 @@ def test_backend_without_generator_runs_the_robot_model_for_empty(monkeypatch):
     assert world is None
 
 
+def test_mujoco_refuses_a_scenario_with_usd_objects():
+    entries = _entries('mujoco', 'tabletop_simready')
+    with pytest.raises(ValueError, match="only the isaac backend loads; backend 'mujoco'"):
+        run.world_model(
+            entries['backend'], entries['robot'], entries['scenario'], 0, '/robot.xml', '/unused'
+        )
+
+
+def test_gazebo_refuses_a_scenario_with_usd_objects(tmp_path):
+    entries = _entries('gazebo', 'tabletop_simready')
+    with pytest.raises(ValueError, match="only the isaac backend loads; backend 'gazebo'"):
+        run.world_model(
+            entries['backend'], entries['robot'], entries['scenario'], 0, '/robot.xml', str(tmp_path)
+        )
+
+
 def test_backend_without_generator_refuses_objects(monkeypatch):
     monkeypatch.delitem(run.WORLD_GENERATORS, 'gazebo')
     entries = _entries('gazebo', 'can_on_table')

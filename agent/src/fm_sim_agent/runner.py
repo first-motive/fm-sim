@@ -292,43 +292,43 @@ def parse_controllers(text: str) -> dict[str, str]:
     return dict(CONTROLLER_STATE.findall(text))
 
 
-def check_models_path(path: Path) -> None:
-    """Refuse a ``--models-dir`` that is not an absolute path to a real directory."""
+def check_mount_path(path: Path, flag: str) -> None:
+    """Refuse a directory flag's value that is not an absolute path to a real directory."""
     if not path.is_absolute():
-        raise RunnerError(f"--models-dir {path} is not an absolute path")
+        raise RunnerError(f"{flag} {path} is not an absolute path")
     # Either would end the path early in a docker mount value (':' in --volume,
     # ',' in --mount) and let the rest of it read as docker's own options.
     if ":" in str(path) or "," in str(path):
-        raise RunnerError(f"--models-dir {path} has a ':' or ',', which docker mount values split on")
+        raise RunnerError(f"{flag} {path} has a ':' or ',', which docker mount values split on")
     try:
         mode = os.lstat(path).st_mode
     except OSError as exc:
-        raise RunnerError(f"--models-dir {path}: {exc.strerror}") from None
+        raise RunnerError(f"{flag} {path}: {exc.strerror}") from None
     if stat.S_ISLNK(mode):
-        raise RunnerError(f"--models-dir {path} is a symlink")
+        raise RunnerError(f"{flag} {path} is a symlink")
     if not stat.S_ISDIR(mode):
-        raise RunnerError(f"--models-dir {path} is not a directory")
+        raise RunnerError(f"{flag} {path} is not a directory")
 
 
-def check_models_tree(path: Path) -> None:
-    """Refuse a models directory with a symlink anywhere under it, or one it cannot walk.
+def check_mount_tree(path: Path, flag: str) -> None:
+    """Refuse a mounted directory with a symlink anywhere under it, or one it cannot walk.
 
     A symlink would reach outside the mount or dangle inside the container.
     tradeoff: a symlink made between this walk and ``docker run`` gets through;
     whoever can write here is already trusted with what runs load.
-    tradeoff: unbounded, and fine for the few files a pack holds; cap the entries
-    if a directory ever holds thousands of packs.
+    tradeoff: unbounded, and fine for the few files a pack or asset package holds;
+    cap the entries if a directory ever holds thousands of them.
     """
 
     def unreadable(exc: OSError) -> None:
-        raise RunnerError(f"--models-dir {path}: cannot read {exc.filename}: {exc.strerror}")
+        raise RunnerError(f"{flag} {path}: cannot read {exc.filename}: {exc.strerror}")
 
     # os.walk drops a directory it cannot list unless told: unchecked is not clean.
     for parent, dirs, files in os.walk(path, onerror=unreadable, followlinks=False):
         for name in (*dirs, *files):
             entry = Path(parent, name)
             if entry.is_symlink():
-                raise RunnerError(f"--models-dir {path} holds a symlink: {str(entry.relative_to(path))!r}")
+                raise RunnerError(f"{flag} {path} holds a symlink: {str(entry.relative_to(path))!r}")
 
 
 #: Why an isaac backend is listed unavailable on a host started with no ``--isaac-image``.
@@ -412,6 +412,7 @@ class DockerRunner:
         isaac_cache: Path | None = None,
         isaac_memory: str = isaac.MEMORY,
         models_dir: Path | None = None,
+        assets_dir: Path | None = None,
     ) -> None:
         if dds_range not in DDS_RANGES:
             raise ValueError(f"dds_range must be one of {DDS_RANGES}")
@@ -441,6 +442,8 @@ class DockerRunner:
         self.isaac_memory = isaac_memory
         #: Object packs every run mounts at MODELS_MOUNT; None mounts nothing.
         self.models_dir = models_dir
+        #: USD assets every isaac run's Isaac container mounts; None mounts nothing.
+        self.assets_dir = assets_dir
         #: The runs this runner started an Isaac container beside.
         self._isaac_runs: set[str] = set()
 
@@ -625,6 +628,7 @@ class DockerRunner:
             cache=self.isaac_cache,
             network=network,
             memory=self.isaac_memory,
+            assets=self.assets_dir,
         )
 
     def _workspaces(self) -> tuple[str, ...]:
@@ -664,8 +668,11 @@ class DockerRunner:
         # today's tree. One bad pack then refuses a run, which the agent reports,
         # instead of a restart loop that takes the host down for every run.
         if self.models_dir is not None:
-            check_models_path(self.models_dir)
-            check_models_tree(self.models_dir)
+            check_mount_path(self.models_dir, "--models-dir")
+            check_mount_tree(self.models_dir, "--models-dir")
+        if self.assets_dir is not None and self._runs_isaac(spec):
+            check_mount_path(self.assets_dir, "--assets-dir")
+            check_mount_tree(self.assets_dir, "--assets-dir")
         (self.runs_dir / run_id / BAG_NAME).mkdir(parents=True, exist_ok=True)
         workspaces = self._prepare_isaac(run_id) if self._runs_isaac(spec) else None
         self._run(self.run_argv(run_id, spec), RUN_TIMEOUT_S)

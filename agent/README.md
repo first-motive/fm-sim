@@ -259,6 +259,7 @@ uv run fm-sim-agent --host local --no-host-network --image fm-sim:jazzy
 | `--isaac-cache DIR` | `~/.cache/fm-sim-isaac/<label>` | where Isaac Sim's shader caches persist between runs |
 | `--isaac-memory SIZE` | `24g` | memory ceiling of a run's Isaac container |
 | `--models-dir DIR` | none | object packs every run mounts read-only at `/workspace/models` (see [Object Packs](#object-packs)) |
+| `--assets-dir DIR` | none | USD assets each isaac run's Isaac container mounts read-only at `/fm-assets` (see [USD Assets](#usd-assets)) |
 | `--no-host-network` | host network on | macOS, where the container cannot share the host's network; each run then gets a bridge (see [Live Topics](#live-topics)) |
 | `--bridge-config PATH` | `$FM_SIM_BRIDGE_CONFIG`, else `~/.config/fm-comms/bridge-sim.json5` | with `--no-host-network`: the config each run's bridge reads, `cyclonedds.xml` beside it |
 | `--docker-arg ARG` | none | extra `docker run` argument, repeatable |
@@ -304,6 +305,15 @@ would reach outside the mount or dangle inside the container, or if it cannot
 read a directory. The walk runs per run, not at startup, because the tree changes
 while the agent is up. A refused run fails like any other that does not start,
 with the reason in the agent's log; no container is started for it.
+
+### USD Assets
+
+`--assets-dir DIR` bind-mounts the directory
+[`tools/fetch_simready.py`](../tools/README.md) fills into each isaac run's Isaac
+container, read-only, at `/fm-assets`, and sets `FM_ISAAC_ASSETS_DIR` to that path.
+Only that container gets it, since only Isaac Sim opens USD. The path is refused as
+`--models-dir` refuses one, and a symlink under it refuses an isaac run. Without the
+flag, a scenario with USD objects fails its run, and `stage/isaac.log` says why.
 
 ## The fm sim CLI
 

@@ -276,6 +276,19 @@ jobs:
       - name: Validate
         run: infra/aws/sim/deploy.sh validate
 
+  # The SimReady fetch tool's tests use a fake host, so they download no assets.
+  tools:
+    name: repo tools
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Test
+        run: uv run --no-project --with pytest pytest tools
+
   # The sim agent and the `fm sim` CLI (agent/, a uv project outside colcon):
   # the suite runs against a fake runner, a stand-in docker and in-process
   # Zenoh peers on 127.0.0.1, so no router, Docker daemon or image is needed.

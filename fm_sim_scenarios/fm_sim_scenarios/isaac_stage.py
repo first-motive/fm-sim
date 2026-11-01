@@ -28,6 +28,9 @@ as both static and dynamic friction, restitution 0, and friction combine mode
 ``max``, so an object's own friction governs its contacts unless the other
 surface's is higher (PhysX uses the higher-priority combine mode of the pair,
 and ``max`` outranks the default ``average``).
+
+An object with ``usd`` references that asset instead: the runner resolves the path
+in the assets directory it is given, and the asset keeps its own mass and friction.
 """
 
 import json
@@ -117,6 +120,9 @@ WORLD_DIR_PREFIX = 'fm_sim_world_'
 # How far beyond the scenario's objects and spawn ranges a teleport may land.
 WORKSPACE_MARGIN_M = 0.25
 _SHAPES = ('box', 'cylinder', 'sphere')
+# The variant that holds a SimReady asset's PhysX colliders. Selected, not assumed: the
+# packages differ in their default, and some ship with it off.
+USD_PHYSICS_VARIANT = ('PhysX', 'Enabled')
 
 
 class StageError(ValueError):
@@ -193,7 +199,8 @@ def object_specs(scenario, seed):
     """Return the stage spec of every scenario object, free ones at their spawn.
 
     ``scenario`` is a checked catalog entry (``scenario.check``). A static object
-    is collision only; a free one is a rigid body with the scenario's mass.
+    is collision only; a free one is a rigid body with the scenario's mass. A USD
+    object is a free rigid body whose geometry and physics come from its asset.
     """
     spawn = sc.spawn_poses(scenario, seed)
     fixed = sc.static_poses(scenario)
@@ -204,18 +211,24 @@ def object_specs(scenario, seed):
             raise StageError(f'object name {name!r} is not a valid name')
         static = sc.is_static(obj)
         xyz, quat = fixed[name] if static else spawn[name]
-        prim_type, attributes, scale = _geom(obj)
-        specs.append({
+        placed = {
             'name': name,
             'prim_path': f'{SCENARIO_PRIM}/{name}',
+            'translate': list(xyz),
+            'orient_wxyz': list(_wxyz(quat)),
+            'rigid_body': not static,
+        }
+        if 'usd' in obj:
+            specs.append({**placed, 'usd': obj['usd'], 'variant': list(USD_PHYSICS_VARIANT)})
+            continue
+        prim_type, attributes, scale = _geom(obj)
+        specs.append({
+            **placed,
             'prim_type': prim_type,
             'attributes': attributes,
             'scale': scale,
-            'translate': list(xyz),
-            'orient_wxyz': list(_wxyz(quat)),
             'color': list(obj['color'][:3]),
             'opacity': obj['color'][3],
-            'rigid_body': not static,
             'mass': None if static else obj['mass'],
             'material': {
                 'static_friction': obj['friction'],

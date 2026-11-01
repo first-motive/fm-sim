@@ -176,6 +176,42 @@ def test_mesh_roots_must_be_prefix_absolute_directory_pairs(roots):
         stage.parse_mesh_roots(roots)
 
 
+def _with_usd_object(usd='pkg/simready_usd/prop.usda'):
+    scenario = copy.deepcopy(CAN_ON_TABLE)
+    can = next(obj for obj in scenario['objects'] if obj['name'] == 'can')
+    del can['mass'], can['friction']
+    can['usd'] = usd
+    return scenario
+
+
+def test_a_usd_object_references_its_asset_and_keeps_its_physics():
+    scenario = _with_usd_object()
+    spec = {o['name']: o for o in stage.generate(scenario, 7)['objects']}['can']
+    xyz, quat = sc.spawn_poses(scenario, 7)['can']
+    assert spec == {
+        'name': 'can',
+        'prim_path': '/World/scenario/can',
+        'translate': list(xyz),
+        'orient_wxyz': [quat[3], quat[0], quat[1], quat[2]],
+        'rigid_body': True,
+        'usd': 'pkg/simready_usd/prop.usda',
+        'variant': ['PhysX', 'Enabled'],
+    }
+
+
+def test_a_usd_object_gets_a_pose_and_teleports_like_any_free_object():
+    world = stage.generate(_with_usd_object(), 7)
+    graph = stage.bridge_graph(*TOPICS, [], world['objects'])
+    (targets,) = [v for k, v in graph['prim_values'] if k == 'transforms.inputs:targetPrims']
+    assert '/World/scenario/can' in targets
+
+
+@pytest.mark.parametrize('usd', ['../secret.usd', '/etc/secret.usd', 'a/../b.usd', 'prop.txt', 'a.usd\n'])
+def test_generate_refuses_a_usd_path_outside_the_assets(usd):
+    with pytest.raises(sc.ScenarioError, match='not a path inside the assets'):
+        stage.generate(_with_usd_object(usd), 7)
+
+
 def test_object_workspace_covers_the_spawn_ranges_with_a_margin():
     workspace = stage.object_workspace(CAN_ON_TABLE)
     margin = stage.WORKSPACE_MARGIN_M

@@ -25,6 +25,9 @@ run's CycloneDDS subscribed to its cameras, until the host ran out.
 The stage runner writes ``stage/isaac.ready`` once its stage plays, which the
 runner waits for before the run counts as up, and its output goes to
 ``stage/isaac.log``, kept with the run once the container is removed.
+
+With ``--assets-dir``, the USD assets a scenario names are mounted read-only into
+this container alone: only Isaac Sim opens them.
 """
 
 from __future__ import annotations
@@ -57,6 +60,10 @@ CYCLONE = (
     "<MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>"
     '<Peers><Peer address="localhost"/></Peers></Discovery></Domain></CycloneDDS>'
 )
+
+#: Where ``--assets-dir`` is mounted, and the variable that tells the stage runner.
+ASSETS_MOUNT = "/fm-assets"
+ASSETS_DIR_ENV = "FM_ISAAC_ASSETS_DIR"
 
 #: Isaac Sim's home inside its container, mounted from the cache.
 HOME_MOUNT = "/fm-isaac/home"
@@ -160,6 +167,7 @@ def argv(
     cache: Path,
     network: tuple[str, ...],
     memory: str = MEMORY,
+    assets: Path | None = None,
 ) -> list[str]:
     """The ``docker run`` arguments for a run's Isaac container."""
     command = [
@@ -184,6 +192,8 @@ def argv(
             "--mount",
             f"type=image,source={sim_image},target=/{workspace},image-subpath={workspace}",
         ]
+    if assets is not None:
+        command += ["--volume", f"{assets}:{ASSETS_MOUNT}:ro", "--env", f"{ASSETS_DIR_ENV}={ASSETS_MOUNT}"]
     for value in (*CONSENT_ENV, *ENV):
         command += ["--env", value]
     if os.environ.get("ROS_DOMAIN_ID"):

@@ -123,6 +123,12 @@ def test_free_objects_carry_mass_inertia_and_friction(can_on_table):
     assert float(ball.find('collision/surface/friction/ode/mu').text) == 0.5
 
 
+def test_world_refuses_a_usd_object(can_on_table):
+    can_on_table['objects'][-1]['usd'] = 'pkg/prop.usd'
+    with pytest.raises(sc.ScenarioError, match="only the isaac backend loads; backend 'gazebo'"):
+        gazebo_world.generate_world(can_on_table, 1)
+
+
 def test_world_loads_the_systems_a_run_needs(can_on_table):
     world = _world(can_on_table)
     assert world.get('name') == gazebo_world.WORLD_NAME

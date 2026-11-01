@@ -208,6 +208,7 @@ def generate(robot_mjcf, mount_xyz, scenario, seed, model_name='fm_sim_world', w
     """
     if not os.path.isabs(robot_mjcf):
         raise sc.ScenarioError(f'robot MJCF path must be absolute, got {robot_mjcf!r}')
+    sc.refuse_usd_objects(scenario, 'mujoco')
     spawn = sc.spawn_poses(scenario, seed)
     fixed = sc.static_poses(scenario)
 

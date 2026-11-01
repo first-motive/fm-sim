@@ -1,0 +1,77 @@
+# Catalog entry (fm_sim.scenarios): the tabletop table, sheet and layout with real product
+# assets in the three object slots, for scoring Isaac perception on what a camera would meet.
+# No success predicate and no closed-loop grasp: these assets are not tuned to be gripped.
+# Isaac only, because the objects are USD, and tools/fetch_simready.py must have fetched them.
+#
+# Source: https://huggingface.co/datasets/nvidia/simready-assets at commit
+# 4763fbfaa4f8e97658e68b57d01b4c86659e08b5 (tools/fetch_simready.py pins it), CC-BY-4.0.
+#
+# Each package was chosen from its metadata at that commit, for a width under about 80 mm
+# across its grasp (the gripper opens to 90 mm) and no recorded grasp failure. Bounds are in
+# mm, measured by composing the asset in OpenUSD. Each origin is at the asset's base, so pose z
+# is the sheet's top rather than a centre. shape, size and color serve markers and layout
+# checks only, and a marker centres on that origin.
+#
+#   object       package                  bounds x y z       recorded mass  real-world mass
+#   can          food_beverage_can_e01    59.7 x 59.7 x 121.6   0.069 kg    0.33 kg (330 ml, full)
+#   canned_food  food_can_tomatoSoup_a01  66.9 x 66.9 x 101.8   0.400 kg    0.349 kg (YCB soup can)
+#   boxed_food   food_box_gelatin_a01     89.2 x 30.0 x 73.1    0.007 kg    0.097 kg (YCB gelatin box)
+#
+# The box's grasp is across its 30 mm depth: its 89.2 mm length is wider than the gripper.
+# Recorded mass is what the asset authors, left as it is. Mass in Isaac and rest on the table
+# are not measured yet: both need an Isaac run. The packages record these failed validation
+# features, none of them a grasp test: can FET000_CORE, FET001_BASE_NEUTRAL and FET004
+# (multibody); canned_food FET_000_PHYSX and FET_004 (multibody); boxed_food FET004
+# (multibody), FET006 (materials) and FET010 (display color). food_beverage_can_b01 was passed
+# over: it records a failed test_grasp_and_lift and requirement RB.MB.001.
+name: tabletop_simready
+description: SimReady can, canned food and boxed food on the tabletop, for scoring perception on Isaac
+available: true
+objects:
+  # Its front edge is 0.15 m ahead of the base, clear of the arms hanging at rest;
+  # the top is at 0.207.
+  - name: table
+    shape: box
+    size: [0.7, 1.2, 0.04]
+    static: true
+    friction: 1.0
+    color: [0.55, 0.45, 0.35, 1.0]
+    pose: {xyz: [0.5, 0.0, 0.187]}
+  # The tabletop scenarios' A5 sheet, its top at 0.208.
+  - name: paper
+    shape: box
+    size: [0.210, 0.148, 0.001]
+    static: true
+    friction: 0.8
+    color: [0.95, 0.95, 0.95, 1.0]
+    pose: {xyz: [0.26, -0.37, 0.2075]}
+  # The can, block and puck slots of the tabletop scenarios, with their spawn boxes.
+  - name: can
+    usd: food_beverage_can_e01/simready_usd/sm_food_beverage_can_e01_01.usd
+    shape: cylinder
+    size: [0.0298, 0.1216]
+    color: [0.1, 0.6, 0.2, 1.0]
+    pose: {xyz: [0.40, -0.14, 0.208]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+      yaw: [-3.14159, 3.14159]
+  - name: boxed_food
+    usd: food_box_gelatin_a01/simready_usd/sm_food_box_gelatin_a01_01.usda
+    shape: box
+    size: [0.0892, 0.0300, 0.0731]
+    color: [0.8, 0.1, 0.1, 1.0]
+    pose: {xyz: [0.24, -0.21, 0.208]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+      yaw: [-3.14159, 3.14159]
+  - name: canned_food
+    usd: food_can_tomatoSoup_a01/simready_usd/sm_food_can_tomatoSoup_a01_01.usda
+    shape: cylinder
+    size: [0.0335, 0.1018]
+    color: [0.1, 0.2, 0.8, 1.0]
+    pose: {xyz: [0.27, -0.06, 0.208]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]

@@ -323,10 +323,15 @@
     },
     "scenario_object": {
       "type": "object",
-      "required": ["name", "shape", "size", "friction", "color", "pose"],
+      "required": ["name", "shape", "size", "color", "pose"],
       "additionalProperties": false,
       "properties": {
         "name": {"$ref": "#/definitions/frame_name"},
+        "usd": {
+          "description": "Optional USD asset, relative to the assets directory (tools/fetch_simready.py). Isaac only: every other backend refuses it. The asset supplies geometry, mass and friction, so mass, friction and static are refused beside it; shape, size and color describe its bounds for markers and layout checks, and pose places the asset's origin.",
+          "type": "string",
+          "pattern": "^([A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.usd[ac]?$"
+        },
         "shape": {"enum": ["box", "cylinder", "sphere"]},
         "size": {
           "description": "box: full x, y, z extents; cylinder: radius, height; sphere: radius (m).",
@@ -334,8 +339,8 @@
           "items": {"type": "number", "exclusiveMinimum": 0}
         },
         "static": {"type": "boolean", "description": "Fixed to the world: no free joint, never respawned. Default false."},
-        "mass": {"type": "number", "exclusiveMinimum": 0, "description": "kg; required unless static."},
-        "friction": {"type": "number", "exclusiveMinimum": 0, "description": "Sliding friction coefficient."},
+        "mass": {"type": "number", "exclusiveMinimum": 0, "description": "kg; required unless static or usd."},
+        "friction": {"type": "number", "exclusiveMinimum": 0, "description": "Sliding friction coefficient; required unless usd."},
         "color": {"$ref": "#/definitions/rgba"},
         "pose": {"$ref": "#/definitions/pose"},
         "spawn": {
@@ -367,7 +372,14 @@
         {
           "if": {"required": ["static"], "properties": {"static": {"const": true}}},
           "then": {"not": {"required": ["spawn"]}},
-          "else": {"required": ["mass"]}
+          "else": {"if": {"required": ["usd"]}, "else": {"required": ["mass"]}}
+        },
+        {
+          "if": {"required": ["usd"]},
+          "then": {"not": {"anyOf": [
+            {"required": ["mass"]}, {"required": ["friction"]}, {"required": ["static"]}
+          ]}},
+          "else": {"required": ["friction"]}
         }
       ]
     },

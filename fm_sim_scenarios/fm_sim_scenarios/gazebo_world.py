@@ -151,6 +151,7 @@ def generate_world(scenario, seed):
     The Sensors system (ogre2) is always loaded: the robot's camera sensors need
     it, and it loads no render engine while the world has no sensor.
     """
+    sc.refuse_usd_objects(scenario, 'gazebo')
     for obj in scenario['objects']:
         # Each becomes a model, its topic and the set_pose target.
         if not sc.FRAME_NAME.fullmatch(str(obj['name'])):
