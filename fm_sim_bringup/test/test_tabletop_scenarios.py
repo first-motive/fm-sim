@@ -197,7 +197,7 @@ def test_simready_objects_are_the_chosen_packages_with_their_base_on_the_sheet(s
     # A SimReady asset's origin is at its base: pose z is the sheet's top, not a centre.
     packages = {
         'can': 'food_beverage_can_e01',
-        'canned_food': 'food_can_tomatoSoup_a01',
+        'canned_food': 'food_canned_beans_a02',
         'boxed_food': 'food_box_gelatin_a01',
     }
     assert {obj['name'] for obj in _free(simready)} == set(packages)

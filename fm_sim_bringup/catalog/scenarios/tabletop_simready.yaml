@@ -14,16 +14,22 @@
 #
 #   object       package                  bounds x y z       recorded mass  real-world mass
 #   can          food_beverage_can_e01    59.7 x 59.7 x 121.6   0.069 kg    0.33 kg (330 ml, full)
-#   canned_food  food_can_tomatoSoup_a01  66.9 x 66.9 x 101.8   0.400 kg    0.349 kg (YCB soup can)
+#   canned_food  food_canned_beans_a02    76.0 x 76.0 x 102.0   2.136 kg    0.45 kg (typical 15 oz can)
 #   boxed_food   food_box_gelatin_a01     89.2 x 30.0 x 73.1    0.007 kg    0.097 kg (YCB gelatin box)
 #
 # The box's grasp is across its 30 mm depth: its 89.2 mm length is wider than the gripper.
-# Recorded mass is what the asset authors, left as it is. Mass in Isaac and rest on the table
-# are not measured yet: both need an Isaac run. The packages record these failed validation
-# features, none of them a grasp test: can FET000_CORE, FET001_BASE_NEUTRAL and FET004
-# (multibody); canned_food FET_000_PHYSX and FET_004 (multibody); boxed_food FET004
-# (multibody), FET006 (materials) and FET010 (display color). food_beverage_can_b01 was passed
-# over: it records a failed test_grasp_and_lift and requirement RB.MB.001.
+# Recorded mass is what the asset authors, left as it is, and Isaac reports the same value.
+# Measured in Isaac Sim with no robot, each object settles within 1.4 mm of its spawn on the
+# table, at rest and after a teleport, inside the 5 mm a reset allows. The packages record
+# these failed validation features, none of them a grasp test: can FET000_CORE,
+# FET001_BASE_NEUTRAL and FET004 (multibody); canned_food FET_000_PHYSX, FET001_BASE_NEUTRAL,
+# FET004 (multibody) and FET006 (materials); boxed_food FET004 (multibody), FET006 (materials)
+# and FET010 (display color).
+#
+# Passed over: food_can_tomatoSoup_a01 falls through the table in Isaac Sim, which fails the
+# reset, for a cause not found; food_canned_soup_a01 and a02 are 87.7 mm wide;
+# food_canned_beans_a01 fits but authors 2.826 kg; food_beverage_can_b01 records a failed
+# test_grasp_and_lift and requirement RB.MB.001.
 name: tabletop_simready
 description: SimReady can, canned food and boxed food on the tabletop, for scoring perception on Isaac
 available: true
@@ -67,9 +73,9 @@ objects:
       y: [-0.02, 0.02]
       yaw: [-3.14159, 3.14159]
   - name: canned_food
-    usd: food_can_tomatoSoup_a01/simready_usd/sm_food_can_tomatoSoup_a01_01.usda
+    usd: food_canned_beans_a02/simready_usd/sm_food_canned_beans_a02_01.usd
     shape: cylinder
-    size: [0.0335, 0.1018]
+    size: [0.038, 0.102]
     color: [0.1, 0.2, 0.8, 1.0]
     pose: {xyz: [0.27, -0.06, 0.208]}
     spawn:

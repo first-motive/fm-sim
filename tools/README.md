@@ -9,7 +9,7 @@ standard library only.
 
 ```bash
 uv run --no-project tools/fetch_simready.py --assets-dir /data/fm-assets \
-    food_beverage_can_e01 food_can_tomatoSoup_a01 food_box_gelatin_a01
+    food_beverage_can_e01 food_canned_beans_a02 food_box_gelatin_a01
 ```
 
 Those three are what the `tabletop_simready` scenario names.

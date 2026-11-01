@@ -2,7 +2,7 @@
 """Download named SimReady packages, at a pinned commit, into a read-only directory.
 
     uv run --no-project tools/fetch_simready.py --assets-dir /data/fm-assets \\
-        food_beverage_can_e01 food_can_tomatoSoup_a01 food_box_gelatin_a01
+        food_beverage_can_e01 food_canned_beans_a02 food_box_gelatin_a01
 
 The packages live in the Hugging Face dataset ``nvidia/simready-assets``. Everything
 the host sends is hostile until checked: every package name and listed path, every
