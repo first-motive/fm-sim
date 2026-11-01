@@ -3,6 +3,7 @@
 import math
 
 from fm_sim_bringup import catalog
+from fm_sim_scenarios import isaac_stage
 import numpy as np
 import pytest
 
@@ -62,16 +63,7 @@ def actuator(model, joint_id):
 
 def initial_positions(urdf):
     """Return the joints' spawn positions from the description's ros2_control block."""
-    positions = {}
-    for joint in urdf.findall('ros2_control/joint'):
-        value = joint.find("state_interface[@name='position']/param[@name='initial_value']")
-        if value is not None:
-            positions[joint.get('name')] = float(value.text)
-    for joint in moving_joints(urdf):
-        mimic = joint.find('mimic')
-        if mimic is not None:
-            positions[joint.get('name')] = positions[mimic.get('joint')]
-    return positions
+    return isaac_stage.initial_positions(urdf)
 
 
 def settle(mujoco, model, data, seconds, hold=None):

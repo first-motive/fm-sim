@@ -244,6 +244,31 @@ def test_bridge_topics_refuse_a_mismatched_description(change, match):
         stage.bridge_topics(ET.fromstring(change(PROBE_URDF)))
 
 
+def test_initial_positions_come_from_the_position_state_interface():
+    text = PROBE_URDF.replace('<joint name="arm_joint"/>', """<joint name="arm_joint">
+      <state_interface name="velocity"><param name="initial_value">9</param></state_interface>
+      <state_interface name="position"><param name="initial_value">0.68</param></state_interface>
+    </joint>""", 1)
+    assert stage.initial_positions(ET.fromstring(text)) == {'arm_joint': 0.68}
+    mimic = text.replace('<link name="head_cam"/>', """<link name="head_cam"/><link name="twin"/>
+  <joint name="twin_joint" type="revolute"><parent link="base"/><child link="twin"/>
+    <mimic joint="arm_joint"/></joint>""", 1)
+    assert stage.initial_positions(ET.fromstring(mimic))['twin_joint'] == 0.68
+    assert stage.initial_positions(_robot()) == {}
+
+
+@pytest.mark.parametrize('joint, value', [
+    ('name="arm_joint"', 'ready'), ('name="arm_joint"', 'nan'), ('name="arm_joint"', 'inf'),
+    ('', '0.5'),
+])
+def test_initial_positions_refuse_a_value_that_is_not_finite(joint, value):
+    text = PROBE_URDF.replace('<joint name="arm_joint"/>', f"""<joint {joint}>
+      <state_interface name="position"><param name="initial_value">{value}</param></state_interface>
+    </joint>""", 1)
+    with pytest.raises(stage.StageError, match='not a finite number'):
+        stage.initial_positions(ET.fromstring(text))
+
+
 def test_camera_on_a_moving_link_mounts_on_that_link():
     link, (xyz, quat) = stage.camera_mount(_robot(), 'cam')
     assert link == 'arm'
@@ -456,6 +481,8 @@ def test_openarm_stage_matches_its_description_and_cameras():
     # The importer puts the robot at /<robot name>; links sit flat under it.
     robot_prim = spec['robot']['prim_path']
     assert robot_prim == '/openarm'
+    # The arms start at their ready pose, not at zero, as on MuJoCo and Gazebo.
+    assert any(abs(q) > 0.1 for q in spec['robot']['initial_positions'].values())
     # The wrist camera rides the link joint7 moves; the fixed hand and camera link
     # merge into it.
     assert by_role['wrist_right']['parent_prim'] == f'{robot_prim}/follower_r_link7'

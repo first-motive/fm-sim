@@ -108,6 +108,11 @@ def _finite(values):
     return all(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
 
 
+def drive_target(kind, position):
+    """Return a drive's target in USD units: degrees for angular, metres for linear."""
+    return math.degrees(position) if kind == 'angular' else position
+
+
 def object_commands(msg, free_objects, workspace, world_frames=('World', 'world')):
     """Return ``({name: (xyz, quat_wxyz)}, [problems])`` from a TFMessage command.
 
@@ -193,6 +198,10 @@ def _apply_drives(stage, robot):
         drive.CreateStiffnessAttr(gains['stiffness'])
         drive.CreateDampingAttr(gains['damping'])
         drive.CreateMaxForceAttr(gains['max_force'])
+        # The bridge streams no command until a controller is active, so the
+        # drive holds this target until then; zero would pull the arm into the table.
+        position = robot['initial_positions'].get(prim.GetName(), 0.0)
+        drive.CreateTargetPositionAttr(drive_target(kind, position))
         count += 1
     if count == 0:
         raise SpecError(f'no revolute or prismatic joint under {robot["prim_path"]}')
@@ -354,6 +363,18 @@ def _mark_ready():
             ready.write('playing\n')
 
 
+def _set_initial_positions(articulation_root, positions):
+    """Start each joint at its ready pose, as MuJoCo and Gazebo do."""
+    import numpy as np
+    from isaacsim.core.prims import SingleArticulation
+
+    robot = SingleArticulation(articulation_root)
+    robot.initialize()
+    # Called after world.reset(), which returns every joint to zero. The importer
+    # names each dof after its URDF joint, the key the spec uses.
+    robot.set_joint_positions(np.array([positions.get(n, 0.0) for n in robot.dof_names]))
+
+
 def run(spec, headless):
     """Start Isaac Sim, build the stage from ``spec`` and step it until closed."""
     usd_files = {
@@ -392,6 +413,7 @@ def run(spec, headless):
         _build_graph(spec['graph'], articulation_root)
         free = {o['name']: o['prim_path'] for o in spec['objects'] if o['rigid_body']}
         world.reset()
+        _set_initial_positions(articulation_root, spec['robot']['initial_positions'])
         bodies = {name: SingleRigidPrim(path) for name, path in free.items()}
         listener = _CommandListener(
             spec['object_commands_topic'], set(free), spec['object_workspace']
