@@ -11,10 +11,13 @@ TARGETS = {'tabletop_can': 'can', 'tabletop_block': 'block', 'tabletop_puck': 'p
 PAPER_TOP = 0.208
 # Where the right arm reaches on the table, for an object's centre.
 REACH_X = (0.20, 0.43)
-REACH_Y = (-0.25, -0.04)
+REACH_Y = (-0.25, -0.03)  # Past the puck's -0.04: that spawn edge is -0.03999... in floats.
 # A top-down grasp's reach at table height, for the block and puck. REACH_X's far end is the
 # can's side grasp.
 TOP_DOWN_MAX_X = 0.30
+# Where a top-down release plans, from plan-only sweeps through the motion node in MuJoCo.
+TOP_DOWN_RELEASE_MAX_X = 0.28
+TOP_DOWN_RELEASE_MIN_Y = -0.38
 
 
 @pytest.fixture(params=TARGETS, ids=str)
@@ -77,11 +80,14 @@ def test_scenarios_share_one_layout():
     assert all(other == first for other in others)
 
 
-def test_table_and_paper_size_match_can_on_table(entry):
-    scene = _objects(catalog.load('scenarios', 'can_on_table'))
-    objects = _objects(entry)
-    assert objects['table'] == scene['table']
-    assert objects['paper']['size'] == scene['paper']['size']
+def test_table_matches_can_on_table(entry):
+    assert _objects(entry)['table'] == _objects(catalog.load('scenarios', 'can_on_table'))['table']
+
+
+def test_the_sheets_centre_is_within_a_top_down_release(entry):
+    # The task releases over the sheet's centre.
+    x, y = _objects(entry)['paper']['pose']['xyz'][:2]
+    assert x <= TOP_DOWN_RELEASE_MAX_X and y >= TOP_DOWN_RELEASE_MIN_Y
 
 
 def test_success_object_is_the_one_the_name_says(entry):
@@ -157,3 +163,7 @@ def test_the_puck_spawns_at_a_fixed_yaw(entry):
     # Guards the config only: at one drawn yaw the fingers passed through the puck in MuJoCo,
     # which only a run shows.
     assert 'yaw' not in _objects(entry)['puck']['spawn']
+
+
+def test_the_sheet_is_a5(entry):
+    assert _objects(entry)['paper']['size'] == [0.210, 0.148, 0.001]
