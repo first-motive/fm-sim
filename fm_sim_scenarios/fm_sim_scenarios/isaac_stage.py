@@ -596,6 +596,40 @@ def bridge_graph(joint_states_topic, joint_commands_topic, cameras, objects):
     }
 
 
+def initial_positions(robot):
+    """Return ``{joint: position}`` from the description's ros2_control joints.
+
+    ``robot`` is the parsed URDF root. Each value is the ``initial_value`` of a
+    joint's position state interface, the ready pose MuJoCo and Gazebo start
+    their physics at. Isaac's articulation starts at zero unless the stage sets it.
+    """
+    positions = {}
+    for joint in robot.iterfind('ros2_control/joint'):
+        for state in joint.iterfind('state_interface'):
+            if state.get('name') != 'position':
+                continue
+            for param in state.iterfind('param'):
+                if param.get('name') != 'initial_value':
+                    continue
+                try:
+                    value = float(param.text)
+                except (TypeError, ValueError):
+                    value = math.nan
+                if not joint.get('name') or not math.isfinite(value):
+                    raise StageError(
+                        f'joint {joint.get("name")!r} initial_value {param.text!r} '
+                        'is not a finite number on a named joint'
+                    )
+                positions[joint.get('name')] = value
+    # A mimic joint, such as a second finger, has no state interface of its own:
+    # it starts where the joint it follows does.
+    for joint in robot.iterfind('joint'):
+        mimic = joint.find('mimic')
+        if mimic is not None and mimic.get('joint') in positions:
+            positions[joint.get('name')] = positions[mimic.get('joint')]
+    return positions
+
+
 def drives():
     """Joint position drives in USD units: angular stiffness and damping are per degree."""
     per_degree = math.pi / 180.0
@@ -646,6 +680,7 @@ def stage_spec(world, robot_description, urdf_path, cameras):
             'prim_path': robot_prim,
             'import_config': dict(URDF_IMPORT),
             'drives': drives(),
+            'initial_positions': initial_positions(robot),
             'camera_links': sorted({
                 c['parent_prim'] for c in camera_list if c['parent_prim'] != CAMERAS_PRIM
             }),

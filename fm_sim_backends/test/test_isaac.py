@@ -87,6 +87,12 @@ def test_runner_refuses_another_schema_version(tmp_path):
         runner.load_spec(str(path))
 
 
+def test_drive_targets_are_degrees_for_angular_and_metres_for_linear():
+    runner = _load_runner()
+    assert math.isclose(runner.drive_target('angular', math.pi / 2), 90.0)
+    assert runner.drive_target('linear', 0.04) == 0.04
+
+
 def test_graph_edit_replays_the_spec_graph():
     runner = _load_runner()
     graph = isaac_stage.bridge_graph(
