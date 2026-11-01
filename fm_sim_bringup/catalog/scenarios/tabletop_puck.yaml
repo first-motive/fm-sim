@@ -2,7 +2,7 @@
 # place it on the paper. tabletop_can, tabletop_block and tabletop_puck share one
 # layout, so a run compares targets and nothing else. They differ only in name,
 # description, success.object and the target's z (checked by
-# test_tabletop_scenarios). The table is can_on_table's, and so is the paper's size.
+# test_tabletop_scenarios). The table is can_on_table's.
 name: tabletop_puck
 description: Pick the puck and place it on the paper, with the can and block beside it (right arm)
 available: true
@@ -16,19 +16,20 @@ objects:
     friction: 1.0
     color: [0.55, 0.45, 0.35, 1.0]
     pose: {xyz: [0.5, 0.0, 0.187]}
-  # A4, 1 mm thick, its top at 0.208. A body in the world, so cameras see it. Nearer the
-  # arm than on can_on_table: a top-down grasp reaches no further than x 0.30 at table height.
+  # A5, 1 mm thick, its top at 0.208. A body in the world, so cameras see it. The task releases
+  # over its centre, and a top-down release plans only within about x 0.28 and y -0.38: an A4
+  # sheet's centre stays past x 0.30 to keep the sheet on the table.
   - name: paper
     shape: box
-    size: [0.297, 0.210, 0.001]
+    size: [0.210, 0.148, 0.001]
     static: true
     friction: 0.8
     color: [0.95, 0.95, 0.95, 1.0]
-    pose: {xyz: [0.30, -0.42, 0.2075]}
+    pose: {xyz: [0.26, -0.37, 0.2075]}
   # Each object spawns with its base level with the paper top (1 mm above the table),
   # as in can_on_table, and settles onto the table. The nominal positions keep every
   # spawn clear of the others at any yaw, and of the sheet, whose near edge is at
-  # y -0.315. The block and puck, grasped top-down, stay within x 0.30, and the can,
+  # y -0.296. The block and puck, grasped top-down, stay within x 0.30, and the can,
   # grasped from the side, reaches further out. Colours are flat red, green and blue,
   # so a model can tell the objects apart.
   - name: can
@@ -43,14 +44,14 @@ objects:
       y: [-0.02, 0.02]
       yaw: [-3.14159, 3.14159]
   # Lies flat: 120 mm x 50 mm in plan, 40 mm tall. At any yaw its corners sweep a
-  # 65 mm radius: x 0.24 keeps that on the table and off the can, and y -0.225 off the puck.
+  # 65 mm radius: x 0.24 keeps that on the table and off the can, and y -0.21 off the puck.
   - name: block
     shape: box
     size: [0.120, 0.050, 0.040]
     mass: 0.15
     friction: 1.0
     color: [0.8, 0.1, 0.1, 1.0]
-    pose: {xyz: [0.24, -0.225, 0.228]}
+    pose: {xyz: [0.24, -0.21, 0.228]}
     spawn:
       x: [-0.02, 0.02]
       y: [-0.02, 0.02]
@@ -63,7 +64,7 @@ objects:
     mass: 0.10
     friction: 1.0
     color: [0.1, 0.2, 0.8, 1.0]
-    pose: {xyz: [0.26, -0.07, 0.228]}
+    pose: {xyz: [0.27, -0.06, 0.228]}
     spawn:
       x: [-0.02, 0.02]
       y: [-0.02, 0.02]
@@ -72,8 +73,8 @@ regions:
   # 30 mm tall about its resting height (paper top + half its height), which is why
   # z alone differs between the three.
   - name: target
-    size: [0.297, 0.210, 0.03]
-    pose: {xyz: [0.30, -0.42, 0.228]}
+    size: [0.210, 0.148, 0.03]
+    pose: {xyz: [0.26, -0.37, 0.228]}
     color: [0.2, 0.4, 1.0, 0.3]
 success:
   type: object_in_region
