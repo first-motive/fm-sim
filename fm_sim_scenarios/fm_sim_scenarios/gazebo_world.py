@@ -11,9 +11,10 @@ from the robot description and the robot's cameras file:
 
 - the robot URDF Gazebo spawns: the description with every mesh URI made an
   absolute ``file://`` path (Gazebo resolves neither ``package://`` nor a path
-  relative to a URDF it does not read from its own directory) and a pinhole
-  camera sensor with the real fx, fy, cx, cy on each camera's optical frame. The
-  published ``/robot_description`` stays as xacro made it.
+  relative to a URDF it does not read from its own directory), every inertia
+  Gazebo would refuse made valid (``repair_inertia``), and a pinhole camera sensor
+  with the real fx, fy, cx, cy on each camera's optical frame. The published
+  ``/robot_description`` stays as xacro made it.
 - the ros_gz_bridge config: ``/clock``, each free object's pose, each camera's
   raw image, and the world's ``set_pose`` service the scenario node respawns
   objects through.
@@ -32,6 +33,7 @@ solid-body inertia of their shape. Physics steps at ``STEP_SIZE_S``.
 """
 
 import copy
+import logging
 import math
 import os
 import xml.etree.ElementTree as ET
@@ -49,6 +51,10 @@ CLIP_FAR_M = 10.0
 # on the optical +z, its +y on optical -x and its +z on optical -y.
 OPTICAL_TO_SENSOR_RPY = (math.pi / 2, -math.pi / 2, 0.0)
 SET_POSE_SERVICE = f'/world/{WORLD_NAME}/set_pose'
+_INERTIA_KEYS = ('ixx', 'iyy', 'izz', 'ixy', 'ixz', 'iyz')
+# Margin added past the triangle-inequality boundary, so a repaired tensor clears
+# Gazebo's own check after float rounding: 1e-9 kg m^2 is far below any link's moments.
+_INERTIA_MARGIN = 1e-9
 _POSE_PUBLISHER = 'gz::sim::systems::PosePublisher'
 
 
@@ -237,8 +243,69 @@ def _camera_sensor(robot, role, camera):
     _text(lens, 's', '0')
 
 
+def _principal_moments(ixx, iyy, izz, ixy, ixz, iyz):
+    """Return the eigenvalues of the symmetric inertia tensor, smallest first.
+
+    Closed form for a symmetric 3x3 matrix (trigonometric solution of its
+    characteristic cubic), so the module needs no linear-algebra dependency.
+    """
+    off = ixy * ixy + ixz * ixz + iyz * iyz
+    mean = (ixx + iyy + izz) / 3
+    if off == 0:
+        return sorted((ixx, iyy, izz))
+    spread = math.sqrt(((ixx - mean) ** 2 + (iyy - mean) ** 2 + (izz - mean) ** 2 + 2 * off) / 6)
+    b = [[ixx - mean, ixy, ixz], [ixy, iyy - mean, iyz], [ixz, iyz, izz - mean]]
+    det = (
+        b[0][0] * (b[1][1] * b[2][2] - b[1][2] * b[2][1])
+        - b[0][1] * (b[1][0] * b[2][2] - b[1][2] * b[2][0])
+        + b[0][2] * (b[1][0] * b[2][1] - b[1][1] * b[2][0])
+    )
+    angle = math.acos(max(-1.0, min(1.0, det / (2 * spread ** 3)))) / 3
+    largest = mean + 2 * spread * math.cos(angle)
+    smallest = mean + 2 * spread * math.cos(angle + 2 * math.pi / 3)
+    return sorted((smallest, 3 * mean - largest - smallest, largest))
+
+
+def repair_inertia(inertia):
+    """Return the six ``inertia`` values, raised just enough for Gazebo to accept them.
+
+    Gazebo refuses to spawn a link whose principal moments break the triangle
+    inequality (the largest above the sum of the other two), which no rigid body
+    has. Upstream descriptions ship such tensors (franka_description 2.9.0's
+    fer_link4). Adding the same moment to all three diagonal terms shifts every
+    principal moment by it and keeps the principal axes, so the smallest such
+    shift is the repair. A valid tensor is returned unchanged.
+    """
+    smallest, middle, largest = _principal_moments(*(inertia[k] for k in _INERTIA_KEYS))
+    shortfall = largest - smallest - middle
+    if shortfall <= 0:
+        return dict(inertia)
+    shift = shortfall + _INERTIA_MARGIN
+    return {k: inertia[k] + (shift if k in ('ixx', 'iyy', 'izz') else 0.0) for k in _INERTIA_KEYS}
+
+
+def _repair_inertias(robot):
+    """Make every link's inertia one Gazebo accepts, warning for each one changed."""
+    for link in robot.findall('link'):
+        element = link.find('inertial/inertia')
+        if element is None:
+            continue
+        inertia = {k: float(element.get(k, 0.0)) for k in _INERTIA_KEYS}
+        if not all(math.isfinite(v) for v in inertia.values()):
+            raise sc.ScenarioError(f'link {link.get("name")!r}: inertia is not finite: {inertia}')
+        repaired = repair_inertia(inertia)
+        if repaired == inertia:
+            continue
+        logging.getLogger(__name__).warning(
+            'link %r: inertia breaks the triangle inequality; diagonal raised by %.3g kg m^2 '
+            'for Gazebo', link.get('name'), repaired['ixx'] - inertia['ixx'],
+        )
+        for key in _INERTIA_KEYS:
+            element.set(key, repr(repaired[key]))
+
+
 def robot_urdf(robot_description, cameras, mesh_roots, package_share):
-    """Return the URDF Gazebo spawns: meshes resolved, a sensor per camera.
+    """Return the URDF Gazebo spawns: meshes resolved, inertias valid, a sensor per camera.
 
     ``cameras`` is ``{role: camera}`` as ``fm_sim_cameras.cameras_file`` loads it;
     each mesh resolves as ``isaac_stage.mesh_path`` resolves it (``mesh_roots`` is
@@ -249,6 +316,7 @@ def robot_urdf(robot_description, cameras, mesh_roots, package_share):
     for mesh in robot.iter('mesh'):
         path = isaac_stage.mesh_path(mesh.get('filename', ''), mesh_roots, package_share)
         mesh.set('filename', 'file://' + path)
+    _repair_inertias(robot)
     links = {link.get('name') for link in robot.findall('link')}
     for role, camera in sorted(cameras.items()):
         if camera['frame'] not in links:

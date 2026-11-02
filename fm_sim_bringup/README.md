@@ -163,6 +163,7 @@ only rclpy and launch_ros). `test/test_run_params.py` uses them on this launch.
 | `mujoco` | Object pose and camera render rates of the MuJoCo plugins (advanced) |
 | `so101` | Control rate (mujoco), each JTC's end-velocity flag, and each joint's damping and actuator force limit in the MJCF (all advanced) |
 | `axol` | Control rate (mujoco, advanced) |
+| `panda` | Control rate (mujoco), each JTC's end-velocity flag, and the hand servo's stiffness and force limit in the MJCF (all advanced) |
 | `openarm` | Control rate, each arm JTC's end-velocity flag, each camera's rate (at most the 10 Hz the engine renders and the bridge carries) and JPEG quality, each finger's stiffness and force limit (mujoco for all but the JTC flags; camera rates basic), and MoveIt Servo's joint speed (basic) and linear and rotational speeds for the `servo` launch role, on every backend, used only by a controller that activates `servo` |
 | `can_on_table` | Can mass, friction and timeout (basic); can size (no taller than it is, since it spawns at a fixed height on the paper), spawn ranges, and the success tolerance, hold and at-rest speed, bounded so a success is still a can standing placed on the paper (advanced) |
 
@@ -307,7 +308,7 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available`, optional `requires_packages` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm`, `so101`, `axol` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
+| `robots` | `openarm`, `so101`, `axol`, `panda` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
 | every kind | | optional `params` (see [Run Params](#run-params)) |
 | `controllers` | `idle`, `teleop` | `activate`, `launch`, optional `launch_args` (fixed string arguments for that launch; the loader refuses a name `run.launch.py` sets itself, `catalog.CONTROLLER_LAUNCH_OWNED`, so an entry cannot overwrite `use_sim`, `robot_profile`, `scenario` or `params_file`), optional `family` (groups variants of one controller), optional `scenarios` (the only scenarios it runs on; absent means all), optional `control` (see [Control Descriptor](#control-descriptor)) |
@@ -373,17 +374,23 @@ when a run resolves the robot. OpenArm has one launch role:
 |-------------|----------|--------|
 | `servo` | `arm_trajectory` | fm-robot's `fm_control/launch/openarm_sim_servo.launch.py` with `sim_only:=true`, `command_type:=joint_jog`, `names:=loader`: sim-only MoveIt Servo on `/servo_node`, streaming to `follower_r_jtc`. That launch refuses to start unless ROS discovery is host-local (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, as the fm-sim agent sets) |
 
-The SO-101 and Axol entries expand fm-robot's `so101.sim.urdf.xacro` and
-`axol.sim.urdf.xacro` with no extra args, and own their controllers files under
-`config/so101/` and `config/axol/`, named as fm_ros2's `fm_bringup` names them. No
-robot profile describes either yet, so their `robot_profile` is `null`.
+The SO-101, Axol and Panda entries expand fm-robot's `so101.sim.urdf.xacro`,
+`axol.sim.urdf.xacro` and `panda.sim.urdf.xacro` with no extra args, and own their
+controllers files under `config/so101/`, `config/axol/` and `config/panda/`, named as
+fm_ros2's `fm_bringup` names them. No robot profile describes any of them yet, so
+their `robot_profile` is `null`.
 
 | Robot | `arm_trajectory` | `gripper` |
 |-------|------------------|-----------|
 | `so101` | `so101_arm_controller` | `so101_gripper_controller` |
 | `axol` | `axol_{left,right}_arm_controller` | none (the grippers are fixed) |
+| `panda` | `panda_arm_controller` | `panda_gripper_controller` |
 
-Both also have `broadcasters: [joint_state_broadcaster]`. Their vendored URDFs
+All three also have `broadcasters: [joint_state_broadcaster]`. The Panda also has
+`arm_forward_position: [panda_arm_forward_position_controller]`, which claims the
+same joints as its JTC. Its description keeps franka_description's
+`package://franka_description/` meshes, which resolve from that package's share,
+so it needs no `mesh_roots`. The SO-101's and Axol's vendored URDFs
 name meshes no package resolves (the SO-101's relative `assets/`, the Axol's
 `package://assembly/`); each entry's `mesh_roots` maps that prefix to the
 directory in fm_description's share. The Gazebo and Isaac backends read it.

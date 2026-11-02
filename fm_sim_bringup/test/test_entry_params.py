@@ -48,6 +48,7 @@ def _share_yaml(package, path):
 
 ENTRIES = [
     ('backends', 'mujoco'), ('robots', 'so101'), ('robots', 'axol'), ('robots', 'openarm'),
+    ('robots', 'panda'),
     ('scenarios', 'can_on_table'),
 ]
 
@@ -111,6 +112,10 @@ def _check_mjcf_defaults(robot):
 
 def test_so101_mjcf_defaults_are_the_compiled_model():
     _check_mjcf_defaults('so101')
+
+
+def test_panda_mjcf_defaults_are_the_compiled_model():
+    _check_mjcf_defaults('panda')
 
 
 @needs_openarm
