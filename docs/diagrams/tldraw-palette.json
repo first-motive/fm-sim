@@ -1,0 +1,53 @@
+{
+  "_fm_render": {
+    "artifact": "tldraw-palette",
+    "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
+    "sha256": "c45014e35d0d7eb72b122b2342536e23610fa32973fc2c0cd45d91710415ddf8"
+  },
+  "description": "Each First Motive primitive lists the tldraw light-theme colours tldraw-rebrand.cjs turns into it. Only the black, violet, yellow, and light-violet swatches (with tldraw's own neutrals) are listed, so any other swatch in an export fails the render. The values belong to the exporter pinned below, so re-read them when that pin moves. The exporter lives here, not in render.sh, so the SVG stamp (which hashes this file) goes stale when it changes.",
+  "exporter": "npx --yes @kitschpatrol/tldraw-cli@6.1.0 export --transparent --strip-style",
+  "remap": {
+    "#3B3443": [
+      "#1d1d1d",
+      "#363636",
+      "#717171",
+      "#494949",
+      "#000000"
+    ],
+    "#B6A5C6": [
+      "#ae3ec9",
+      "#be68d4",
+      "#bc62d3",
+      "#ecdcf2",
+      "#bd63d3",
+      "#db91fd"
+    ],
+    "#E7DDC8": [
+      "#f1ac4b",
+      "#f5c27a",
+      "#f3bb6c",
+      "#f9f0e6",
+      "#fecb92",
+      "#fed49a"
+    ],
+    "#ECE2CF": [
+      "#e085f4",
+      "#e9abf7",
+      "#e59bf5",
+      "#f5eafa",
+      "#e9acf8",
+      "#dfb0f9",
+      "#e8e8e8",
+      "#fce19c",
+      "#fcf7fd",
+      "#fdf9fd",
+      "#fefcf8",
+      "#fffdfa",
+      "#fefaff",
+      "#fefbff",
+      "#ffffff",
+      "#fcfffe",
+      "#f9fafb"
+    ]
+  }
+}

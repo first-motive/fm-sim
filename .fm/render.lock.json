@@ -2,7 +2,7 @@
   "_fm_render": {
     "artifact": "render-lock",
     "origin": "rendered by the First Motive render plane \u2014 edit the upstream source, not this file",
-    "sha256": "1454ed7f357eb84ef5f84a4206f91b7fc5bf8becdc2cff77e9a89c2831e454ac"
+    "sha256": "d33e4fdde1aaec708fcf090b04585f5746fa65d6949fa8987a5c2661fbca0846"
   },
   "artifacts": {
     "agents-invariants": {
@@ -35,7 +35,7 @@
       "paths": [
         "docs/diagrams/render.sh"
       ],
-      "sha256": "d3e26de6631f1c40ac0029659c407960d8818f4b1384b3f4cf2857f0c74c4c61",
+      "sha256": "6171d8b53166f6785ef549f885ad4159ca18270b76c451b86e07222d27b1042f",
       "stamp": "hash"
     },
     "d2-styles": {
@@ -84,7 +84,7 @@
       "paths": [
         ".github/pull_request_template.md"
       ],
-      "sha256": "a54b579e3a04cf302f04cf2e63bfb74569a3d258819edfca30fa645aa3d6f60e",
+      "sha256": "c0220f52109aa003cbd72d32aa9bbed2da981b05714e37f7812f20b8ed2f911e",
       "stamp": "html"
     },
     "render-check": {
@@ -94,6 +94,22 @@
       ],
       "sha256": "405935ed00b9cfe5a28a712042b4c00c4614d71aad44333bbea056d4ca1923d0",
       "stamp": "hash"
+    },
+    "tldraw-palette": {
+      "mode": "file",
+      "paths": [
+        "docs/diagrams/tldraw-palette.json"
+      ],
+      "sha256": "c45014e35d0d7eb72b122b2342536e23610fa32973fc2c0cd45d91710415ddf8",
+      "stamp": "json"
+    },
+    "tldraw-rebrand": {
+      "mode": "file",
+      "paths": [
+        "docs/diagrams/tldraw-rebrand.cjs"
+      ],
+      "sha256": "0659c9359ce325a315e13dc6baac429f6ae0f54b7da6b64d802dc93d82849292",
+      "stamp": "slash"
     }
   },
   "source": "first-motive render plane"
