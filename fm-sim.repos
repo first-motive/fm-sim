@@ -1,9 +1,10 @@
 # vcs import < fm-sim.repos   (run from the workspace root)
 #
-# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree), the Axol
-# description fm-robot vendors, the Isaac backend's topic_based_ros2_control plugin
-# (source-built on Jazzy), plus the shared fm-docker compose overlays (imported into
-# docker/ so run.sh's container path can `docker compose -f docker/compose.yaml ...`).
+# Standalone build deps: MJCF model sources (SO-ARM, OpenArm, Unitree, Menagerie),
+# the Axol and Panda descriptions fm-robot builds on, the Isaac backend's
+# topic_based_ros2_control plugin (source-built on Jazzy), plus the shared fm-docker
+# compose overlays (imported into docker/ so run.sh's container path can
+# `docker compose -f docker/compose.yaml ...`).
 repositories:
   docker:
     type: git
@@ -17,6 +18,12 @@ repositories:
     type: git
     url: https://github.com/enactic/openarm_mujoco.git
     version: 5c6e1b4c71cbe27c6a4b58c7f198f080449e1b9c
+  # The Franka Panda MJCF (franka_emika_panda/panda.xml), which fm_sim_models
+  # renames to fm-robot's fer_* joints. File-only, so it stays COLCON_IGNORE'd.
+  external/mujoco_menagerie:
+    type: git
+    url: https://github.com/google-deepmind/mujoco_menagerie.git
+    version: b0655057a9df2abe39ea7fc989914ba6f248301c
   external/unitree_mujoco:
     type: git
     url: https://github.com/unitreerobotics/unitree_mujoco.git
@@ -34,11 +41,17 @@ repositories:
   external/fm-robot:
     type: git
     url: https://github.com/first-motive/fm-robot.git
-    version: 0cce7ecf92ec84af0dfa12438e4109459a2a2684
+    version: 58185d33bbfcc4d90a666c562d2fc218ccdb4615
   external/openarm_description:
     type: git
     url: https://github.com/enactic/openarm_description.git
     version: 846a82d8baf64efdbb7f55c7f64b9b004939061b
+  # The Panda's description, built here for panda.sim.urdf.xacro (fm-robot's
+  # fm_description and fm_control depend on it). Same pin as fm-robot.repos.
+  external/franka_description:
+    type: git
+    url: https://github.com/frankaemika/franka_description.git
+    version: 7aeeddc449edf8d62b594f9e36a81da53e7796f9
   # Axol's flat URDF and meshes, which fm-robot's fm_description vendors into its
   # share for axol.sim.urdf.xacro. File-only, so it stays COLCON_IGNORE'd. Same
   # pin as fm-robot.repos.

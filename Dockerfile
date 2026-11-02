@@ -50,7 +50,7 @@ RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --no-cache-dir -r /tmp/requirements
 # fm-sim.repos lands at /ws/external, where fm_sim_models looks for the MJCF
 # models. The sources built here are the ones with no Jazzy apt release:
 # topic_based_ros2_control (the Isaac backend's plugin) and fm-robot (the robot
-# descriptions run.launch.py expands) with the two externals it builds against.
+# descriptions run.launch.py expands) with the three externals it builds against.
 # Every other external is file-only and COLCON_IGNORE'd. CI's build-externals
 # input names the same list. The import and rosdep sit before the source copy so
 # an fm-sim edit does not refetch them; jsonschema (the sim catalog's validator)
@@ -62,7 +62,7 @@ RUN cd /ws \
     && { [ -z "$bad" ] || { echo "fm-sim.repos: unpinned version(s): $bad" >&2; exit 1; }; } \
     && vcs import < fm-sim.repos \
     && for d in external/*/; do touch "${d}COLCON_IGNORE"; done \
-    && for name in topic_based_ros2_control fm-robot openarm_description unitree_ros2; do \
+    && for name in topic_based_ros2_control fm-robot openarm_description franka_description unitree_ros2; do \
          rm "external/$name/COLCON_IGNORE"; \
        done \
     && touch external/unitree_ros2/example/src/COLCON_IGNORE \

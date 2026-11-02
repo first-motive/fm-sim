@@ -45,3 +45,10 @@ def test_openarm_is_the_loader_hand(monkeypatch, tmp_path):
     monkeypatch.setenv('FM_WS', str(tmp_path))
     with pytest.raises(RuntimeError, match='openarm_mujoco is not vendored'):
         mjcf_path('openarm')
+
+
+def test_panda_needs_the_vendored_menagerie(monkeypatch, tmp_path):
+    # The registry hands the vendored mujoco_menagerie to the fer_* rename.
+    monkeypatch.setenv('FM_WS', str(tmp_path))
+    with pytest.raises(RuntimeError, match='mujoco_menagerie is not vendored'):
+        mjcf_path('panda')
