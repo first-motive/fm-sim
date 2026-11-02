@@ -253,6 +253,7 @@ is a Zenoh error reply carrying `{"ok": false, "error": {"code", "message"}}`.
 | `down` | queryable | optional `run_id` | the run summary |
 | `reset` | queryable | `seed` | ok; calls the run's `/sim/reset` |
 | `runs` | queryable | optional `limit` | run summaries, newest first |
+| `perception_debug` | queryable | `enabled` (bool) | `enabled`, `lease_s`; calls the running run's `/perception/set_debug` |
 | `logs` | published on `fm/sim/<host>/logs/<run_id>` | none | one `{t, level, node, msg}` record per line |
 
 ```
@@ -278,10 +279,12 @@ MCAP. Run lifecycle, on-disk layout and flags:
 | `run_exists` | A run with that id already exists; retry a second later |
 | `start_failed` | The container did not start |
 | `insufficient_space` | The runs directory is below its free-space floor (10 GiB by default) or unreadable |
-| `not_running` | `down` or `reset` with no active run |
+| `not_running` | `down`, `reset` or `perception_debug` with no active run |
 | `run_mismatch` | `down` named a run that is not the active one |
 | `reset_unavailable` | The run's scenario has no `/sim/reset` |
 | `reset_failed` | The reset did not take |
+| `perception_unavailable` | The run's controller starts no perception node serving `/perception/set_debug` |
+| `perception_debug_failed` | The perception node did not take the change |
 | `unknown_verb` | The key names no verb |
 | `internal_error` | The agent failed; its own log holds the detail |
 

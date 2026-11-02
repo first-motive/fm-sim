@@ -6,7 +6,7 @@ import queue
 import threading
 import time
 
-from fm_sim_agent.runner import RunnerError
+from fm_sim_agent.runner import PERCEPTION_DEBUG, RunnerError
 from fm_sim_agent.runs import RunStore
 
 
@@ -97,6 +97,7 @@ class FakeRunner:
         self.log_lines: list[str] = []
         self.controllers = {"joint_state_broadcaster": "active", "openarm_right_arm_controller": "inactive"}
         self.serves_reset = True
+        self.serves_perception = True
         self.urdf = URDF
         #: Run ids Docker would list as live under this host's label.
         self.live: list[str] = []
@@ -138,7 +139,7 @@ class FakeRunner:
 
     def has_service(self, run_id: str, name: str) -> bool:
         self.calls.append(("has_service", run_id, name))
-        return self.serves_reset
+        return self.serves_perception if name == PERCEPTION_DEBUG else self.serves_reset
 
     def reset(self, run_id: str, seed: int, timeout_s: float) -> str:
         self.calls.append(("reset", run_id, seed, timeout_s))
@@ -146,6 +147,10 @@ class FakeRunner:
             self.reset_gate.wait(5)
         self._maybe_fail("reset")
         return "reset"
+
+    def set_perception_debug(self, run_id: str, enabled: bool, timeout_s: float) -> None:
+        self.calls.append(("set_perception_debug", run_id, enabled, timeout_s))
+        self._maybe_fail("set_perception_debug")
 
     def start_recording(self, run_id: str) -> None:
         self.calls.append(("start_recording", run_id))

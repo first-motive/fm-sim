@@ -205,6 +205,22 @@ def test_down_does_not_queue_behind_the_work_lane(wire):
         gate.set()
 
 
+def test_perception_debug_has_its_own_lane(wire):
+    """Renewals that pile up are refused alone; they never take the slots ``up`` needs."""
+    client, agent, _runner = wire
+    _, _, up = get(client, "up", SPEC)
+    wait_for(lambda: agent.status()["state"] == "running")
+    gate = threading.Event()
+    fill(agent.fabric.lanes["debug"], gate)
+    try:
+        assert get(client, "perception_debug", {"enabled": True})[2]["error"]["code"] == "busy"
+        ok, _, runs = get(client, "runs")
+        assert ok and [r["run_id"] for r in runs["runs"]] == [up["run_id"]]
+    finally:
+        gate.set()
+    wait_for(lambda: get(client, "perception_debug", {"enabled": True})[0])
+
+
 def test_serve_brings_the_active_run_down_on_the_way_out(store):
     """What main does after the stop signal, on a real client session."""
     endpoint = f"tcp/127.0.0.1:{free_port()}"

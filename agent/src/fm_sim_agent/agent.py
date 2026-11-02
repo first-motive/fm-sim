@@ -62,7 +62,7 @@ from xml.etree import ElementTree
 from importlib.metadata import PackageNotFoundError, version
 
 from fm_sim_agent import logline, params
-from fm_sim_agent.runner import SIM_RESET, Runner, RunnerError
+from fm_sim_agent.runner import PERCEPTION_DEBUG, SIM_RESET, Runner, RunnerError
 from fm_sim_agent.runs import RunStore
 from fm_sim_agent.spec import (
     DIMENSIONS,
@@ -76,7 +76,9 @@ from fm_sim_agent.spec import (
     valid_run_id,
 )
 
-VERBS = ("status", "catalog", "up", "down", "reset", "runs", "description", "asset")
+VERBS = (
+    "status", "catalog", "up", "down", "reset", "runs", "description", "asset", "perception_debug",
+)  # fmt: skip
 
 #: Verbs whose success reply is raw bytes rather than a JSON body.
 BINARY_VERBS = ("asset",)
@@ -104,6 +106,12 @@ MAX_BODY_BYTES = 1 << 16
 STARTUP_TIMEOUT_S = 180.0
 READY_POLL_S = 1.0
 RESET_TIMEOUT_S = 30.0
+PERCEPTION_DEBUG_TIMEOUT_S = 10.0
+#: How long one ``perception_debug`` true keeps debug frames on, so a caller
+#: knows how often to renew. It mirrors fm-skills' perception node
+#: (fm_skills_perception) param ``debug_lease_s``, default 60; the node owns the
+#: lease, and this only reports it.
+PERCEPTION_DEBUG_LEASE_S = 60
 
 #: How long after a run's container stops before the next run may start. A
 #: stopped run's DDS participants send no goodbye, so peers drop them only when
@@ -336,6 +344,7 @@ class SimAgent:
             "runs": self._runs,
             "description": self._description,
             "asset": self._asset,
+            "perception_debug": self._perception_debug,
         }
         try:
             if verb not in handlers:
@@ -387,6 +396,13 @@ class SimAgent:
         if not isinstance(uri, str):
             raise VerbError("invalid_request", "uri is required")
         return {"data": self.asset(uri)}
+
+    def _perception_debug(self, body: dict) -> dict:
+        enabled = body.get("enabled")
+        if not isinstance(enabled, bool):
+            raise VerbError("invalid_request", "enabled must be true or false")
+        self.perception_debug(enabled)
+        return {"enabled": enabled, "lease_s": PERCEPTION_DEBUG_LEASE_S}
 
     # -- operations ---------------------------------------------------------
 
@@ -631,6 +647,27 @@ class SimAgent:
             raise VerbError("reset_failed", "the reset did not take; see the agent log") from None
         with run.write_lock:
             run.reset_seed = seed
+
+    def perception_debug(self, enabled: bool) -> None:
+        """Turn the running run's perception debug frames on (renewing their lease) or off."""
+        with self._lock:
+            run = self._run
+            if run is None or self._state != "running":
+                raise VerbError("not_running", f"no running run on {self.host} for perception debug")
+        # tradeoff: the calls below run outside the lock, as reset's do. A run
+        # that stops in between makes them fail, and the caller is told
+        # perception_debug_failed rather than not_running; it is off either way.
+        try:
+            # Asked first: a call to a service nobody serves waits in the
+            # container until the timeout, leaving the caller nothing to read.
+            if not self.runner.has_service(run.run_id, PERCEPTION_DEBUG):
+                raise VerbError("perception_unavailable", f"this run serves no {PERCEPTION_DEBUG}")
+            self.runner.set_perception_debug(run.run_id, enabled, PERCEPTION_DEBUG_TIMEOUT_S)
+        except RunnerError as exc:
+            log(f"{run.run_id}: perception debug failed: {exc}")
+            raise VerbError(
+                "perception_debug_failed", "perception debug did not change; see the agent log"
+            ) from None
 
     def description(self) -> tuple[Run, tuple[str, frozenset[str]]]:
         """The active run's URDF and the visual mesh URIs it names."""

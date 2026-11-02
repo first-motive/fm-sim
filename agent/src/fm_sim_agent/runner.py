@@ -104,6 +104,12 @@ LIST_CONTROLLERS = (
     "/controller_manager/list_controllers", "controller_manager_msgs/srv/ListControllers",
 )  # fmt: skip
 SIM_RESET = "/sim/reset"
+#: fm-skills' perception node: true turns its debug frames on and renews their
+#: lease, false turns them off. Served only by a run whose controller starts it.
+PERCEPTION_DEBUG = "/perception/set_debug"
+#: The recorder leaves out the perception debug frames: a JPEG per camera at the
+#: debug rate is diagnostic, and would dominate a run's MCAP while debug is on.
+BAG_EXCLUDE = "^/perception/debug/.*"
 
 #: How long each container call may take. A catalog is a fresh container that
 #: lists the resource index; the readiness probes are short because the agent
@@ -160,6 +166,7 @@ DEFAULT_BAG_SPLIT_S = 600
 DEFAULT_BAG_SPLIT_BYTES = 4 * 2**30
 
 RESET_RESPONSE = re.compile(r"ok=(True|False)(?:,\s*message=(['\"])(.*?)\2)?", re.DOTALL)
+SET_BOOL_RESPONSE = re.compile(r"SetBool_Response\(success=(True|False)")
 CONTROLLER_STATE = re.compile(r"ControllerState\(name='([^']*)', state='([^']*)'")
 
 
@@ -190,6 +197,9 @@ class Runner(Protocol):
 
     def reset(self, run_id: str, seed: int, timeout_s: float) -> str:
         """Call ``/sim/reset`` with ``seed``."""
+
+    def set_perception_debug(self, run_id: str, enabled: bool, timeout_s: float) -> None:
+        """Call ``/perception/set_debug`` with ``enabled``, or raise unless it succeeded."""
 
     def start_recording(self, run_id: str) -> None:
         """Record every topic as MCAP into the run's ``bag/`` directory."""
@@ -285,6 +295,12 @@ def parse_reset(text: str) -> tuple[bool, str]:
     if match is None:
         return False, "no response from /sim/reset"
     return match.group(1) == "True", match.group(3) or ""
+
+
+def parse_set_bool(text: str) -> bool:
+    """Whether ``ros2 service call``'s printed SetBool response says it succeeded."""
+    match = SET_BOOL_RESPONSE.search(text)
+    return match is not None and match.group(1) == "True"
 
 
 def parse_controllers(text: str) -> dict[str, str]:
@@ -718,6 +734,13 @@ class DockerRunner:
             raise RunnerError(f"/sim/reset refused: {message or 'no reason given'}")
         return message
 
+    def set_perception_debug(self, run_id: str, enabled: bool, timeout_s: float) -> None:
+        # The flag is the only caller value here, and only as JSON true or false.
+        request = json.dumps({"data": enabled is True})
+        command = [ENTRYPOINT, "ros2", "service", "call", PERCEPTION_DEBUG, "std_srvs/srv/SetBool", request]
+        if not parse_set_bool(self._exec(run_id, command, timeout_s).stdout):
+            raise RunnerError(f"{PERCEPTION_DEBUG} did not report success")
+
     def start_recording(self, run_id: str) -> None:
         bag = f"{BAG_MOUNT}/{RECORDING_NAME}"
         command = [
@@ -732,6 +755,8 @@ class DockerRunner:
             "-s",
             "mcap",
             "-a",
+            "--exclude-regex",
+            BAG_EXCLUDE,
             "--max-bag-duration",
             str(self.bag_split_s),
             "--max-bag-size",
