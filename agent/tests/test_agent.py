@@ -400,6 +400,33 @@ def test_down_returns_and_writes_the_summary(agent, runner, store):
     assert runner.names().index("outcome") < runner.names().index("stop")
 
 
+def test_an_up_right_after_a_down_waits_for_the_old_run_to_leave_discovery(agent, runner):
+    agent.discovery_settle_s = 0.3
+    run_id = up_running(agent)
+    ask(agent, "down", {"run_id": run_id})
+    stopped = agent._stopped_at
+    up_running(agent, seed=8)  # another seed, so the run id differs within the same second
+    started = next(at for name, at in runner.timed if name == "start" and at > stopped)
+    assert started - stopped >= 0.3
+
+
+def test_an_up_after_the_settle_window_does_not_wait(agent, capsys):
+    agent.discovery_settle_s = 0.2
+    run_id = up_running(agent)
+    ask(agent, "down", {"run_id": run_id})
+    time.sleep(0.25)
+    capsys.readouterr()
+    up_running(agent, seed=8)
+    assert "DDS participants to expire" not in capsys.readouterr().err
+
+
+def test_the_first_up_does_not_wait(agent):
+    agent.discovery_settle_s = 30.0
+    began = time.monotonic()
+    up_running(agent)
+    assert time.monotonic() - began < 5.0
+
+
 def test_down_without_a_run_id_stops_the_active_run(agent):
     run_id = up_running(agent)
     assert ask(agent, "down")["summary"]["run_id"] == run_id
@@ -839,6 +866,8 @@ def test_a_down_during_docker_run_stops_the_container_once_it_exists(agent, runn
     assert run_threads(run_id, before) == []
     assert "list_controllers" not in runner.names()
     assert agent.status()["state"] == "idle"
+    stops = [at for name, at in runner.timed if name == "stop"]
+    assert agent._stopped_at >= stops[-1]  # the late stop, not the down, starts the settle window
     runner.start_gate = None
     assert ask(agent, "up", {**SPEC, "seed": 8})["ok"] is True
 

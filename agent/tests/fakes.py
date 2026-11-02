@@ -80,6 +80,8 @@ class FakeRunner:
     def __init__(self, store: RunStore) -> None:
         self.store = store
         self.calls: list[tuple] = []
+        #: ``(verb, time.monotonic())`` for each start and stop, for the settle-window tests.
+        self.timed: list[tuple[str, float]] = []
         self.image = "sha256:one"
         self.catalog_doc: object = CATALOG
         self.catalog_fetches = 0
@@ -119,6 +121,7 @@ class FakeRunner:
 
     def start(self, run_id: str, spec: dict) -> None:
         self.calls.append(("start", run_id, dict(spec)))
+        self.timed.append(("start", time.monotonic()))
         if self.start_gate is not None:
             self.start_gate.wait(5)
         self._maybe_fail("start")
@@ -195,6 +198,7 @@ class FakeRunner:
 
     def stop(self, run_id: str) -> None:
         self.calls.append(("stop", run_id))
+        self.timed.append(("stop", time.monotonic()))
         self.ready.set()
         self.exit(run_id)
 
