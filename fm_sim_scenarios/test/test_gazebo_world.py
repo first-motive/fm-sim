@@ -162,6 +162,62 @@ def test_meshes_resolve_to_absolute_files():
     ]
 
 
+# franka_description 2.9.0's fer_link4: principal moments 0.0037 + 0.0080 < 0.0127.
+FER_LINK4 = {
+    'ixx': 0.00784585566, 'iyy': 0.00649543136, 'izz': 0.01003079917,
+    'ixy': -0.00339591957, 'ixz': 0.00158704074, 'iyz': -0.00181477884,
+}
+
+
+def test_principal_moments_match_a_known_tensor():
+    # Diagonal 2, 2, 3 with ixy 1 has eigenvalues 1, 3, 3.
+    moments = gazebo_world._principal_moments(2.0, 2.0, 3.0, 1.0, 0.0, 0.0)
+    assert moments == pytest.approx([1.0, 3.0, 3.0])
+
+
+def test_an_impossible_inertia_is_raised_to_the_triangle_boundary():
+    smallest, middle, largest = gazebo_world._principal_moments(
+        *(FER_LINK4[k] for k in gazebo_world._INERTIA_KEYS)
+    )
+    assert smallest + middle < largest
+    repaired = gazebo_world.repair_inertia(FER_LINK4)
+    smallest, middle, largest = gazebo_world._principal_moments(
+        *(repaired[k] for k in gazebo_world._INERTIA_KEYS)
+    )
+    assert smallest + middle >= largest
+    assert smallest + middle - largest == pytest.approx(0.0, abs=1e-8)
+    # Products of inertia, and so the principal axes, are kept.
+    for key in ('ixy', 'ixz', 'iyz'):
+        assert repaired[key] == FER_LINK4[key]
+
+
+def test_a_non_finite_inertia_is_refused():
+    urdf = PROBE_URDF.replace('izz="1"', 'izz="nan"')
+    with pytest.raises(sc.ScenarioError, match="link 'base': inertia is not finite"):
+        gazebo_world.robot_urdf(urdf, {}, ROOTS, _share)
+
+
+def test_a_valid_inertia_is_unchanged():
+    inertia = {'ixx': 1.0, 'iyy': 1.0, 'izz': 1.0, 'ixy': 0.0, 'ixz': 0.0, 'iyz': 0.0}
+    assert gazebo_world.repair_inertia(inertia) == inertia
+
+
+def test_robot_urdf_repairs_an_impossible_link_inertia(tmp_path):
+    probe_inertia = '<inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/>'
+    assert probe_inertia in PROBE_URDF
+    values = ' '.join(f'{k}="{v!r}"' for k, v in FER_LINK4.items())
+    urdf = PROBE_URDF.replace(probe_inertia, f'<inertia {values}/>')
+    path = tmp_path / 'probe.urdf'
+    path.write_text(gazebo_world.robot_urdf(urdf, {}, ROOTS, _share))
+    inertia = ET.parse(path).getroot().find("link[@name='base']/inertial/inertia")
+    expected = gazebo_world.repair_inertia(FER_LINK4)
+    assert expected != FER_LINK4
+    for key in gazebo_world._INERTIA_KEYS:
+        assert float(inertia.get(key)) == pytest.approx(expected[key], rel=1e-12), key
+    result = _gz_sdf('-k', str(path))
+    assert 'Valid' in result.stdout, result.stdout + result.stderr
+
+
 def test_a_relative_mesh_without_a_root_is_refused():
     with pytest.raises(isaac_stage.StageError, match="'assets/base.stl' is relative"):
         gazebo_world.robot_urdf(PROBE_URDF, {}, [], _share)

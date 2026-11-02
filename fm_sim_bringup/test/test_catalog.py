@@ -43,7 +43,7 @@ def test_schema_is_valid_json_schema():
 
 def test_registered_entries():
     assert {'mujoco', 'gazebo', 'isaac'} <= set(catalog.names('backends'))
-    assert {'openarm', 'so101', 'axol'} <= set(catalog.names('robots'))
+    assert {'openarm', 'so101', 'axol', 'panda'} <= set(catalog.names('robots'))
     assert {'empty', 'can_on_table', 'table_only'} <= set(catalog.names('scenarios'))
     assert {'idle', 'teleop'} <= set(catalog.names('controllers'))
 

@@ -37,6 +37,7 @@ mjcf_path("unknown")   # -> RuntimeError listing the registered keys
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match the system |
 | `g1_d` | `unitree_mujoco/unitree_robots/g1/g1_29dof.xml` | Bipedal model — right-arm joints match; legs differ from the wheeled G1-D, so mujoco is wired-not-yet-validated |
 | `axol` | `models/axol/axol.xml` (this package's share) | Almond Bot Axol, bimanual 2×7-DOF — mujoco validated; mock validated, real CAN deferred |
+| `panda` | `mujoco_menagerie/franka_emika_panda/panda.xml` renamed to `fer_*` (see below) | Franka Panda arm + hand; matches fm-robot's `panda.sim.urdf.xacro` |
 
 The vendored paths are the in-container locations under `/ws/external`
 (gitignored on the host, mounted at `/ws` in the dev container). `axol` is the
@@ -44,6 +45,19 @@ exception: it ships no upstream MJCF, so First Motive authored one (compiled fro
 `axol.urdf`) and committed it into this package's share at `models/axol/axol.xml`
 (with its meshes). `models.py` resolves it from the package share, not
 `/ws/external`.
+
+## Franka Panda Model
+
+fm-robot's Panda description uses franka_description's names, which call the
+Panda `fer`: `fer_joint1..7` and `fer_finger_joint1..2`. Menagerie names the same
+joints `joint1..7` and `finger_joint1..2`. `panda.py` renames them, and rewrites
+the actuators into the form `MujocoSystemInterface` commands by position: each
+`<general>` arm actuator becomes the equivalent `<position kp kv>`, and the hand's
+0..255 tendon actuator becomes a position actuator on `fer_finger_joint1` in metres
+(Menagerie's equality keeps `fer_finger_joint2` following it). The keyframe is
+dropped, since its `ctrl` vector fits the old actuator layout; the spawn pose comes
+from the description's `initial_value`s. Like the OpenArm loader model, the result
+is written once per content hash under `~/.cache/fm_sim_models/`.
 
 ## OpenArm Anvil Model
 
