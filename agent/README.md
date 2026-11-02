@@ -38,6 +38,7 @@ flowchart LR
 | `runs` | queryable | `{"limit"?: int}` | `{"ok": true, "runs": [RunSummary]}`, newest first |
 | `description` | queryable | none | `{"ok": true, run_id, urdf}`, the active run's `/robot_description` |
 | `asset` | queryable | `{"uri": "package://…"}` | the mesh's raw bytes; only a `<visual>` mesh the run's description names |
+| `perception_debug` | queryable | `{"enabled": bool}` | `{"ok": true, enabled, "lease_s": 60}`; true turns fm-skills' debug frames on for the lease, false turns them off |
 | `logs` | published on `fm/sim/<host>/logs/<run_id>` | none | one `{"t", "level", "node", "msg"}` per line |
 
 The shapes are the ones in the simulation contracts (§3). A refusal is a Zenoh
@@ -45,7 +46,8 @@ error reply whose body is `{"ok": false, "error": {"code", "message"}}`, the way
 fm-robot-agent sends its refusals. Codes: `invalid_request`, `invalid_spec`,
 `unknown_entry`, `unavailable_entry`, `catalog_unavailable`, `busy`,
 `run_exists`, `start_failed`, `not_running`, `run_mismatch`,
-`reset_unavailable`, `reset_failed`, `insufficient_space`, `unknown_verb`,
+`reset_unavailable`, `reset_failed`, `perception_unavailable`,
+`perception_debug_failed`, `insufficient_space`, `unknown_verb`,
 `internal_error`.
 
 A message is a short reason meant for the caller. What a container call
@@ -53,7 +55,8 @@ printed, such as Docker's stderr or a traceback, goes to the agent's own log
 (the journal under systemd) and never onto the fabric. `busy` also answers a
 query that arrives while the agent already holds as many as it will take: eight
 in hand for most verbs, two for `down`, which has a worker of its own so that
-stopping a run never waits behind a catalog fetch.
+stopping a run never waits behind a catalog fetch, and two for
+`perception_debug`, whose renewals likewise never hold the slots `up` needs.
 
 In a log record, `t` is Unix seconds (the ROS stamp when the line carries one),
 and `level` is one of `debug`, `info`, `warn`, `error` or `fatal`. A line that is
@@ -99,8 +102,8 @@ idle ─up─▶ starting ─broadcasters active─▶ running ─down─▶ sto
   spec's seed. If the graph has no `/sim/reset`, the seed cannot be applied:
   the summary's `metrics.seed_applied` is then false, unless the seed is 0,
   the scenario's own default. With `record` on, `ros2 bag record -s mcap -a`
-  then starts in the container. It starts a new MCAP file every 600 s or
-  4 GiB, whichever comes first.
+  then starts in the container, leaving out `/perception/debug/*` frames. It
+  starts a new MCAP file every 600 s or 4 GiB, whichever comes first.
 - `down` reads the latched `/sim/outcome`, stops the recorder with SIGINT so
   the MCAP is closed properly, stops and removes the container, and writes
   the summary. The outcome is kept only when its scenario and seed are the
@@ -213,9 +216,10 @@ The agent's account runs `docker`, and membership of the `docker` group is
 root-equivalent on the host. The agent therefore keeps what a caller can choose
 narrow, and confines what it starts:
 
-- A caller picks four catalog names, a seed, a record flag and overrides of
-  the tunables the catalog declares. Nothing else a caller sends reaches a
-  command line, and no command goes through a shell. An override is a checked
+- A caller picks four catalog names, a seed, a record flag, overrides of
+  the tunables the catalog declares, and the perception debug flag (sent as
+  JSON `true` or `false`). Nothing else a caller sends reaches a command
+  line, and no command goes through a shell. An override is a checked
   value in a read-only file; the node and param it sets come from the image's
   catalog, and the launch re-asserts what it owns after it.
 - Every container runs as the agent's own uid and gid, with
@@ -328,6 +332,7 @@ fm sim up      --host fm-ws-01 [--backend B] [--robot R] [--scenario S] [--contr
 fm sim logs    --host fm-ws-01 [--run-id ID]    # follow the run's log records; Ctrl-C stops
 fm sim down    --host fm-ws-01 [--run-id ID]    # stop the run; prints its outcome
 fm sim runs    --host fm-ws-01 [--limit N]      # summaries, newest first
+fm sim perception-debug --host fm-ws-01 on|off  # debug frames; on lasts 60 s
 fm sim trial   --host fm-ws-01 (--seeds 0..19 | --count 20 [--seed-start 0]) [--run-timeout S] [--report PATH]
 ```
 

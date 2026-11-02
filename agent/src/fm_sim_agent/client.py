@@ -104,12 +104,16 @@ LOCAL = "local"
 #: catalog fetch (up to 120 s) and ``docker run`` (up to 90 s); ``down`` on the
 #: outcome, the recorder and ``docker stop``. Everything else answers at once.
 QUERY_TIMEOUT_S = 15.0
-VERB_TIMEOUT_S = {"catalog": 150.0, "up": 240.0, "down": 120.0}
+#: ``perception_debug`` makes two 10 s container calls: a service probe, then the call.
+VERB_TIMEOUT_S = {"catalog": 150.0, "up": 240.0, "down": 120.0, "perception_debug": 30.0}
 #: Verbs asked again when no answer comes, or ``busy``: the reads, and a ``down``
 #: naming its run, which a repeat answers with ``not_running`` once the first has
 #: landed. A bare ``down`` is sent once, since a repeat could stop a run someone
 #: started in between; ``up`` is sent once, since a repeat could start a second.
-REPEATABLE_VERBS = frozenset({"status", "catalog", "runs", "description", "asset", "down"})
+#: ``perception_debug`` sets a flag, so a repeat lands where the first did.
+REPEATABLE_VERBS = frozenset(
+    {"status", "catalog", "runs", "description", "asset", "down", "perception_debug"}
+)
 #: tradeoff: a sim host's router stalls or drops queries while a starting run's
 #: DDS entities are routed (5-20 s measured on fm-ws-01). A repeatable verb is
 #: asked again every RETRY_PAUSE_S until RETRY_WINDOW_S has passed, so a call
@@ -386,6 +390,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     down = verbs.add_parser("down", parents=[common], help="stop the active run")
     down.add_argument("--run-id", default=None, help="refuse unless this is the active run")
+    debug = verbs.add_parser(
+        "perception-debug", parents=[common], help="turn the running run's perception debug frames on or off"
+    )
+    debug.add_argument("state", choices=("on", "off"), help="on lasts the lease the reply names; renew it")
     runs = verbs.add_parser("runs", parents=[common], help="recent run summaries, newest first")
     runs.add_argument("--limit", type=int, default=20)
     logs = verbs.add_parser("logs", parents=[common], help="follow a run's log lines")
@@ -618,6 +626,12 @@ def down_line(reply: dict) -> str:
     removed = reply.get("removed")
     cleared = f"\nremoved {', '.join(safe(name) for name in removed)}" if removed else ""
     return summary_line(reply.get("summary")) + cleared
+
+
+def perception_debug_line(reply: dict) -> str:
+    if reply.get("enabled") is True:
+        return f"perception debug on for {safe(reply.get('lease_s'))} s"
+    return "perception debug off"
 
 
 def print_record(record: dict) -> None:
@@ -875,6 +889,9 @@ def run_verb(host, args) -> int:
     if args.verb == "down":
         body = {"run_id": args.run_id} if args.run_id else {}
         return emit(host.call("down", body), args.as_json, down_line)
+    if args.verb == "perception-debug":
+        reply = host.call("perception_debug", {"enabled": args.state == "on"})
+        return emit(reply, args.as_json, perception_debug_line)
     if args.verb == "up":
         return cmd_up(host, args)
     if args.verb == "logs":

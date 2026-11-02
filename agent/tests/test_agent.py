@@ -11,7 +11,12 @@ import time
 import pytest
 
 from fm_sim_agent import agent as agent_module
-from fm_sim_agent.agent import RESET_TIMEOUT_S, combination_refusal
+from fm_sim_agent.agent import (
+    PERCEPTION_DEBUG_LEASE_S,
+    PERCEPTION_DEBUG_TIMEOUT_S,
+    RESET_TIMEOUT_S,
+    combination_refusal,
+)
 from fm_sim_agent.runs import SUMMARY_KEYS
 from fm_sim_agent.spec import valid_run_id
 from tests.fakes import SPEC, URDF, entry, wait_for
@@ -483,6 +488,42 @@ def test_an_outcome_for_another_scenario_is_not_reported(agent, runner):
     runner.outcome_value = {**runner.outcome_value, "scenario": "pick_cube"}
     up_running(agent)
     assert ask(agent, "down")["summary"]["outcome"] is None
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_perception_debug_sets_the_running_runs_flag(agent, runner, enabled):
+    run_id = up_running(agent)
+    reply = ask(agent, "perception_debug", {"enabled": enabled})
+    assert reply == {"ok": True, "enabled": enabled, "lease_s": PERCEPTION_DEBUG_LEASE_S}
+    assert ("set_perception_debug", run_id, enabled, PERCEPTION_DEBUG_TIMEOUT_S) in runner.calls
+
+
+def test_perception_debug_without_a_running_run_is_refused(agent, runner):
+    assert code(ask(agent, "perception_debug", {"enabled": True})) == "not_running"
+    assert "set_perception_debug" not in runner.names()
+
+
+@pytest.mark.parametrize("body", [{}, {"enabled": 1}, {"enabled": "true"}, {"enabled": None}, [True]])
+def test_perception_debug_takes_only_a_json_bool(agent, runner, body):
+    up_running(agent)
+    assert code(ask(agent, "perception_debug", body)) == "invalid_request"
+    assert "set_perception_debug" not in runner.names()
+
+
+def test_perception_debug_on_a_run_without_perception_is_unavailable(agent, runner):
+    up_running(agent)
+    runner.serves_perception = False
+    assert code(ask(agent, "perception_debug", {"enabled": True})) == "perception_unavailable"
+    assert "set_perception_debug" not in runner.names()
+
+
+def test_a_failed_perception_debug_call_says_so_without_dockers_output(agent, runner):
+    up_running(agent)
+    runner.fail["set_perception_debug"] = "Error response from daemon: secret detail"
+    reply = ask(agent, "perception_debug", {"enabled": True})
+    assert code(reply) == "perception_debug_failed"
+    assert "secret" not in reply["error"]["message"]
+    assert agent.status()["state"] == "running"
 
 
 def test_down_with_no_run_is_not_running(agent):

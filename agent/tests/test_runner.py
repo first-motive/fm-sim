@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -21,6 +22,7 @@ import pytest
 from fm_sim_agent import bridge, isaac
 from fm_sim_agent.logline import MAX_LINE_BYTES
 from fm_sim_agent.runner import (
+    BAG_EXCLUDE,
     CATALOG,
     ENTRYPOINT,
     LAUNCH,
@@ -35,6 +37,7 @@ from fm_sim_agent.runner import (
     parse_description,
     parse_outcome,
     parse_reset,
+    parse_set_bool,
 )
 from tests.fakes import CATALOG as CATALOG_DOC
 from tests.fakes import SPEC
@@ -60,6 +63,8 @@ FAKE_DOCKER = textwrap.dedent(
         print("response:\\ncontroller_manager_msgs.srv.ListControllers_Response(controller=[controller_manager_msgs.msg.ControllerState(name='joint_state_broadcaster', state='active', type='x'), controller_manager_msgs.msg.ControllerState(name='openarm_right_arm_controller', state='inactive', type='y')])")
     elif args[0] == "exec" and args[-2:] == ["service", "list"]:
         print("/controller_manager/list_controllers\\n/sim/reset")
+    elif args[0] == "exec" and "/perception/set_debug" in args:
+        print("response:\\n" + os.environ.get("FAKE_SET_BOOL", "std_srvs.srv.SetBool_Response(success=True, message='debug on')"))
     elif args[0] == "exec" and "service" in args:
         print("requester: making request: fm_sim_msgs.srv.Reset_Request(seed=7)\\n")
         print("response:\\n" + os.environ.get("FAKE_RESET", "fm_sim_msgs.srv.Reset_Response(ok=True, message='seeded')"))
@@ -277,6 +282,32 @@ def test_a_refused_reset_raises(docker, monkeypatch):
         docker.reset(RUN_ID, 7, 5.0)
 
 
+@pytest.mark.parametrize(("enabled", "request_text"), [(True, '{"data": true}'), (False, '{"data": false}')])
+def test_perception_debug_calls_set_bool_with_the_flag(docker, enabled, request_text):
+    docker.set_perception_debug(RUN_ID, enabled, 10.0)
+    (argv,) = docker.calls()
+    assert argv == [
+        "exec", f"fm-sim-run-{RUN_ID}", ENTRYPOINT,
+        "ros2", "service", "call", "/perception/set_debug", "std_srvs/srv/SetBool", request_text,
+    ]  # fmt: skip
+
+
+def test_a_perception_debug_call_that_does_not_succeed_raises(docker, monkeypatch):
+    monkeypatch.setenv("FAKE_SET_BOOL", "std_srvs.srv.SetBool_Response(success=False, message='no')")
+    with pytest.raises(RunnerError, match="did not report success"):
+        docker.set_perception_debug(RUN_ID, True, 10.0)
+
+
+def test_a_failed_perception_debug_exec_raises(docker, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_FAIL", "exec")
+    with pytest.raises(RunnerError, match="docker exec failed"):
+        docker.set_perception_debug(RUN_ID, False, 10.0)
+
+
+def test_parse_set_bool_without_a_response_is_a_failure():
+    assert parse_set_bool("waiting for service to become available...") is False
+
+
 def test_outcome_reads_the_latched_message(docker):
     assert docker.outcome(RUN_ID) == {
         "scenario": "empty", "seed": 7, "success": False, "reason": "dropped: cube", "elapsed_s": 3.0,
@@ -288,11 +319,24 @@ def test_recording_writes_mcap_into_the_runs_mount(docker):
     (argv,) = docker.calls()
     assert argv[:3] == ["exec", "--detach", f"fm-sim-run-{RUN_ID}"]
     assert argv[3:6] == ["bash", "-c", RECORD_SCRIPT]
-    assert argv[-10:] == [
-        "record", "-s", "mcap", "-a",
+    assert argv[-12:] == [
+        "record", "-s", "mcap", "-a", "--exclude-regex", "^/perception/debug/.*",
         "--max-bag-duration", "600", "--max-bag-size", str(4 * 2**30),
         "-o", "/fm-run/bag/recording",
     ]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("topic", "excluded"),
+    [
+        ("/perception/debug/chest", True),
+        ("/perception/debug/wrist", True),
+        ("/perception/chest", False),
+        ("/perception/chest/can", False),
+    ],
+)
+def test_the_recorder_leaves_out_only_the_debug_frames(topic, excluded):
+    assert (re.search(BAG_EXCLUDE, topic) is not None) is excluded
 
 
 def test_a_catalog_that_times_out_is_removed(docker, monkeypatch):
@@ -412,6 +456,7 @@ def test_the_runner_never_reaches_a_shell(monkeypatch, docker):
     monkeypatch.setattr(subprocess, "run", spy)
     docker.start(RUN_ID, SPEC)
     docker.reset(RUN_ID, 7, 5.0)
+    docker.set_perception_debug(RUN_ID, True, 5.0)
     assert seen and all(isinstance(a[0], list) and not k.get("shell") for a, k in seen)
 
 

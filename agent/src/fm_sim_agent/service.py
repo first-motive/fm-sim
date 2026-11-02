@@ -14,8 +14,9 @@ reason rather than a timeout, and a reply's kind already says whether it worked.
 
 Only ``status`` is answered on Zenoh's own thread. Every other verb may wait on
 Docker for seconds to minutes, and a Zenoh callback must not block the runtime
-thread that calls it, so those are answered from two bounded lanes of our own:
-one for ``down``, one for everything else (see ``WORK_LANE``).
+thread that calls it, so those are answered from bounded lanes of our own:
+one for ``down``, one for ``perception_debug``, one for everything else (see
+``WORK_LANE``).
 """
 
 from __future__ import annotations
@@ -98,10 +99,14 @@ INLINE_VERBS = ("status",)
 #: once. Past that the caller is told ``busy`` at once rather than queued
 #: behind work it cannot see. ``down`` has a lane of its own, so stopping a run
 #: never waits behind a catalog fetch or a slow ``up``; one down at a time is
-#: all the agent can act on anyway.
+#: all the agent can act on anyway. ``perception_debug`` has one too: a viewer
+#: renews it every 20 s, and those renewals must never hold the slots ``up``
+#: needs.
 WORK_LANE = ("work", 3, 8)  # name, workers, waiting-or-running ceiling
 STOP_LANE = ("stop", 1, 2)
 STOP_VERBS = ("down",)
+DEBUG_LANE = ("debug", 1, 2)
+DEBUG_VERBS = ("perception_debug",)
 BUSY = error_body("busy", "the agent has too many queries in hand; retry")
 TOO_LARGE = error_body("invalid_request", f"body is larger than {MAX_BODY_BYTES} bytes")
 
@@ -255,7 +260,7 @@ class Fabric:
         self.agent = agent
         self.host = host
         self.stop = threading.Event()
-        self.lanes = {"work": Lane(*WORK_LANE), "stop": Lane(*STOP_LANE)}
+        self.lanes = {"work": Lane(*WORK_LANE), "stop": Lane(*STOP_LANE), "debug": Lane(*DEBUG_LANE)}
         self.queryables = [
             session.declare_queryable(key_of(host, verb), _handler(agent, host, verb, self._lane_of(verb)))
             for verb in VERBS
@@ -270,7 +275,11 @@ class Fabric:
     def _lane_of(self, verb: str) -> Lane | None:
         if verb in INLINE_VERBS:
             return None
-        return self.lanes["stop" if verb in STOP_VERBS else "work"]
+        if verb in STOP_VERBS:
+            return self.lanes["stop"]
+        if verb in DEBUG_VERBS:
+            return self.lanes["debug"]
+        return self.lanes["work"]
 
     def publish_log(self, run_id: str, record: dict) -> None:
         self.session.put(f"{key_of(self.host, 'logs')}/{run_id}", encode(record))

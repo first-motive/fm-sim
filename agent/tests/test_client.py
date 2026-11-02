@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from fm_sim_agent import bridge, client, trial
-from fm_sim_agent.agent import SimAgent
+from fm_sim_agent.agent import PERCEPTION_DEBUG_LEASE_S, SimAgent
 from fm_sim_agent.client import Local, Remote, main, parse_args
 from fm_sim_agent.runner import DockerRunner
 from fm_sim_agent.service import Fabric
@@ -53,6 +53,8 @@ def test_host_is_required_and_becomes_a_key_segment():
         ["trial", "--host", "local", "--seeds", "1,1"],
         ["trial", "--host", "local", "--count", "3", "--run-timeout", "0"],
         ["nope", "--host", "local"],
+        ["perception-debug", "--host", "local"],
+        ["perception-debug", "--host", "local", "yes"],
         ["up", "--host", "local", "--scenario", "../etc"],
         ["trial", "--host", "local", "--count", "2", "--robot", "Open-Arm"],
     ],
@@ -371,6 +373,27 @@ def test_local_down_clears_another_processs_run(local, runner, store, capsys):
     assert code == 0 and reply["removed"] == ["fm-sim-run-old"]
     assert reply["summary"]["run_id"] == OTHER_RUN and reply["summary"]["ended_at"] is not None
     assert "stop_stale" in runner.names()
+
+
+def test_remote_perception_debug_turns_frames_on_then_off(remote, capsys):
+    host, agent, runner = remote
+    agent.up(dict(SPEC))
+    wait_for(lambda: agent.status()["state"] == "running")
+    code, out, _ = run(["perception-debug", "--host", "fm-ws-01", "on"], host, capsys)
+    assert code == 0 and out.strip() == f"perception debug on for {PERCEPTION_DEBUG_LEASE_S} s"
+    code, out, _ = run(["perception-debug", "--host", "fm-ws-01", "off", "--json"], host, capsys)
+    assert code == 0 and json.loads(out) == {
+        "ok": True,
+        "enabled": False,
+        "lease_s": PERCEPTION_DEBUG_LEASE_S,
+    }
+    flags = [call[2] for call in runner.calls if call[0] == "set_perception_debug"]
+    assert flags == [True, False]
+
+
+def test_local_perception_debug_with_nothing_running_is_refused(local, capsys):
+    code, _, err = run(["perception-debug", "--host", "local", "on"], local, capsys)
+    assert code == 1 and "not_running" in err
 
 
 def test_local_down_with_nothing_running_is_refused(local, capsys):
