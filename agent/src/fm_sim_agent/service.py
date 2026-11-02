@@ -77,7 +77,7 @@ DEFAULT_IMAGE_DIGEST: str | None = "sha256:727db0b786557e28d1096d65b876828438a28
 #: ghcr.io`` with access to it.
 CONTROLLERS_IMAGE = "ghcr.io/first-motive/fm-sim-controllers:jazzy"
 CONTROLLERS_IMAGE_DIGEST: str | None = (
-    "sha256:0a3ff1e3c59069e026d590d0614c9e506c9297df2aae9254214e2ec07efb61e2"
+    "sha256:dbb50ec4bbe2676ad7bbb26ee87b2a5351cc2a32a04c2d7b80fd4428a7c8ef43"
 )
 CONTROLLERS_ENV = "FM_SIM_CONTROLLERS"
 IMAGE_ENV = "FM_SIM_IMAGE"
