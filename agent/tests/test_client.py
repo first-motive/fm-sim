@@ -99,6 +99,7 @@ def remote(store):
     agent = SimAgent(HOST, runner, store)
     agent.ready_poll_s = 0.01
     agent.min_free_bytes = 0
+    agent.discovery_settle_s = 0.0
     fabric = Fabric(server, agent, HOST, status_period_s=0.05)
     host = KeptOpen(session, HOST)
 
@@ -316,6 +317,7 @@ def local(store, runner):
     agent = SimAgent("local", runner, store)
     agent.ready_poll_s = 0.01
     agent.min_free_bytes = 0
+    agent.discovery_settle_s = 0.0
     return Local(agent)
 
 

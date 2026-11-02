@@ -105,6 +105,14 @@ STARTUP_TIMEOUT_S = 180.0
 READY_POLL_S = 1.0
 RESET_TIMEOUT_S = 30.0
 
+#: How long after a run's container stops before the next run may start. A
+#: stopped run's DDS participants send no goodbye, so peers drop them only when
+#: their lease runs out (Cyclone DDS's default is 10 s). The host's sim bridge
+#: keys routes by topic: a new run that publishes the same topics inside that
+#: window loses every route when the old participants expire, and the viewer
+#: gets no /clock, /tf or /joint_states for the whole run.
+DISCOVERY_SETTLE_S = 12.0
+
 #: A catalog that could not be fetched is not asked for again for this long, so
 #: a broken image costs one container per window, not one per query.
 CATALOG_FAILURE_TTL_S = 10.0
@@ -296,6 +304,10 @@ class SimAgent:
         self.ready_poll_s = READY_POLL_S
         self.max_run_s = MAX_RUN_S
         self.min_free_bytes = MIN_FREE_BYTES
+        self.discovery_settle_s = DISCOVERY_SETTLE_S
+        #: tradeoff: kept in memory only; an agent restart takes longer than the
+        #: settle window, so a run stopped before it cannot overlap the next one.
+        self._stopped_at: float | None = None
         #: Whether other processes may hold runs under this agent's label (see ``recover``).
         self.keep_foreign_runs = False
         self._lock = threading.Lock()
@@ -479,6 +491,7 @@ class SimAgent:
         foreign = self._foreign_run()
         if foreign is not None:
             raise VerbError("busy", f"run {foreign} is active on {self.host}, started by another process")
+        self._wait_for_discovery_settle()
 
         started = utc_now()
         run = Run(run_id=run_id_of(spec, started), spec=spec, started_at=started, broadcasters=broadcasters)
@@ -523,6 +536,23 @@ class SimAgent:
             raise
         return run.run_id
 
+    def _wait_for_discovery_settle(self) -> None:
+        """Sleep out what is left of ``discovery_settle_s`` since the last run stopped."""
+        with self._lock:
+            stopped_at = self._stopped_at
+            busy = self._run is not None  # refused as busy below; no point waiting first
+        if stopped_at is None or busy:
+            return
+        remaining = self.discovery_settle_s - (time.monotonic() - stopped_at)
+        if remaining > 0:
+            log(f"waiting {remaining:.1f} s for the last run's DDS participants to expire")
+            time.sleep(remaining)
+
+    def _mark_stopped(self) -> None:
+        """Note that a run's container was just stopped, for the next ``up`` to settle on."""
+        with self._lock:
+            self._stopped_at = time.monotonic()
+
     def _start_container(self, run: Run) -> bool:
         """``docker run`` the run; return whether a down overtook it meanwhile.
 
@@ -547,6 +577,8 @@ class SimAgent:
                     self.runner.stop(run.run_id)
                 except Exception as exc:  # noqa: BLE001 - must not replace start's own exception
                     log(f"{run.run_id}: stopping failed: {exc}")
+                finally:
+                    self._mark_stopped()
         return overtaken
 
     def _check_free_space(self) -> None:
@@ -915,6 +947,7 @@ class SimAgent:
         except RunnerError as exc:
             log(f"{run.run_id}: stopping failed: {exc}")
         finally:
+            self._mark_stopped()
             with run.write_lock:
                 run.ended_at = utc_now()
                 run.metrics["wall_s"] = round((run.ended_at - run.started_at).total_seconds(), 3)

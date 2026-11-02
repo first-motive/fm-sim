@@ -27,4 +27,5 @@ def agent(store, runner, logs):
     agent = SimAgent("fm_ws_01", runner, store, log_sink=lambda run_id, record: logs.append((run_id, record)))
     agent.ready_poll_s = 0.01
     agent.min_free_bytes = 0  # the free-space check has its own tests
+    agent.discovery_settle_s = 0.0  # the settle wait has its own tests
     return agent
