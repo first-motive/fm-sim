@@ -1,0 +1,58 @@
+# Franka Panda controllers in sim. fm-robot ships no controllers file, so the sim
+# catalog owns this one. Joints match the panda_system joints in fm-robot's
+# panda.ros2_control.xacro, which keeps franka_description's `fer` names.
+# panda_arm_controller and panda_arm_forward_position_controller claim the same
+# seven joints, so only one of the pair is active. fer_finger_joint2 mimics
+# fer_finger_joint1 in the description.
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz, as the OpenArm
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    panda_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    panda_arm_forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+    panda_gripper_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+panda_arm_controller:
+  ros__parameters:
+    joints:
+      - fer_joint1
+      - fer_joint2
+      - fer_joint3
+      - fer_joint4
+      - fer_joint5
+      - fer_joint6
+      - fer_joint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true
+
+panda_arm_forward_position_controller:
+  ros__parameters:
+    joints:
+      - fer_joint1
+      - fer_joint2
+      - fer_joint3
+      - fer_joint4
+      - fer_joint5
+      - fer_joint6
+      - fer_joint7
+
+panda_gripper_controller:
+  ros__parameters:
+    joints:
+      - fer_finger_joint1
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true

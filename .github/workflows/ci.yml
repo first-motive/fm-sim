@@ -10,11 +10,11 @@ on:
     paths-ignore: ["docs/**", "LICENSE", ".gitignore", "plans/**"]
 
 # Standalone build (hybrid CI): fm-sim builds its own packages on Jazzy, the only
-# distro the sim stack targets. Its MJCF model externals (SO-ARM, OpenArm, Unitree)
-# are file-vendored, not colcon packages, so they are COLCON_IGNORE'd. It builds the
-# externals with no Jazzy apt release: topic_based_ros2_control, and fm-robot (the
-# robot descriptions) with openarm_description and unitree_ros2. The full
-# integration build lives in fm-ros2.
+# distro the sim stack targets. Its MJCF model externals (SO-ARM, OpenArm, Unitree,
+# Menagerie) are file-vendored, not colcon packages, so they are COLCON_IGNORE'd. It
+# builds the externals with no Jazzy apt release: topic_based_ros2_control, and
+# fm-robot (the robot descriptions) with openarm_description, franka_description and
+# unitree_ros2. The full integration build lives in fm-ros2.
 jobs:
   # Rendered files (AGENTS.md, .fm/) come from the render plane and carry a hash of
   # their own body. This fails the PR when one was edited in place.
@@ -50,7 +50,7 @@ jobs:
       image: ros:jazzy
       checkout-path: src/fm-sim
       repos-file: fm-sim.repos
-      build-externals: topic_based_ros2_control fm-robot openarm_description unitree_ros2
+      build-externals: topic_based_ros2_control fm-robot openarm_description franka_description unitree_ros2
       apt-packages: >-
         ros-jazzy-rosidl-generator-dds-idl ros-jazzy-cyclonedds ros-jazzy-rmw-cyclonedds-cpp
       package-prefix: fm_sim
@@ -211,7 +211,7 @@ jobs:
       distro: jazzy
       image: ros:jazzy  # as build-test
       repos-file: fm-sim.repos
-      build-externals: topic_based_ros2_control fm-robot openarm_description unitree_ros2
+      build-externals: topic_based_ros2_control fm-robot openarm_description franka_description unitree_ros2
       apt-packages: >-
         ros-jazzy-rosidl-generator-dds-idl ros-jazzy-cyclonedds ros-jazzy-rmw-cyclonedds-cpp
       # Word-split by the shared workflow into `uv pip install --system ...`. Noble

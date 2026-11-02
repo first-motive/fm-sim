@@ -14,18 +14,19 @@ workspace root at call time — ``/ws/external/...`` in the container,
 Axol is the exception: Almond Bot ships no upstream MJCF, so its model is authored
 and committed into this package's share (see ``models/axol/``), resolved from the
 share dir. Keys are the robot keys: ``openarm_anvil``, ``openarm``,
-``openarm_pinch``, ``so101``, ``g1_d``, ``axol``.
+``openarm_pinch``, ``so101``, ``g1_d``, ``axol``, ``panda``.
 
 ``openarm_anvil`` is built at run time from the private Anvil description of the
 OpenArm, where it is installed (see ``openarm_anvil``); it is what the ``openarm``
 catalog robot runs. ``openarm`` is the vendored OpenArm v2 model patched to the
 loader hand (see ``openarm_loader``); ``openarm_pinch`` is the vendored model
-unchanged.
+unchanged. ``panda`` is mujoco_menagerie's Franka Panda renamed to fm-robot's
+``fer_*`` joints (see ``panda``).
 """
 
 import os
 
-from fm_sim_models import openarm_anvil, openarm_loader
+from fm_sim_models import openarm_anvil, openarm_loader, panda
 
 
 def _workspace_root():
@@ -97,6 +98,9 @@ _MJCF = {
     # Authored + committed into this package's share; joint names match the
     # description + ros2_control exactly. Resolved lazily (see _axol_mjcf).
     'axol': _axol_mjcf,
+    # mujoco_menagerie's Franka Panda (arm + hand), its joints renamed to fm-robot's
+    # fer_* names and its actuators made position servos (see panda).
+    'panda': lambda: panda.mjcf_path(_vendored('mujoco_menagerie')),
 }
 
 
