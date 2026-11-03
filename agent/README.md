@@ -102,7 +102,9 @@ idle ─up─▶ starting ─broadcasters active─▶ running ─down─▶ sto
   spec's seed. If the graph has no `/sim/reset`, the seed cannot be applied:
   the summary's `metrics.seed_applied` is then false, unless the seed is 0,
   the scenario's own default. With `record` on, `ros2 bag record -s mcap -a`
-  then starts in the container, leaving out `/perception/debug/*` frames. It
+  then starts in the container, leaving out `/perception/debug/*` frames and the
+  raw camera renders (`/mujoco_cameras/*`, `/cam_<role>/image_raw`); the
+  `/cam_<role>` JPEGs and `camera_info` are recorded. It
   starts a new MCAP file every 600 s or 4 GiB, whichever comes first.
 - `down` reads the latched `/sim/outcome`, stops the recorder with SIGINT so
   the MCAP is closed properly, stops and removes the container, and writes

@@ -320,7 +320,7 @@ def test_recording_writes_mcap_into_the_runs_mount(docker):
     assert argv[:3] == ["exec", "--detach", f"fm-sim-run-{RUN_ID}"]
     assert argv[3:6] == ["bash", "-c", RECORD_SCRIPT]
     assert argv[-12:] == [
-        "record", "-s", "mcap", "-a", "--exclude-regex", "^/perception/debug/.*",
+        "record", "-s", "mcap", "-a", "--exclude-regex", BAG_EXCLUDE,
         "--max-bag-duration", "600", "--max-bag-size", str(4 * 2**30),
         "-o", "/fm-run/bag/recording",
     ]  # fmt: skip
@@ -333,9 +333,18 @@ def test_recording_writes_mcap_into_the_runs_mount(docker):
         ("/perception/debug/wrist", True),
         ("/perception/chest", False),
         ("/perception/chest/can", False),
+        ("/mujoco_cameras/cam_chest/color", True),
+        ("/mujoco_cameras/cam_wrist_right/depth", True),
+        ("/mujoco_cameras/cam_chest/camera_info", True),
+        ("/cam_chest/image_raw", True),
+        ("/cam_wrist_right/image_raw", True),
+        ("/cam_chest/image_raw/compressed", False),
+        ("/cam_wrist_right/image_raw/compressed", False),
+        ("/cam_chest/camera_info", False),
+        ("/joint_states", False),
     ],
 )
-def test_the_recorder_leaves_out_only_the_debug_frames(topic, excluded):
+def test_the_recorder_leaves_out_debug_frames_and_raw_renders(topic, excluded):
     assert (re.search(BAG_EXCLUDE, topic) is not None) is excluded
 
 
