@@ -107,9 +107,13 @@ SIM_RESET = "/sim/reset"
 #: fm-skills' perception node: true turns its debug frames on and renews their
 #: lease, false turns them off. Served only by a run whose controller starts it.
 PERCEPTION_DEBUG = "/perception/set_debug"
-#: The recorder leaves out the perception debug frames: a JPEG per camera at the
-#: debug rate is diagnostic, and would dominate a run's MCAP while debug is on.
-BAG_EXCLUDE = "^/perception/debug/.*"
+#: The recorder leaves out frames that duplicate or only diagnose the cameras:
+#: fm-skills' perception debug JPEGs; MuJoCo's raw renders (rgb8 color, 32-bit
+#: depth and their camera_info under /mujoco_cameras), which sim_camera turns
+#: into the /cam_<role> topics; and the raw /cam_<role>/image_raw that Isaac and
+#: Gazebo publish beside its JPEG. The raw renders were 98 % of a MuJoCo run's
+#: MCAP, about 190 MB/s. The /cam_<role> JPEGs and camera_info are kept.
+BAG_EXCLUDE = "^/perception/debug/.*|^/mujoco_cameras/.*|^/cam_[^/]+/image_raw$"
 
 #: How long each container call may take. A catalog is a fresh container that
 #: lists the resource index; the readiness probes are short because the agent
