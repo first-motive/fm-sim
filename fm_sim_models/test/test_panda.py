@@ -105,3 +105,25 @@ def test_second_finger_follows_the_first(model):
     assert any(
         {model.eq_obj1id[i], model.eq_obj2id[i]} == {finger1, finger2} for i in range(model.neq)
     )
+
+
+READY = {'fer_joint2': -0.785, 'fer_joint4': -2.356, 'fer_joint6': 1.571, 'fer_joint7': 0.785}
+# The ready pose, and one reached by jogging it: gravity loads each joint differently.
+HOLD_POSES = [READY, {**READY, 'fer_joint1': 1.0, 'fer_joint3': 0.5, 'fer_joint5': -0.7}]
+
+
+@pytest.mark.parametrize('pose', HOLD_POSES)
+def test_the_arm_holds_its_target_without_sag(model, pose):
+    # Servo re-bases every command on the measured state, so any steady error
+    # compounds into drift (#139). Gravity compensation leaves the hold exact.
+    mujoco = pytest.importorskip('mujoco')
+    data = mujoco.MjData(model)
+    for joint in FER_ARM:
+        data.qpos[model.joint(joint).qposadr[0]] = pose.get(joint, 0.0)
+    for actuator in range(model.nu):
+        data.ctrl[actuator] = data.qpos[model.jnt_qposadr[model.actuator_trnid[actuator, 0]]]
+    for _ in range(int(2.0 / model.opt.timestep)):
+        mujoco.mj_step(model, data)
+    for joint in FER_ARM:
+        error = data.qpos[model.joint(joint).qposadr[0]] - pose.get(joint, 0.0)
+        assert abs(error) < 1e-3, f'{joint} sags {error:.4f} rad'

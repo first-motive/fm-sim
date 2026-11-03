@@ -13,6 +13,9 @@ equivalent <position kp kv>. The hand is driven through a tendon on a 0..255
 scale; it becomes a position actuator on fer_finger_joint1 in metres, with the
 tendon's own gains, and Menagerie's equality keeps fer_finger_joint2 following it.
 
+Every body is gravity compensated, as the real arm's controller compensates it, so
+the servos hold their targets with no steady sag for MoveIt Servo to compound.
+
 ``mjcf_path`` re-derives the model on every call and writes it once per content
 hash (``fm_sim_models.cache``).
 """
@@ -115,6 +118,18 @@ def _position_actuators(root):
     actuators.extend(servos)
 
 
+def _compensate_gravity(root):
+    """Cancel gravity on every body, as the Panda's own controller does.
+
+    The position servos have no integral term, so gravity holds each joint a little
+    off its target (fer_joint4 sags about 0.006 rad at the ready pose). MoveIt Servo
+    builds every command from the measured state, so that sag is taken in as the new
+    target each cycle and compounds into drift on joints a jog never named (#139).
+    """
+    for body in root.iter('body'):
+        body.set('gravcomp', '1')
+
+
 def _drop_keyframes(root):
     """Remove the keyframes; their ctrl vectors match the old 8-actuator layout only."""
     keyframe = root.find('keyframe')
@@ -150,6 +165,7 @@ def mjcf_text(menagerie):
     _absolute_meshdir(root, source)
     _rename_joints(root)
     _position_actuators(root)
+    _compensate_gravity(root)
     _drop_keyframes(root)
     ET.indent(root)
     return ET.tostring(root, encoding='unicode') + '\n'
