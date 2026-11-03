@@ -48,16 +48,19 @@ exception: it ships no upstream MJCF, so First Motive authored one (compiled fro
 
 ## Franka Panda Model
 
-fm-robot's Panda description uses franka_description's names, which call the
-Panda `fer`: `fer_joint1..7` and `fer_finger_joint1..2`. Menagerie names the same
-joints `joint1..7` and `finger_joint1..2`. `panda.py` renames them, and rewrites
-the actuators into the form `MujocoSystemInterface` commands by position: each
+fm-robot's Panda description uses franka_description's names, which call the Panda
+`fer`: `fer_joint1..7` and `fer_finger_joint1..2`. Menagerie names the same joints
+`joint1..7` and `finger_joint1..2`. `panda.py` renames them, and rewrites the
+actuators into the form `MujocoSystemInterface` commands by position: each
 `<general>` arm actuator becomes the equivalent `<position kp kv>`, and the hand's
 0..255 tendon actuator becomes a position actuator on `fer_finger_joint1` in metres
 (Menagerie's equality keeps `fer_finger_joint2` following it). The keyframe is
 dropped, since its `ctrl` vector fits the old actuator layout; the spawn pose comes
-from the description's `initial_value`s. Like the OpenArm loader model, the result
-is written once per content hash under `~/.cache/fm_sim_models/`.
+from the description's `initial_value`s. Every body is gravity compensated
+(`gravcomp="1"`), as the real arm's controller is: without it `fer_joint4` sags
+about 0.006 rad, and MoveIt Servo, which builds each command from the measured
+state, compounds that into drift. Like the OpenArm loader model, the result is
+written once per content hash under `~/.cache/fm_sim_models/`.
 
 ## OpenArm Anvil Model
 
