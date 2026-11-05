@@ -34,6 +34,11 @@ runs Docker itself.
 ``--controllers`` (or ``FM_SIM_CONTROLLERS=1``) picks the private controllers
 image for every action; ``image.kind`` in the status says which one is in use.
 
+``--models-dir DIR`` (or ``FM_SIM_MODELS_DIR``) on ``start`` and ``restart``
+hands the agent its ``--models-dir``: the object packs and the contact model
+every run mounts read-only at ``/workspace/models``. The agent checks the path,
+so a bad one fails the start with the agent's reason.
+
 Every command is an argv list; nothing here goes through a shell. Text that
 comes from Docker or ``ps`` is returned raw; the CLI cleans every string it
 prints (:func:`fm_sim_agent.client.clean`).
@@ -65,6 +70,8 @@ from fm_sim_agent.spec import iso, valid_name
 
 PROVIDER = "local"
 ACTIONS = ("status", "pull", "start", "stop", "restart")
+#: Where ``--models-dir`` falls back to: the directory the agent mounts at /workspace/models.
+MODELS_DIR_ENV = "FM_SIM_MODELS_DIR"
 #: What the CLI calls this machine. Never a key segment on the router: the
 #: agent serves under the machine's own name (contracts §8 amendments).
 ALIAS = "local"
@@ -127,12 +134,15 @@ def pull_failure(message: str, image: str) -> str:
     return f"{message}; if {image} is private, run: docker login {registry}"
 
 
-def agent_command(image: str, host: str) -> list[str]:
+def agent_command(image: str, host: str, models_dir: Path | None = None) -> list[str]:
     """The managed agent's argv: the service as this machine, off the host network."""
-    return [
+    argv = [
         sys.executable, "-m", "fm_sim_agent.service",
         "--host", host, "--label", LABEL, "--no-host-network", "--image", image,
     ]  # fmt: skip
+    if models_dir is not None:
+        argv += ["--models-dir", str(models_dir)]
+    return argv
 
 
 def is_agent_for(command: str, host: str) -> bool:
@@ -233,8 +243,10 @@ class LocalHost:
         *,
         docker: str = "docker",
         bridge_config: Path | None = None,
+        models_dir: Path | None = None,
     ) -> None:
         self.image = image
+        self.models_dir = models_dir
         self.host = host
         self.pin = pin
         self.state_dir = state_dir
@@ -551,7 +563,7 @@ class LocalHost:
         returns (the desktop app's runner does) leaves the agent running.
         """
         self._rotate_log()
-        argv = agent_command(self.image, self.host)
+        argv = agent_command(self.image, self.host, self.models_dir)
         try:
             log_fd = os.open(self.log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         except OSError as exc:
@@ -714,8 +726,8 @@ class LocalHost:
             raise LocalError("pull_failed", pull_failure(last, image) or f"docker pull exited with {code}")
 
 
-def this_machine(image: str, pin: str | None, host: str) -> LocalHost:
-    return LocalHost(image, pin, default_state_dir(), host)
+def this_machine(image: str, pin: str | None, host: str, models_dir: Path | None = None) -> LocalHost:
+    return LocalHost(image, pin, default_state_dir(), host, models_dir=models_dir)
 
 
 def managed_host(state_dir: Path | None = None) -> str | None:

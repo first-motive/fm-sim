@@ -472,15 +472,21 @@ hostname.
 ```bash
 fm sim host status  local [--controllers] [--json]   # runtime, image, agent and bridge; read-only
 fm sim host pull    local [--controllers] [--json]   # pull the pinned image (and the bridge's), streaming progress
-fm sim host start   local [--controllers] [--json]   # start the agent detached; a no-op if it runs
+fm sim host start   local [--controllers] [--models-dir DIR] [--json]   # start the agent detached; a no-op if it runs
 fm sim host stop    local [--controllers] [--json]   # SIGTERM, then SIGKILL after 60 s
-fm sim host restart local [--controllers] [--json]   # stop, then start; a refused start leaves it stopped
+fm sim host restart local [--controllers] [--models-dir DIR] [--json]   # stop, then start; a refused start leaves it stopped
 ```
 
 `--controllers`, or `FM_SIM_CONTROLLERS=1` in the environment, chooses the
 private controllers image for that command (`0` or unset leaves it off; any
 other value is a usage error). Pass the same choice to every verb: `status`
 reports on, `pull` pulls and `start` runs the image chosen for it.
+
+`--models-dir DIR`, or `FM_SIM_MODELS_DIR`, on `start` and `restart` becomes the
+managed agent's own `--models-dir` (see [Object Packs](#object-packs)); the flag
+outranks the variable. The agent checks the path, so a bad one fails the start with
+its reason. Other verbs refuse the flag. A running agent keeps the directory it was
+started with until `restart`.
 
 - **Runtime.** `docker context show` and `docker info` say whether a runtime
   answers and which one: `orbstack` when the context or the daemon's
