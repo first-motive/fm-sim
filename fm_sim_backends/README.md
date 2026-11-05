@@ -44,7 +44,7 @@ which Jazzy ignores and that Humble launch still needs.
   free body's world pose on `/mujoco/free_joint_states` at 30 Hz of sim time, and
   its CameraPlugin under the key `mujoco_cameras`, which renders every camera in
   the world offscreen at 10 Hz of sim time and publishes it raw on
-  `/mujoco_cameras/<camera>/color` (also `depth` and `camera_info`, which nothing
+  `/mujoco_cameras/<camera>/color` and `depth` (also `camera_info`, which nothing
   reads). `fm_sim_cameras` turns those into the robot's `/cam_<role>` topics. A
   world with no cameras starts no render thread. These are mujoco_ros2_control
   0.1.2's CameraPlugin behaviours (`camera_plugin.cpp`), checked live by

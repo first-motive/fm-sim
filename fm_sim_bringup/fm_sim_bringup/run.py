@@ -28,11 +28,13 @@ WORLD_GENERATORS = {
 # ``mesh_roots`` and ``robot``.
 STAGE_BACKENDS = ('gazebo', 'isaac')
 # Backends whose generated world carries the robot's cameras: the generator module
-# (``world_path``, ``body_names``, and ``write`` taking ``cameras``) and the topic
-# its renderer publishes a camera's pinhole image on. The mujoco topic is the
-# CameraPlugin's default for a camera named cam_<role> under the plugin key
-# mujoco_cameras (fm_sim_backends config/mujoco_plugins.yaml).
-RENDERED_CAMERAS = {'mujoco': (mujoco_world, '/mujoco_cameras/cam_{role}/color')}
+# (``world_path``, ``body_names``, and ``write`` taking ``cameras``) and the topics
+# its renderer publishes a camera's pinhole colour and depth images on. The mujoco
+# topics are the CameraPlugin's defaults for a camera named cam_<role> under the
+# plugin key mujoco_cameras (fm_sim_backends config/mujoco_plugins.yaml).
+RENDERED_CAMERAS = {'mujoco': (
+    mujoco_world, '/mujoco_cameras/cam_{role}/color', '/mujoco_cameras/cam_{role}/depth',
+)}
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ class CameraPlacement:
     role: str
     cameras_file: str
     render_topic: str
+    depth_render_topic: str
     model: mujoco_world.Camera
 
 
@@ -355,7 +358,7 @@ def sim_cameras(backend, robot, robot_description, robot_mjcf):
     rendered = RENDERED_CAMERAS.get(backend['name'])
     if rendered is None or 'cameras_file' not in robot:
         return []
-    generator, render_topic = rendered
+    generator, render_topic, depth_render_topic = rendered
     bodies = generator.body_names(robot_mjcf)
     path = catalog.share_file(robot['cameras_file'])
     try:
@@ -368,7 +371,7 @@ def sim_cameras(backend, robot, robot_description, robot_mjcf):
         raise catalog.CatalogError(f'robot {robot["name"]!r} cameras: {error}') from error
     return [
         CameraPlacement(
-            role, path, render_topic.format(role=role),
+            role, path, render_topic.format(role=role), depth_render_topic.format(role=role),
             mujoco_world.Camera(
                 f'cam_{role}', where.parent, where.xyz, where.quat_wxyz,
                 render.fovy_deg, (render.width, render.height),
@@ -407,6 +410,7 @@ def camera_node_parameters(camera):
         'role': camera.role,
         'cameras_file': camera.cameras_file,
         'render_topic': camera.render_topic,
+        'depth_render_topic': camera.depth_render_topic,
         'use_sim_time': True,
     }
 

@@ -53,6 +53,11 @@ def image_topic(role):
     return f'/cam_{check_role(role)}/image_raw/compressed'
 
 
+def depth_topic(role):
+    """Return the compressed depth image topic of ``role``."""
+    return f'/cam_{check_role(role)}/depth/compressed'
+
+
 def info_topic(role):
     """Return the camera_info topic of ``role``."""
     return f'/cam_{check_role(role)}/camera_info'

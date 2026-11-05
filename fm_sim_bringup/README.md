@@ -268,12 +268,14 @@ wrist camera rides the description's `right_wrist_cam` and the chest camera its
 `chest_cam`), or to the description's root (a world camera). The engine's
 CameraPlugin renders each at 10 Hz of sim time (mujoco_ros2_control 0.1.2's behaviour; `test_camera_launch.py`
 checks it live); `sim_camera` warps the render into the real fisheye image,
-JPEG-compresses it, and publishes:
+JPEG-compresses it, warps the depth render through the same maps (nearest
+neighbour), and publishes:
 
 | Topic | Type | Contents |
 |-------|------|----------|
 | `/cam_<role>/image_raw/compressed` | `sensor_msgs/CompressedImage` | `jpeg`, the real image size, the render's sim-time stamp, `frame_id` the role's optical frame |
 | `/cam_<role>/camera_info` | `sensor_msgs/CameraInfo` | The real K, `equidistant` distortion (cv2.fisheye's k1..k4), same header |
+| `/cam_<role>/depth/compressed` | `sensor_msgs/CompressedImage` | `16UC1; png`: a 16-bit PNG of z-depth along the optical axis in millimetres, 0 where there is none; the colour frame's header. MuJoCo only |
 
 `sim_camera` publishes at most at the role's `rate_hz`, judged on the stamps; the
 10 Hz render bounds it below that (OpenArm's file says 15). Fisheye pixels whose

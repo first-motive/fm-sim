@@ -3,7 +3,7 @@
 <package format="3">
   <name>fm_sim_cameras</name>
   <version>0.0.0</version>
-  <description>Simulated robot cameras as the real ones publish them: the fisheye warp of a pinhole render, JPEG on /cam_ROLE/image_raw/compressed and the real intrinsics on /cam_ROLE/camera_info</description>
+  <description>Simulated robot cameras as the real ones publish them: the fisheye warp of a pinhole render, JPEG on /cam_ROLE/image_raw/compressed, 16-bit PNG depth on /cam_ROLE/depth/compressed and the real intrinsics on /cam_ROLE/camera_info</description>
   <maintainer email="nish@ubundi.co.za">First Motive</maintainer>
   <license>Apache-2.0</license>
 

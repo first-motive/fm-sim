@@ -390,7 +390,9 @@ def test_mujoco_camera_render_is_the_plugin_default_topic():
     plugins = plugins['mujoco_ros2_control_node']['ros__parameters']['mujoco_plugins']
     (key,) = [k for k, v in plugins.items()
               if v['type'] == 'mujoco_ros2_control_plugins/CameraPlugin']
-    assert run.RENDERED_CAMERAS['mujoco'][1] == f'/{key}/cam_{{role}}/color'
+    assert run.RENDERED_CAMERAS['mujoco'][1:] == (
+        f'/{key}/cam_{{role}}/color', f'/{key}/cam_{{role}}/depth',
+    )
     # The bridge caps cameras at 10 Hz; rendering faster only burns the engine's CPU.
     assert plugins[key]['camera_publish_rate'] <= 10.0
 
@@ -424,6 +426,7 @@ def test_openarm_cameras_mount_on_the_description_camera_links(tmp_path):
         'role': 'wrist_right',
         'cameras_file': catalog.share_file(entries['robot']['cameras_file']),
         'render_topic': '/mujoco_cameras/cam_wrist_right/color',
+        'depth_render_topic': '/mujoco_cameras/cam_wrist_right/depth',
         'use_sim_time': True,
     }
     path = run.world_model(
