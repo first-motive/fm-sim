@@ -190,6 +190,10 @@ agent in the background, with its pidfile and log under
 `/etc/fm-comms.env` or the environment). Each run gets a zenoh bridge
 container in its network namespace, so its live topics reach the router under
 this Mac's namespace, once fm-comms has rendered `~/.config/fm-comms/bridge-sim.json5`.
+`start` and `restart` take `--models-dir DIR` (or `FM_SIM_MODELS_DIR`), which every
+run mounts read-only at `/workspace/models`. fm-skills' controllers read their object
+packs and the contact model there, so point it at `fm-skills/models` after
+`fm skills fetch`; without it those runs find no models.
 `--json` is what the app reads. See
 [This Mac](agent/README.md#this-mac) in the agent's README.
 

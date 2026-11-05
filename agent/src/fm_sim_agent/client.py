@@ -424,6 +424,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=f"local only: run the private controllers image (env {CONTROLLERS_ENV}=1)",
     )
+    host.add_argument(
+        "--models-dir",
+        type=Path,
+        default=None,
+        help="local start and restart only: what every run mounts read-only at /workspace/models,"
+        f" such as fm-skills/models (env {this_machine.MODELS_DIR_ENV})",
+    )
     return parser
 
 
@@ -441,6 +448,14 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     if args.verb == "host" and args.provider == this_machine.PROVIDER:
         if args.stack or args.region or args.profile:
             parser.error("--stack, --region and --profile apply only to aws")
+        if args.models_dir is not None and args.action not in ("start", "restart"):
+            parser.error("--models-dir applies only to start and restart")
+        # The variable applies where the flag would, so an exported one never blocks `stop`.
+        env_models_dir = os.environ.get(this_machine.MODELS_DIR_ENV, "").strip()
+        if args.models_dir is None and env_models_dir and args.action in ("start", "restart"):
+            args.models_dir = Path(env_models_dir)
+        if args.models_dir is not None:
+            args.models_dir = args.models_dir.expanduser().resolve()
         try:
             args.machine = this_machine_host()
         except CardError as exc:
@@ -739,7 +754,7 @@ def local_lines(status: dict) -> str:
 
 def cmd_this_machine(args: argparse.Namespace) -> int:
     """``fm sim host <action> local``. With ``--json`` every line printed is one JSON object."""
-    host = this_machine.this_machine(args.image, args.pin, args.machine)
+    host = this_machine.this_machine(args.image, args.pin, args.machine, args.models_dir)
 
     def progress(event: dict) -> None:
         event = clean(event)
