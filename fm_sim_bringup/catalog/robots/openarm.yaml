@@ -115,6 +115,35 @@ params:
       kind: ros_param
       node: /sim_camera_chest
       param: jpeg_quality
+  waist_camera_rate:
+    label: Waist camera rate
+    description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_waist
+      param: rate_hz
+  waist_jpeg_quality:
+    label: Waist JPEG quality
+    type: int
+    default: 90
+    min: 10
+    max: 100
+    step: 5
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_waist
+      param: jpeg_quality
   wrist_right_camera_rate:
     label: Right wrist camera rate
     description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
@@ -143,6 +172,35 @@ params:
     target:
       kind: ros_param
       node: /sim_camera_wrist_right
+      param: jpeg_quality
+  wrist_left_camera_rate:
+    label: Left wrist camera rate
+    description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_left
+      param: rate_hz
+  wrist_left_jpeg_quality:
+    label: Left wrist JPEG quality
+    type: int
+    default: 90
+    min: 10
+    max: 100
+    step: 5
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_left
       param: jpeg_quality
   left_finger_stiffness:
     label: Left finger stiffness

@@ -25,7 +25,7 @@ SIDES = ('follower_l_', 'follower_r_')
 # Frames that ride each arm's hand, and the camera links the sim renders from: all
 # URDF links, so MuJoCo bodies.
 HAND_BODIES = ('link7', 'hand', 'right_finger', 'left_finger', 'hand_tcp')
-CAMERA_BODIES = ('chest_cam', 'right_wrist_cam')
+CAMERA_BODIES = ('chest_cam', 'waist_cam', 'right_wrist_cam', 'left_wrist_cam')
 # The rounding MuJoCo's writer applies to the compiled model (six digits).
 FRAME_TOLERANCE = 1e-5
 

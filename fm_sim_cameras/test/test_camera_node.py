@@ -213,7 +213,7 @@ def test_thins_renders_above_the_rate(ros, tmp_path):
         rig.close()
 
 
-@pytest.mark.parametrize('role', ['wrist_left', '../chest', ''])
+@pytest.mark.parametrize('role', ['head', '../chest', ''])
 def test_refuses_an_unknown_role(ros, role):
     with pytest.raises(cameras_file.CameraError, match='unknown camera role'):
         _camera(role=role)

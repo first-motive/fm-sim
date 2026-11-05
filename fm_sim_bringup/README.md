@@ -251,21 +251,21 @@ their attribution.
 ## Cameras
 
 A robot entry's optional `cameras_file` lists its cameras by role (`chest`,
-`wrist_right`; any other role is refused): each role's optical frame in the
+`waist`, `wrist_right`, `wrist_left`; any other role is refused): each role's optical frame in the
 robot description, its `rate_hz` and the real camera's intrinsics. OpenArm's is
 [`config/openarm/cameras.yaml`](config/openarm/cameras.yaml): the chest fisheye's
 calibration, copied from fm-skills `openarm_v2_skills_config/config/camera_chest.yaml`
-(the wrist camera has none of its own, and stands in with the same numbers, as
-in fm-robot and fm-skills).
+(the waist and wrist cameras have none of their own, and stand in with the same
+numbers, as fm-skills does for the right wrist).
 
 On MuJoCo, `run.launch.py` puts every role into the generated world and starts
 one `fm_sim_cameras` `sim_camera` node per role. Simulators render pinhole
 images and the cameras are fisheyes, so each MJCF camera is a pinhole wide
 enough for its fisheye's edge midpoints (`fisheye.render_camera`), mounted where
 the description puts the optical frame: `fm_sim_cameras.mount` walks the frame's
-fixed joints up to the nearest link the MJCF also has as a body (the right
-wrist camera rides the description's `right_wrist_cam` and the chest camera its
-`chest_cam`), or to the description's root (a world camera). The engine's
+fixed joints up to the nearest link the MJCF also has as a body (each camera
+rides the description link of its name: `chest_cam`, `waist_cam`,
+`right_wrist_cam`, `left_wrist_cam`), or to the description's root (a world camera). The engine's
 CameraPlugin renders each at 10 Hz of sim time (mujoco_ros2_control 0.1.2's behaviour; `test_camera_launch.py`
 checks it live); `sim_camera` warps the render into the real fisheye image,
 JPEG-compresses it, warps the depth render through the same maps (nearest
@@ -420,7 +420,7 @@ is the contract for that output.
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, `requires_packages` (a missing package lists the entry as unavailable and is named when it is refused), schema validation (`robot_profile` a name or `null`, launch role shape, controller `launch_args`), run-owned `launch_args` names refused, `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
 | `test_tabletop_scenarios.py` | The three tabletop entries share one layout; the named object is the success object; target at its resting height; worst-case spawns never overlap, start on the paper or as a success, and stay reachable and on the table; colours clearly apart |
-| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, the controller launch's arguments, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose. The OpenArm rows skip without its private description |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, the controller launch's arguments, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — every camera in the compiled world at the description's camera frames at a random arm pose. The OpenArm rows skip without its private description |
 | `test_params.py` | Tunable declarations the loader refuses (default out of bounds or of the wrong type, `min` above `max`, an unknown target kind, a relative or wildcard node, a guarded param, an `mjcf` target without `backends`, an entry path naming nothing or not holding the default) and the shared value cases in `param_cases.json` |
 | `test_run_params.py` | Overrides through the launch: an entry override changes the generated world (can mass), an override the entry would refuse is refused, a description override changes the compiled MJCF (joint damping) and a xacro arg; through rcl, the params file beats the scenario node's own parameters and the controllers file, and the guard keeps what the launch owns |
 | `test_entry_params.py` | fm-sim's own tunables: every default is what the node, file or compiled model holds (OpenArm's MJCF ones skip without its description), none names what the launch owns, and overrides reach the world through the launch |
@@ -429,7 +429,7 @@ is the contract for that output.
 | `test_run_launch_roles.py` | `run.launch.py`'s setup with SO-101 given OpenArm's `servo` role (SO-101 is public, so this runs in every image) and a controller that activates it: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down; a missing launch file fails at setup; a controller's `launch_args` reach its launch, and every name the launch sets is refused in them |
 | `test_scenario_launch.py` | Live: `so101` on `mujoco` with `can_on_table` and `idle` — the can on `/sim/objects`, `/sim/reset` moving it to the seed's spawn inside its ranges, a latched timeout failure on `/sim/outcome`, its bound judged in sim time. Needs the `so_arm` external and Mesa's EGL |
 | `test_camera_launch.py` | Live: `openarm` on `mujoco` with `can_on_table` — both roles publish 1920x1080 JPEGs with the profile frames, sim-time stamps no more than 10 Hz apart, the real K and distortion on `camera_info`, and the can, projected through TF and the real chest intrinsics, lands on can-green pixels. Needs the private OpenArm description (skips without it) and Mesa's EGL |
-| `test_gazebo_scenario_launch.py` | Live: `openarm` on `gazebo` with `can_on_table` and `idle` — the same object, reset and outcome checks as on MuJoCo; both cameras publishing JPEG on `/cam_<role>/image_raw/compressed` and a `camera_info` with the cameras file's intrinsics, its frame and zero distortion; after shutdown, no gz-sim server of the run left. Gazebo renders on software GL there, well below real time, so the episode's bound is judged in sim time and each reset is waited out before another. Linux only, and needs the private OpenArm description (skipped otherwise) |
+| `test_gazebo_scenario_launch.py` | Live: `openarm` on `gazebo` with `can_on_table` and `idle` — the same object, reset and outcome checks as on MuJoCo; every camera publishing JPEG on `/cam_<role>/image_raw/compressed` and a `camera_info` with the cameras file's intrinsics, its frame and zero distortion; after shutdown, no gz-sim server of the run left. Gazebo renders on software GL there, well below real time, so the episode's bound is judged in sim time and each reset is waited out before another. Linux only, and needs the private OpenArm description (skipped otherwise) |
 | `test_run_launch.py` | Live: every robot on `mujoco`, `gazebo` (server-only) and `isaac` (no Isaac Sim running), `empty`, `idle` — broadcaster active, every other controller inactive, all joints in one hardware component on the simulators and the per-arm systems on Isaac. Each row runs on its own ROS domain and Gazebo partition; OpenArm's rows exist only where its private description is installed. Needs the MJCF and description externals, `topic_based_ros2_control` and Mesa's EGL |
 
 ## Build Type

@@ -1,4 +1,4 @@
-"""Live: OpenArm on MuJoCo with can_on_table renders both cameras as the real ones.
+"""Live: OpenArm on MuJoCo with can_on_table renders every camera as the real one.
 
 run.launch.py must put the cameras in the world, render them in the engine's
 CameraPlugin (EGL with no display) and start one sim_camera node per role. Each
@@ -38,10 +38,12 @@ STARTUP_TIMEOUT_S = 180.0
 # Contract §4: the loader_openarm_v2 profile's camera frames.
 FRAMES = {
     'chest': 'cam_chest_optical',
+    'waist': 'cam_waist_optical',
     'wrist_right': 'cam_wrist_r_optical',
+    'wrist_left': 'cam_wrist_l_optical',
 }
 # fm-skills src/openarm_v2_skills_config/config/camera_chest.yaml at aa91a3f; the
-# wrist camera stands in with the same numbers.
+# waist and wrist cameras stand in with the same numbers.
 K = [740.244, 0.0, 958.504, 0.0, 750.103, 573.152, 0.0, 0.0, 1.0]
 D = [0.111681, -0.028494, 0.0, 0.0]
 # A 1920x1080 JPEG of a rendered scene: well above a blank frame, well below raw.
@@ -148,7 +150,7 @@ class TestCameras(unittest.TestCase):
             stamps = [_seconds(image.header.stamp) for image in received]
             gaps = np.diff(stamps)
             self.assertGreaterEqual(gaps.min(), MIN_STAMP_GAP_S, f'{role} gaps {gaps}')
-            # Throughput is the host's: llvmpipe renders both cameras in turn, and a
+            # Throughput is the host's: llvmpipe renders every camera in turn, and a
             # busy host renders below 10 Hz. Only a stalled camera fails here.
             self.assertLess(float(np.median(gaps)), MAX_MEDIAN_GAP_S, f'{role} gaps {gaps}')
 
