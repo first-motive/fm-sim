@@ -58,6 +58,11 @@ def depth_topic(role):
     return f'/cam_{check_role(role)}/depth/compressed'
 
 
+def depth_sensor_topic(role):
+    """Return the compressed simulated depth sensor topic of ``role``."""
+    return f'/cam_{check_role(role)}/depth_sensor/compressed'
+
+
 def info_topic(role):
     """Return the camera_info topic of ``role``."""
     return f'/cam_{check_role(role)}/camera_info'

@@ -342,6 +342,7 @@ def test_recording_writes_mcap_into_the_runs_mount(docker):
         ("/cam_wrist_right/image_raw/compressed", False),
         ("/cam_chest/camera_info", False),
         ("/cam_chest/depth/compressed", False),
+        ("/cam_chest/depth_sensor/compressed", False),
         ("/joint_states", False),
     ],
 )

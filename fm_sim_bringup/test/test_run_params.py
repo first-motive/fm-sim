@@ -197,7 +197,7 @@ def test_own_node_guards_are_what_params_reserves():
     )
     entries = run.resolve('mujoco', 'so101', 'can_on_table', 'idle')
     scenario = run.scenario_node_parameters(entries['backend'], entries['scenario'], 0, 0.0)
-    guards = run.own_node_guards([camera], scenario)
+    guards = run.own_node_guards([camera], 0, scenario)
     assert set(guards['/sim_camera_chest']) == params.CAMERA_OWNED
     assert set(guards['/sim_scenario']) == params.SCENARIO_OWNED
 
@@ -216,14 +216,15 @@ def _with_camera(monkeypatch):
 def test_the_camera_guard_holds_and_its_tunables_win(monkeypatch, tmp_path):
     _with_camera(monkeypatch)
     params_file = _params_file(tmp_path, {'/sim_camera_chest': {'ros__parameters': {
-        'jpeg_quality': 50, 'role': 'wrist_right', 'render_topic': '/x', 'use_sim_time': False,
+        'jpeg_quality': 50, 'depth_sensor': True, 'role': 'wrist_right', 'render_topic': '/x',
+        'seed': 99, 'use_sim_time': False,
     }}})
     actions, context = _launch_setup(monkeypatch, tmp_path, params_file)
     (camera,) = [a for a in actions if isinstance(a, Node) and a.node_executable == 'sim_camera']
-    assert_params_file_wins(camera, context, {'jpeg_quality': 50})
+    assert_params_file_wins(camera, context, {'jpeg_quality': 50, 'depth_sensor': True})
     assert_guard_holds(camera, context, {
         'role': 'chest', 'render_topic': '/mujoco_cameras/cam_chest/color',
-        'depth_render_topic': '/mujoco_cameras/cam_chest/depth',
+        'depth_render_topic': '/mujoco_cameras/cam_chest/depth', 'seed': 4,
         'use_sim_time': True, 'cameras_file': '/c/cameras.yaml',
     })
 

@@ -391,26 +391,32 @@ def forward_params_file(arguments, params_file):
     return {**arguments, 'params_file': params_file} if params_file else dict(arguments)
 
 
-def own_node_guards(cameras, scenario_parameters):
+def own_node_guards(cameras, seed, scenario_parameters):
     """Return the guard for the nodes run.launch.py starts: ``{fully qualified node: params}``.
 
     Each node's own parameters are what the launch owns there; ``params``
     lists the same keys (``CAMERA_OWNED``, ``SCENARIO_OWNED``) so no tunable
     targets one.
     """
-    guards = {f'/{camera_node_name(camera)}': camera_node_parameters(camera) for camera in cameras}
+    guards = {
+        f'/{camera_node_name(camera)}': camera_node_parameters(camera, seed) for camera in cameras
+    }
     if scenario_parameters:
         guards[f'/{params.SCENARIO_NODE}'] = scenario_parameters
     return guards
 
 
-def camera_node_parameters(camera):
-    """Return the ``sim_camera`` node's parameters for ``camera``."""
+def camera_node_parameters(camera, seed):
+    """Return the ``sim_camera`` node's parameters for ``camera`` in a run of ``seed``.
+
+    The seed draws the noise of the camera's depth sensor, where a run enables one.
+    """
     return {
         'role': camera.role,
         'cameras_file': camera.cameras_file,
         'render_topic': camera.render_topic,
         'depth_render_topic': camera.depth_render_topic,
+        'seed': seed,
         'use_sim_time': True,
     }
 

@@ -104,7 +104,8 @@ idle ─up─▶ starting ─broadcasters active─▶ running ─down─▶ sto
   the scenario's own default. With `record` on, `ros2 bag record -s mcap -a`
   then starts in the container, leaving out `/perception/debug/*` frames and the
   raw camera renders (`/mujoco_cameras/*`, `/cam_<role>/image_raw`); the
-  `/cam_<role>` JPEGs, depth PNGs (`/cam_<role>/depth/compressed`) and
+  `/cam_<role>` JPEGs, depth PNGs (`/cam_<role>/depth/compressed`, and
+  `/cam_<role>/depth_sensor/compressed` where a run enables it) and
   `camera_info` are recorded. It
   starts a new MCAP file every 600 s or 4 GiB, whichever comes first.
 - `down` reads the latched `/sim/outcome`, stops the recorder with SIGINT so
