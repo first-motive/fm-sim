@@ -276,6 +276,7 @@ neighbour), and publishes:
 | `/cam_<role>/image_raw/compressed` | `sensor_msgs/CompressedImage` | `jpeg`, the real image size, the render's sim-time stamp, `frame_id` the role's optical frame |
 | `/cam_<role>/camera_info` | `sensor_msgs/CameraInfo` | The real K, `equidistant` distortion (cv2.fisheye's k1..k4), same header |
 | `/cam_<role>/depth/compressed` | `sensor_msgs/CompressedImage` | `16UC1; png`: a 16-bit PNG of z-depth along the optical axis in millimetres, 0 where there is none; the colour frame's header. MuJoCo only |
+| `/cam_<role>/depth_sensor/compressed` | `sensor_msgs/CompressedImage` | Only for a role whose `depth_sensor` a run enables (OpenArm's `<role>_depth_sensor` tunables, off by default): the same depth as a RealSense D435-like sensor reports it (`fm_sim_cameras.depth_sensor`: noise growing with z^2, dropout at edges, at random and out of range), same format and header, its noise drawn from the run's `seed`. MuJoCo only |
 
 `sim_camera` publishes at most at the role's `rate_hz`, judged on the stamps; the
 10 Hz render bounds it below that (OpenArm's file says 15). Fisheye pixels whose

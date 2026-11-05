@@ -202,6 +202,54 @@ params:
       kind: ros_param
       node: /sim_camera_wrist_left
       param: jpeg_quality
+  chest_depth_sensor:
+    label: Chest depth sensor
+    description: Also publish /cam_chest/depth_sensor/compressed, this camera's depth as a RealSense D435-like sensor reports it (noise growing with depth squared, dropout at edges and out of range), drawn from the run's seed.
+    type: bool
+    default: false
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_chest
+      param: depth_sensor
+  waist_depth_sensor:
+    label: Waist depth sensor
+    description: Also publish /cam_waist/depth_sensor/compressed, this camera's depth as a RealSense D435-like sensor reports it (noise growing with depth squared, dropout at edges and out of range), drawn from the run's seed.
+    type: bool
+    default: false
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_waist
+      param: depth_sensor
+  wrist_right_depth_sensor:
+    label: Right wrist depth sensor
+    description: Also publish /cam_wrist_right/depth_sensor/compressed, this camera's depth as a RealSense D435-like sensor reports it (noise growing with depth squared, dropout at edges and out of range), drawn from the run's seed.
+    type: bool
+    default: false
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_right
+      param: depth_sensor
+  wrist_left_depth_sensor:
+    label: Left wrist depth sensor
+    description: Also publish /cam_wrist_left/depth_sensor/compressed, this camera's depth as a RealSense D435-like sensor reports it (noise growing with depth squared, dropout at edges and out of range), drawn from the run's seed.
+    type: bool
+    default: false
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_left
+      param: depth_sensor
   left_finger_stiffness:
     label: Left finger stiffness
     description: The finger servo gain (FINGER_KP in fm_sim_models).

@@ -23,7 +23,7 @@ PLUGINS_FILE = ('fm_sim_backends', 'config/mujoco_plugins.yaml')
 # The servo role's own file (fm-robot), which the openarm servo tunables default to.
 SERVO_FILE = ('fm_control', 'config/openarm/servo_sim.yaml')
 # The sim_camera node's own default for a param no file sets.
-CAMERA_DEFAULTS = {'jpeg_quality': 90}
+CAMERA_DEFAULTS = {'jpeg_quality': 90, 'depth_sensor': False}
 
 
 def _tunables(kind, name):

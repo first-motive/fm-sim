@@ -25,7 +25,9 @@ What comes up:
    ``/sim/objects``, ``/sim/markers``, ``/sim/reset`` and ``/sim/outcome``;
 7. on a backend that renders cameras (mujoco), one ``sim_camera`` node
    (fm_sim_cameras) per role of the robot's ``cameras_file``, publishing
-   ``/cam_<role>/image_raw/compressed`` and ``/cam_<role>/camera_info``.
+   ``/cam_<role>/image_raw/compressed``, ``/cam_<role>/camera_info`` and
+   ``/cam_<role>/depth/compressed`` (and ``/cam_<role>/depth_sensor/compressed``
+   where a run enables the role's ``depth_sensor``, its noise drawn from ``seed``).
 
 On a backend with a scenario generator (mujoco, gazebo, isaac), the scenario's
 objects are first spawned from ``seed`` into a generated world: on mujoco the
@@ -180,7 +182,7 @@ def _launch_setup(context):
         scenario_parameters = run.scenario_node_parameters(backend, scenario, seed, timeout_s)
         # What this launch owns on its own nodes, taken back after the params file.
         guard = write_guard(
-            world_dir, run.own_node_guards(cameras, scenario_parameters)
+            world_dir, run.own_node_guards(cameras, seed, scenario_parameters)
         ) if params_file else None
     except Exception:
         # The launch fails before the shutdown handler exists; remove the world here.
@@ -220,7 +222,9 @@ def _launch_setup(context):
             package='fm_sim_cameras',
             executable='sim_camera',
             name=run.camera_node_name(camera),
-            parameters=with_params_file([run.camera_node_parameters(camera)], params_file, guard),
+            parameters=with_params_file(
+                [run.camera_node_parameters(camera, seed)], params_file, guard
+            ),
             output='screen',
         ))
     if scenario_parameters:

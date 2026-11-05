@@ -6,7 +6,7 @@ import time
 
 from conftest import CHEST_D, CHEST_K, OPENARM_CAMERAS
 import cv2
-from fm_sim_cameras import camera_node, cameras_file, depth
+from fm_sim_cameras import camera_node, cameras_file, depth, depth_sensor
 from fm_sim_cameras.camera_node import SimCamera
 import numpy as np
 import pytest
@@ -73,7 +73,9 @@ class _Rig:
     def __init__(self, camera):
         self.camera = camera
         self.probe = rclpy.create_node('sim_camera_probe')
-        self.images, self.infos, self.depths = [], [], []
+        self.images, self.infos, self.depths, self.sensed = [], [], [], []
+        self.probe.create_subscription(
+            CompressedImage, '/cam_chest/depth_sensor/compressed', self.sensed.append, LATEST)
         self.probe.create_subscription(
             CompressedImage, '/cam_chest/depth/compressed', self.depths.append, LATEST)
         self.depth_pub = self.probe.create_publisher(Image, DEPTH_RENDER_TOPIC, LATEST)
@@ -357,5 +359,62 @@ def test_depth_whose_colour_never_arrives_stays_unpublished(ros):
         rig.camera.last_render_ns -= (camera_node.STALL_PERIODS + 1) * rig.camera.period_ns
         rig.camera.check_stalled()
         assert rig.camera.pending_depth is None
+    finally:
+        rig.close()
+
+
+def test_no_depth_sensor_unless_enabled(ros):
+    camera = _camera()
+    try:
+        assert camera.depth_sensor_pub is None
+        assert camera.count_publishers('/cam_chest/depth_sensor/compressed') == 0
+    finally:
+        camera.destroy_node()
+
+
+def test_publishes_the_depth_sensor_with_the_colour_header(ros):
+    rig = _Rig(_camera(depth_sensor=True, seed=11))
+    try:
+        render = rig.camera.render
+        assert rig.send(_render(render, 12, 500), 1)
+        assert rig.send_depth(_depth_render(render, 12, 500), 1)
+        assert rig.spin_until(lambda: rig.sensed)
+        (image,), (truth,), (sensed,) = rig.images, rig.depths, rig.sensed
+        assert sensed.format == '16UC1; png'
+        assert sensed.header == image.header
+        truth_mm = depth.decode(bytes(truth.data))
+        sensed_mm = depth.decode(bytes(sensed.data))
+        assert sensed_mm.shape == truth_mm.shape == (1080, 1920)
+        # No data stays no data; the rest is noisy around the truth, by the seed.
+        assert np.all(sensed_mm[truth_mm == 0] == 0)
+        valid = sensed_mm > 0
+        assert np.mean(valid[truth_mm > 0]) > 0.95
+        error_m = (sensed_mm[valid].astype(float) - truth_mm[valid]) / 1000.0
+        assert np.std(error_m) == pytest.approx(
+            depth_sensor.AXIAL_NOISE_PER_M * 1.25**2, rel=0.1)
+        expected = depth.to_millimetres(depth_sensor.measure(
+            truth_mm.astype(np.float32) / 1000.0,
+            depth_sensor.frame_rng(11, 'chest', 12 * 10**9 + 500)))
+        assert np.array_equal(sensed_mm, expected)
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('seed', [-1, depth_sensor.SEED_MAX + 1])
+def test_refuses_a_seed_out_of_range(ros, seed):
+    with pytest.raises(cameras_file.CameraError, match='seed must be an integer'):
+        _camera(seed=seed)
+
+
+def test_skips_renders_stamped_before_the_epoch(ros):
+    rig = _Rig(_camera(depth_sensor=True))
+    try:
+        render = rig.camera.render
+        assert not rig.send(_render(render, -1), 1)
+        assert rig.send(_render(render, 2), 1)
+        assert not rig.send_depth(_depth_render(render, -1), 1, timeout_s=1.0)
+        assert rig.send_depth(_depth_render(render, 2), 1)
+        assert rig.spin_until(lambda: rig.sensed)
+        assert _stamp(rig.sensed[0]) == (2, 0)
     finally:
         rig.close()

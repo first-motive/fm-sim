@@ -424,12 +424,13 @@ def test_openarm_cameras_mount_on_the_description_camera_links(tmp_path):
         'wrist_left': 'left_wrist_cam',
     }
     assert by_role['chest'].render_topic == '/mujoco_cameras/cam_chest/color'
-    parameters = run.camera_node_parameters(by_role['wrist_right'])
+    parameters = run.camera_node_parameters(by_role['wrist_right'], 7)
     assert parameters == {
         'role': 'wrist_right',
         'cameras_file': catalog.share_file(entries['robot']['cameras_file']),
         'render_topic': '/mujoco_cameras/cam_wrist_right/color',
         'depth_render_topic': '/mujoco_cameras/cam_wrist_right/depth',
+        'seed': 7,
         'use_sim_time': True,
     }
     path = run.world_model(
