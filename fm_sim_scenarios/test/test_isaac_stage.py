@@ -352,7 +352,7 @@ def test_a_large_camera_renders_when_it_opts_in():
 
 def test_the_shipped_cameras_fit_the_caps():
     with open(CAMERAS_YAML) as cameras_file:
-        assert set(stage.check_cameras(yaml.safe_load(cameras_file))) == {'chest', 'wrist_right'}
+        assert set(stage.check_cameras(yaml.safe_load(cameras_file))) == {'chest', 'waist', 'wrist_right', 'wrist_left'}
 
 
 def _graph(cameras=CAMERAS, scenario=CAN_ON_TABLE):

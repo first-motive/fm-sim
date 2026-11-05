@@ -417,9 +417,12 @@ def test_openarm_cameras_mount_on_the_description_camera_links(tmp_path):
         entries['backend'], entries['robot'], _openarm_description(entries, world), robot_mjcf,
     )
     by_role = {camera.role: camera for camera in cameras}
-    assert sorted(by_role) == ['chest', 'wrist_right']
-    assert by_role['chest'].model.body == 'chest_cam'
-    assert by_role['wrist_right'].model.body == 'right_wrist_cam'
+    assert {role: camera.model.body for role, camera in by_role.items()} == {
+        'chest': 'chest_cam',
+        'waist': 'waist_cam',
+        'wrist_right': 'right_wrist_cam',
+        'wrist_left': 'left_wrist_cam',
+    }
     assert by_role['chest'].render_topic == '/mujoco_cameras/cam_chest/color'
     parameters = run.camera_node_parameters(by_role['wrist_right'])
     assert parameters == {

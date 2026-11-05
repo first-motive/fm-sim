@@ -86,7 +86,7 @@ def _sim_s(node):
 def _spin_until_sim(node, predicate, sim_s, wall_cap_s=STARTUP_TIMEOUT_S):
     """Spin until ``predicate``, for at most ``sim_s`` of sim time (``wall_cap_s`` wall).
 
-    Rendering both cameras on software GL on a loaded host can hold MuJoCo below
+    Rendering all four cameras on software GL on a loaded host can hold MuJoCo below
     real time, so a bound on a sim-time process is judged in sim time.
     """
     start = _sim_s(node)

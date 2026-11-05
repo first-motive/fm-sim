@@ -4,7 +4,7 @@ run.launch.py must build the scenario world, spawn the robot as ``openarm`` and
 start the scenario node: the can shows on /sim/objects, /sim/reset with a seed
 moves it to that seed's spawn inside the scenario's ranges, and with nothing
 moving the can, /sim/outcome latches a timeout failure for the reset's episode.
-Both cameras publish JPEG images and a camera_info with the cameras file's
+Every camera publishes JPEG images and a camera_info with the cameras file's
 intrinsics. ``timeout_s:=10`` keeps the episode short. After shutdown, no gz-sim
 server of this run survives and the generated world's directory is gone.
 Linux only (it reads /proc): Gazebo runs server-only with headless (EGL)
@@ -61,7 +61,7 @@ WORLDS_BEFORE = set(glob.glob(WORLD_GLOB))
 # This run's worlds, seen while it runs; the post-shutdown check looks for a gz-sim
 # server still running on one of them.
 RUN_WORLDS = set()
-CAMERA_ROLES = ('chest', 'wrist_right')
+CAMERA_ROLES = ('chest', 'waist', 'wrist_right', 'wrist_left')
 
 
 # A skip mark here, not a module-level pytest.skip: launch_testing imports this file to
@@ -105,7 +105,7 @@ def _sim_s(node):
 def _spin_until_sim(node, predicate, sim_s, wall_cap_s=STARTUP_TIMEOUT_S):
     """Spin until ``predicate``, for at most ``sim_s`` of sim time (``wall_cap_s`` wall).
 
-    Gazebo renders both cameras on software GL here and can run at a fifth of
+    Gazebo renders all four cameras on software GL here and can run at a fifth of
     real time or less, so a bound on a sim-time process is judged in sim time.
     """
     start = _sim_s(node)

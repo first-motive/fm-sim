@@ -1,16 +1,16 @@
 # OpenArm sim cameras: per role, the optical frame it renders from, its rate and
 # its intrinsics. Roles give the contract's topics (/cam_<role>/image_raw/compressed,
 # /cam_<role>/camera_info). The frames are the loader_openarm_v2 profile's, which
-# fm-robot's openarm_loader.sim.urdf.xacro puts on the description's chest_cam and
-# right_wrist_cam.
+# fm-robot's openarm_loader.sim.urdf.xacro puts on the description's chest_cam,
+# waist_cam, right_wrist_cam and left_wrist_cam.
 #
 # Intrinsics are the real chest camera's, copied from fm-skills
 # openarm_v2_skills_config/config/camera_chest.yaml: a UVC fisheye at 1920x1080,
 # calibrated by the classical baseline's calibrate_chest on fm-rob-01, 2026-10-01
 # (median reprojection 0.80 px). distortion is k1..k4 of cv2.fisheye, which
-# camera_info calls equidistant; k3 and k4 are held at zero there. The wrist
-# camera has no calibration of its own: fm-skills stands the chest intrinsics in
-# for it, and so does the sim.
+# camera_info calls equidistant; k3 and k4 are held at zero there. The waist and
+# wrist cameras have no calibration of their own: fm-skills stands the chest
+# intrinsics in for the right wrist, and the sim does the same for all three.
 chest_intrinsics: &chest_intrinsics
   width: 1920
   height: 1080
@@ -26,7 +26,15 @@ cameras:
     frame: cam_chest_optical
     rate_hz: 15
     intrinsics: *chest_intrinsics
+  waist:
+    frame: cam_waist_optical
+    rate_hz: 15
+    intrinsics: *chest_intrinsics
   wrist_right:
     frame: cam_wrist_r_optical
+    rate_hz: 15
+    intrinsics: *chest_intrinsics
+  wrist_left:
+    frame: cam_wrist_l_optical
     rate_hz: 15
     intrinsics: *chest_intrinsics

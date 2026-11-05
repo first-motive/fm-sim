@@ -118,7 +118,7 @@ On the sim host's ROS graph, with `use_sim_time` everywhere:
 | `/sim/reset` | `fm_sim_msgs/srv/Reset` | Respawns the objects for a seed. Not bridged: a remote caller uses the agent's `reset` verb |
 | `/sim/outcome` | `fm_sim_msgs/Outcome` | Transient local, one per episode |
 | `/clock`, `/joint_states`, `/tf`, `/tf_static` | standard | |
-| `/cam_<role>/image_raw/compressed`, `/cam_<role>/camera_info` | `sensor_msgs` | Roles `chest` and `wrist_right`, with the real intrinsics |
+| `/cam_<role>/image_raw/compressed`, `/cam_<role>/camera_info` | `sensor_msgs` | Roles `chest`, `waist`, `wrist_right` and `wrist_left`, with the real intrinsics |
 | `/commanded_ee_right` | `geometry_msgs/PoseStamped` | EE follower input, in the profile's `base_frame` |
 
 A scenario with no objects (`empty`) starts no scenario node, so it has no

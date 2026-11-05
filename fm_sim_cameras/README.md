@@ -10,7 +10,7 @@ node that turns the render into the real camera's topics. `fm_sim_bringup`'s
 
 | Module | Role |
 |--------|------|
-| `cameras_file` | The one loader and CameraInfo builder every backend uses. `load` / `check` give `{role: camera}` as plain data, refusing roles other than `chest` and `wrist_right`, bad frame names, a `rate_hz` that is not a positive number, an image above 1920x1080 without `allow_large_image: true`, and distortion other than `plumb_bob` (5 coefficients) or `equidistant` (4). ROS-free (yaml and plain dicts). Backends refuse what they cannot render on top: the MuJoCo warp only `equidistant` (`fisheye.from_intrinsics`), Isaac a `rate_hz` that does not divide its 60 Hz render (`isaac_stage.check_cameras`) |
+| `cameras_file` | The one loader and CameraInfo builder every backend uses. `load` / `check` give `{role: camera}` as plain data, refusing roles other than `chest`, `waist`, `wrist_right` and `wrist_left`, bad frame names, a `rate_hz` that is not a positive number, an image above 1920x1080 without `allow_large_image: true`, and distortion other than `plumb_bob` (5 coefficients) or `equidistant` (4). ROS-free (yaml and plain dicts). Backends refuse what they cannot render on top: the MuJoCo warp only `equidistant` (`fisheye.from_intrinsics`), Isaac a `rate_hz` that does not divide its 60 Hz render (`isaac_stage.check_cameras`) |
 | `fisheye` | ROS-free. `from_intrinsics` takes a checked camera's intrinsics and refuses any model but `equidistant`. `render_camera` gives the pinhole render, as wide as the fisheye image, whose field reaches the rays through the fisheye's edge-midpoint pixels. `warp_maps` gives the `cv2.remap` maps from that render to the fisheye image, by inverting cv2.fisheye's model |
 | `depth` | ROS-free. `nearest_maps` rounds `warp_maps`' maps for nearest-neighbour use; `warp` moves a pinhole z-depth render (`32FC1` metres) into the fisheye image unchanged, as both share one optical frame; `to_millimetres` gives uint16 millimetres, 0 for NaN, infinite, non-positive or past 10 m (MuJoCo writes the far plane, tens of metres, where a ray hits nothing); `encode` / `decode` the 16-bit PNG |
 | `mount` | ROS-free. `fixed_mount` walks a URDF frame's fixed joints up to the nearest link the simulator has as a body, or to the root, and returns the frame's pose there; a moving joint on the way is refused |
@@ -58,7 +58,7 @@ contracts §3).
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `role` | — | `chest` or `wrist_right`; anything else exits with an error |
+| `role` | — | `chest`, `waist`, `wrist_right` or `wrist_left`; anything else exits with an error |
 | `cameras_file` | — | The robot's cameras file |
 | `render_topic` | — | The simulator's `rgb8` render of this camera, at `render_camera`'s size; other sizes or encodings are skipped with a warning |
 | `depth_render_topic` | — | The simulator's `32FC1` z-depth render (metres) of the same camera, same size |
@@ -69,7 +69,7 @@ contracts §3).
 
 | Test | Checks |
 |------|--------|
-| `test_cameras_file.py` | OpenArm's cameras file carries the fm-skills chest intrinsics for both roles, and the CameraInfo `camera_info` builds from it; normalised plain data; `plumb_bob` accepted; the large-image cap; every refusal |
+| `test_cameras_file.py` | OpenArm's cameras file carries the fm-skills chest intrinsics for all four roles, and the CameraInfo `camera_info` builds from it; normalised plain data; `plumb_bob` accepted; the large-image cap; every refusal |
 | `test_fisheye.py` | The warp refuses `plumb_bob`; the render covers the edge midpoints and matches the CameraPlugin's focal length; about 12 % of the frame black; the warp inverts `cv2.fisheye.distortPoints` to 0.01 px |
 | `test_depth.py` | Millimetres round-trip through the PNG; NaN, infinite, non-positive, past-range and far-plane depth are 0; the warp takes the nearest render pixel, never a blend, and keeps z-depth unchanged; corners carry no depth |
 | `test_mount.py` | Mounts on a moving link's body and on the root, frames that are bodies, a moving joint and an unknown frame refused, quaternions |

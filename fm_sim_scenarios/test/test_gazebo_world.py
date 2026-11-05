@@ -291,7 +291,8 @@ def test_bridge_config_names_every_topic_and_the_set_pose_service():
     entries = gazebo_world.bridge_config(['can'], SHIPPED_CAMERAS)
     topics = {e['ros_topic_name']: e for e in entries if 'ros_topic_name' in e}
     assert set(topics) == {
-        '/clock', '/model/can/pose', '/cam_chest/image_raw', '/cam_wrist_right/image_raw',
+        '/clock', '/model/can/pose', '/cam_chest/image_raw', '/cam_waist/image_raw',
+        '/cam_wrist_right/image_raw', '/cam_wrist_left/image_raw',
     }
     assert topics['/model/can/pose']['ros_type_name'] == 'geometry_msgs/msg/PoseStamped'
     assert topics['/cam_chest/image_raw']['gz_type_name'] == 'gz.msgs.Image'

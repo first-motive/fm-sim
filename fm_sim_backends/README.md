@@ -148,7 +148,7 @@ must stay inside the mesh root or package share it resolved against (a relative
 one no root matches is refused), and a camera renders at most 1920x1080
 (more with `allow_large_image: true`) at a `rate_hz` that divides the 60 Hz
 render rate. The cameras file is checked by `fm_sim_cameras.cameras_file`, the
-loader every backend shares (roles `chest` and `wrist_right`, the size cap, the
+loader every backend shares (roles `chest`, `waist`, `wrist_right` and `wrist_left`, the size cap, the
 distortion models); the 60 Hz rule and the distortion models Isaac renders are
 Isaac's own checks in `isaac_stage.check_cameras`, and the `camera_info` node's
 CameraInfo comes from `fm_sim_cameras.camera_info`. The republisher's remap names `out/compressed` itself: on Jazzy a

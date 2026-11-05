@@ -22,7 +22,7 @@ import re
 import yaml
 
 # The camera roles of the simulation contracts (§2).
-ROLES = ('chest', 'wrist_right')
+ROLES = ('chest', 'waist', 'wrist_right', 'wrist_left')
 FRAME_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
 # camera_info distortion models and their coefficient counts.
 DISTORTION_MODELS = {'plumb_bob': 5, 'equidistant': 4}

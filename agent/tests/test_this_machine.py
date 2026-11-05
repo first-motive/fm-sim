@@ -160,7 +160,11 @@ def agent(tmp_path, monkeypatch):
     monkeypatch.setattr(
         this_machine,
         "agent_command",
-        lambda image, host: [sys.executable, str(script), *real(image, host)[3:]],
+        lambda image, host, models_dir=None: [
+            sys.executable,
+            str(script),
+            *real(image, host, models_dir)[3:],
+        ],
     )
     monkeypatch.setattr(this_machine, "STOP_GRACE_S", 1.0)
     spawned: list[int] = []
@@ -328,6 +332,40 @@ def test_the_managed_agent_is_the_service_as_host_local_off_the_host_network():
     assert (args.host, args.label, args.no_host_network, args.image) == (MACHINE, "local", True, REF)
     assert args.dds_range == "LOCALHOST"
     assert this_machine.is_agent_for(" ".join(argv), MACHINE)
+
+
+def test_the_managed_agent_takes_a_models_dir_only_when_given(tmp_path):
+    assert "--models-dir" not in this_machine.agent_command(REF, MACHINE)
+    argv = this_machine.agent_command(REF, MACHINE, tmp_path)
+    assert service.build_parser().parse_args(argv[3:]).models_dir == tmp_path
+
+
+def test_models_dir_falls_back_to_the_env_and_the_flag_outranks_it(monkeypatch, tmp_path):
+    monkeypatch.setenv(this_machine.MODELS_DIR_ENV, str(tmp_path / "env"))
+    assert parse_args(["host", "start", "local"]).models_dir == tmp_path / "env"
+    flagged = parse_args(["host", "restart", "local", "--models-dir", str(tmp_path / "flag")])
+    assert flagged.models_dir == tmp_path / "flag"
+
+
+@pytest.mark.parametrize("action", ["status", "stop", "pull"])
+def test_an_exported_models_dir_leaves_the_other_verbs_alone(action, monkeypatch, tmp_path):
+    monkeypatch.setenv(this_machine.MODELS_DIR_ENV, str(tmp_path))
+    assert parse_args(["host", action, "local"]).models_dir is None
+
+
+def test_models_dir_is_expanded_and_made_absolute(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert (
+        parse_args(["host", "start", "local", "--models-dir", "~/models"]).models_dir
+        == (tmp_path / "models").resolve()
+    )
+
+
+@pytest.mark.parametrize("action", ["status", "stop", "pull"])
+def test_models_dir_is_refused_off_start_and_restart(action, tmp_path):
+    with pytest.raises(SystemExit) as caught:
+        parse_args(["host", action, "local", "--models-dir", str(tmp_path)])
+    assert caught.value.code == 2
 
 
 @pytest.mark.parametrize(
@@ -628,6 +666,15 @@ def test_start_runs_the_agent_detached_and_status_finds_it(docker, agent, capsys
     assert status["status"]["agent"] == running
 
 
+def test_start_hands_the_agent_its_models_dir(docker, agent, tmp_path, capsys):
+    models = tmp_path / "models"
+    models.mkdir()
+    code, [reply] = run_json(["start", "--models-dir", str(models)], capsys)
+    assert code == 0 and reply["ok"] is True
+    record = json.loads((state_dir() / "agent.pid").read_text())
+    assert record["argv"][-2:] == ["--models-dir", str(models)]
+
+
 def test_status_names_the_controllers_image_kind(docker, capsys):
     _, [reply] = run_json(["status", "--controllers"], capsys)
     image = reply["status"]["image"]
@@ -877,7 +924,7 @@ START_AS_A_CHILD = textwrap.dedent(
     import sys
     from fm_sim_agent import client, this_machine
     real = this_machine.agent_command
-    this_machine.agent_command = lambda image, host: [sys.executable, sys.argv[1], *real(image, host)[3:]]
+    this_machine.agent_command = lambda image, host, models_dir=None: [sys.executable, sys.argv[1], *real(image, host, models_dir)[3:]]
     sys.exit(client.main(["host", "start", "local", "--json"]))
     """
 )
