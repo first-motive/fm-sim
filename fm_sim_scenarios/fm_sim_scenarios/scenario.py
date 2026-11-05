@@ -61,6 +61,7 @@ def check(scenario):
     duplicates = sorted({name for name in names if names.count(name) > 1})
     if duplicates:
         raise ScenarioError(f'names used twice: {", ".join(duplicates)}')
+    _check_charuco_boards(scenario)
     for obj in scenario['objects']:
         if 'usd' in obj and not USD_PATH.fullmatch(str(obj['usd'])):
             raise ScenarioError(f'{obj["name"]}: usd {obj["usd"]!r} is not a path inside the assets')
@@ -88,6 +89,67 @@ def refuse_usd_objects(scenario, backend):
             f'scenario {scenario["name"]!r}: {", ".join(usd)} are USD assets, which only the '
             f'isaac backend loads; backend {backend!r} cannot build them'
         )
+
+
+def charuco_marker_ids(board):
+    """The marker ids a ``charuco`` block numbers: one per white square, from its first."""
+    columns, rows = board['squares']
+    return range(board['first_marker_id'], board['first_marker_id'] + columns * rows // 2)
+
+
+def _check_charuco_boards(scenario):
+    """Refuse a board whose box is not its squares' size, and two boards sharing a marker id."""
+    owners = {}
+    for obj in scenario['objects']:
+        board = obj.get('charuco')
+        if board is None:
+            continue
+        columns, rows = board['squares']
+        side = board['square_mm'] / 1000.0
+        if not all(math.isclose(size, count * side, abs_tol=1e-9)
+                   for size, count in zip(obj['size'][:2], (columns, rows))):
+            raise ScenarioError(
+                f'{obj["name"]}: a {columns} x {rows} board of {board["square_mm"]:g} mm squares '
+                f'is {columns * side:g} m x {rows * side:g} m, not {obj["size"][0]:g} m x '
+                f'{obj["size"][1]:g} m'
+            )
+        for marker in charuco_marker_ids(board):
+            if marker in owners:
+                raise ScenarioError(
+                    f'{owners[marker]} and {obj["name"]} both number marker {marker}'
+                )
+            owners[marker] = obj['name']
+
+
+def refuse_charuco_objects(scenario, backend):
+    """Refuse a scenario with a ChArUco board on ``backend``: only MuJoCo draws its texture."""
+    boards = [obj['name'] for obj in scenario['objects'] if 'charuco' in obj]
+    if boards:
+        raise ScenarioError(
+            f'scenario {scenario["name"]!r}: {", ".join(boards)} are ChArUco boards, which only '
+            f'the mujoco backend draws; backend {backend!r} cannot build them'
+        )
+
+
+def charuco_board_frame(obj):
+    """Return ``(xyz, quat_xyzw)`` of a board's OpenCV frame in the world, from its yaml pose.
+
+    OpenCV puts a ChArUco board's origin at the image's top-left corner, x along a row,
+    y down the columns and z into the board. The texture lies face up on the box's top
+    face with its top row along the box's +y side, so that origin is the top face's
+    -x, +y corner, and the frame is the box's turned pi about its own x axis.
+    """
+    (x, y, z), (roll, pitch, yaw) = nominal_pose(obj)
+    rotation = _rotation_from_rpy(roll, pitch, yaw)
+    width, depth, height = obj['size']
+    corner = (-width / 2, depth / 2, height / 2)
+    origin = tuple(
+        centre + sum(rotation[row][col] * corner[col] for col in range(3))
+        for row, centre in enumerate((x, y, z))
+    )
+    bx, by, bz, bw = quat_from_rpy(roll, pitch, yaw)
+    # The box's quaternion times a pi turn about x, (1, 0, 0, 0) in xyzw.
+    return origin, (bw, bz, -by, -bx)
 
 
 def check_seed(seed):

@@ -1,0 +1,123 @@
+# Catalog entry (fm_sim.scenarios): tabletop_can with ChArUco boards fixed to the table at
+# known poses, for the twin's fiducial mode. Everything else is tabletop_can's, task and
+# success included (checked by test_tabletop_scenarios), so a fiducial run compares with a
+# tabletop_can run. MuJoCo only: no other backend draws the boards' texture, and each refuses
+# a charuco object. Textures: tools/make_charuco_textures.py.
+name: tabletop_tags
+description: Pick the can and place it on the paper, with ChArUco boards fixed to the table for camera calibration (right arm, MuJoCo)
+available: true
+objects:
+  # Its front edge is 0.15 m ahead of the base, clear of the arms hanging at rest;
+  # the top is at 0.207.
+  - name: table
+    shape: box
+    size: [0.7, 1.2, 0.04]
+    static: true
+    friction: 1.0
+    color: [0.55, 0.45, 0.35, 1.0]
+    pose: {xyz: [0.5, 0.0, 0.187]}
+  # A5, 1 mm thick, its top at 0.208. A body in the world, so cameras see it. The task releases
+  # over its centre, and a top-down release plans only within about x 0.28 and y -0.38: an A4
+  # sheet's centre stays past x 0.30 to keep the sheet on the table.
+  - name: paper
+    shape: box
+    size: [0.210, 0.148, 0.001]
+    static: true
+    friction: 0.8
+    color: [0.95, 0.95, 0.95, 1.0]
+    pose: {xyz: [0.26, -0.37, 0.2075]}
+  # Each object spawns with its base level with the paper top (1 mm above the table),
+  # as in can_on_table, and settles onto the table. The nominal positions keep every
+  # spawn clear of the others at any yaw, and of the sheet, whose near edge is at
+  # y -0.296. The block and puck, grasped top-down, stay within x 0.30, and the can,
+  # grasped from the side, reaches further out. Colours are flat red, green and blue,
+  # so a model can tell the objects apart.
+  - name: can
+    shape: cylinder
+    size: [0.033, 0.135]
+    mass: 0.35
+    friction: 1.0
+    color: [0.1, 0.6, 0.2, 1.0]
+    pose: {xyz: [0.40, -0.14, 0.2755]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+      yaw: [-3.14159, 3.14159]
+  # Lies flat: 120 mm x 50 mm in plan, 40 mm tall. At any yaw its corners sweep a
+  # 65 mm radius: x 0.24 keeps that on the table and off the can, and y -0.21 off the puck.
+  - name: block
+    shape: box
+    size: [0.120, 0.050, 0.040]
+    mass: 0.15
+    friction: 1.0
+    color: [0.8, 0.1, 0.1, 1.0]
+    pose: {xyz: [0.24, -0.21, 0.228]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+      yaw: [-3.14159, 3.14159]
+  # No spawn yaw: a round puck looks the same at any, and at one drawn yaw the fingers passed
+  # through its side in MuJoCo and the physics threw it out of the world.
+  - name: puck
+    shape: cylinder
+    size: [0.030, 0.040]
+    mass: 0.10
+    friction: 1.0
+    color: [0.1, 0.2, 0.8, 1.0]
+    pose: {xyz: [0.27, -0.06, 0.228]}
+    spawn:
+      x: [-0.02, 0.02]
+      y: [-0.02, 0.02]
+  # Three ChArUco boards flat on the table, 1 mm thick with their tops at 0.208 like the
+  # paper, for the twin to place cameras from. Each is fm-twin board.py's board (8 x 5
+  # squares, markers 0.75 of a square, DICT_5X5_100) at 50 mm squares, its markers
+  # numbered from first_marker_id so no two boards share an id; board_ahead's, 0 to 19, are
+  # board.py's own. They sit clear of the right arm's reach (x 0.43 and in, y -0.03 and
+  # out) and of the paper: ahead of the robot, on the left half, and far right. In the
+  # ready pose, rendered as a run renders it, the chest camera finds at least 16 corners of
+  # each board, the waist 15 of board_left, the left wrist 25 of board_right and 11 of
+  # board_ahead, and the right wrist 11 of board_ahead and 9 of board_left.
+  # /sim/objects carries each board's centre pose; the board frame OpenCV reports is that
+  # pose moved to the top face's -x, +y corner and turned pi about its x axis
+  # (scenario.charuco_board_frame).
+  - name: board_ahead
+    shape: box
+    size: [0.40, 0.25, 0.001]
+    static: true
+    friction: 0.8
+    color: [1.0, 1.0, 1.0, 1.0]
+    pose: {xyz: [0.70, 0.0, 0.2075], rpy: [0.0, 0.0, 1.5707963267948966]}
+    charuco: {squares: [8, 5], square_mm: 50.0, marker_fraction: 0.75, dictionary: DICT_5X5_100, first_marker_id: 0}
+  - name: board_left
+    shape: box
+    size: [0.40, 0.25, 0.001]
+    static: true
+    friction: 0.8
+    color: [1.0, 1.0, 1.0, 1.0]
+    pose: {xyz: [0.40, 0.36, 0.2075]}
+    charuco: {squares: [8, 5], square_mm: 50.0, marker_fraction: 0.75, dictionary: DICT_5X5_100, first_marker_id: 20}
+  - name: board_right
+    shape: box
+    size: [0.40, 0.25, 0.001]
+    static: true
+    friction: 0.8
+    color: [1.0, 1.0, 1.0, 1.0]
+    pose: {xyz: [0.64, -0.43, 0.2075]}
+    charuco: {squares: [8, 5], square_mm: 50.0, marker_fraction: 0.75, dictionary: DICT_5X5_100, first_marker_id: 40}
+regions:
+  # Where the can's centre sits when it rests on the paper: the sheet's footprint,
+  # 30 mm tall about its resting height (paper top + half its height), which is why
+  # z alone differs between the three.
+  - name: target
+    size: [0.210, 0.148, 0.03]
+    pose: {xyz: [0.26, -0.37, 0.2755]}
+    color: [0.2, 0.4, 1.0, 0.3]
+success:
+  type: object_in_region
+  object: can
+  region: target
+  tolerance: 0.01
+  hold_s: 2.0
+  # At rest, so the can scores once released, as on can_on_table.
+  max_speed: 0.005
+  timeout_s: 120.0

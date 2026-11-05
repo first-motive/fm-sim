@@ -36,6 +36,21 @@ To test it:
 uv run --no-project --with pytest pytest tools
 ```
 
+## Draw ChArUco Textures
+
+`make_charuco_textures.py` draws the texture of every `charuco` block the catalog's
+scenarios declare, into `fm_sim_scenarios/fm_sim_scenarios/textures/`, where the
+MuJoCo generator finds it by its first marker id. It pins the OpenCV that fm-twin's
+`board.py` detects with, so each texture is that board, its marker ids offset. The
+PNGs are committed, so no build or run needs OpenCV. Run it again after adding or
+changing a board:
+
+```bash
+uv run tools/make_charuco_textures.py
+```
+
+`fm_sim_scenarios`' `test_charuco.py` checks each texture against its block.
+
 ## Attribution
 
 The packages are NVIDIA SimReady assets, licensed under

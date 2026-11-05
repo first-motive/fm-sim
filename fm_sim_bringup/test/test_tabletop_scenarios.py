@@ -246,3 +246,87 @@ def test_only_isaac_builds_simready(simready):
         mujoco_world.generate('/robot.xml', [0.0, 0.0, 0.0], simready, 1)
     with pytest.raises(sc.ScenarioError, match="only the isaac backend loads; backend 'gazebo'"):
         gazebo_world.generate_world(simready, 1)
+
+
+@pytest.fixture
+def tags():
+    return catalog.load('scenarios', 'tabletop_tags')
+
+
+def _charuco_boards(entry):
+    return [obj for obj in entry['objects'] if 'charuco' in obj]
+
+
+def _without_boards(entry):
+    """Return the entry without its boards and the fields each scenario documents as its own."""
+    layout = copy.deepcopy(entry)
+    layout['objects'] = [obj for obj in layout['objects'] if 'charuco' not in obj]
+    for key in ('name', 'description'):
+        del layout[key]
+    return layout
+
+
+def test_tags_is_tabletop_can_with_boards(tags):
+    assert _without_boards(tags) == _without_boards(catalog.load('scenarios', 'tabletop_can'))
+    assert len(_charuco_boards(tags)) == 3
+
+
+def test_tags_boards_lie_flat_on_the_table_with_the_paper(tags):
+    objects = _objects(tags)
+    for board in _charuco_boards(tags):
+        assert board['pose']['xyz'][2] == objects['paper']['pose']['xyz'][2], board['name']
+        assert board['size'][2] == objects['paper']['size'][2], board['name']
+        assert board['pose'].get('rpy', [0.0, 0.0, 0.0])[:2] == [0.0, 0.0], board['name']
+
+
+def _plan_bounds(body):
+    """Return the plan-view bounds of a box turned only about z."""
+    x, y = body['pose']['xyz'][:2]
+    yaw = body['pose'].get('rpy', [0.0, 0.0, 0.0])[2]
+    half_x = (abs(math.cos(yaw)) * body['size'][0] + abs(math.sin(yaw)) * body['size'][1]) / 2
+    half_y = (abs(math.sin(yaw)) * body['size'][0] + abs(math.cos(yaw)) * body['size'][1]) / 2
+    return {'x': (x - half_x, x + half_x), 'y': (y - half_y, y + half_y)}
+
+
+def test_tags_boards_stay_on_the_table_and_off_one_another(tags):
+    table = _footprint(_objects(tags)['table'])
+    boards = _charuco_boards(tags)
+    for board in boards:
+        bounds = _plan_bounds(board)
+        for axis in 'xy':
+            low, high = bounds[axis]
+            assert table[axis][0] < low and high < table[axis][1], board['name']
+    for first, second in itertools.combinations(boards, 2):
+        a, b = _plan_bounds(first), _plan_bounds(second)
+        assert _clear(a['x'], b['x']) or _clear(a['y'], b['y']), (first['name'], second['name'])
+
+
+def test_tags_boards_keep_out_of_the_pick_workspace(tags):
+    # Clear of the paper, every object's worst-case spawn and the right arm's reach.
+    objects = _objects(tags)
+    keep_out = [_footprint(objects['paper']), {'x': REACH_X, 'y': REACH_Y}]
+    for obj in _free(tags):
+        radius = _bounding_radius(obj)
+        low_x, high_x = _centre_range(obj, 'x')
+        low_y, high_y = _centre_range(obj, 'y')
+        keep_out.append(
+            {'x': (low_x - radius, high_x + radius), 'y': (low_y - radius, high_y + radius)}
+        )
+    for board in _charuco_boards(tags):
+        bounds = _plan_bounds(board)
+        for area in keep_out:
+            assert _clear(bounds['x'], area['x']) or _clear(bounds['y'], area['y']), board['name']
+
+
+def test_tags_boards_are_published_at_their_declared_poses(tags):
+    # /sim/objects carries static objects from sc.static_poses.
+    poses = sc.static_poses(tags)
+    for board in _charuco_boards(tags):
+        assert poses[board['name']][0] == tuple(board['pose']['xyz']), board['name']
+
+
+def test_only_mujoco_builds_tags(tags):
+    with pytest.raises(sc.ScenarioError, match="only the mujoco backend draws; backend 'gazebo'"):
+        gazebo_world.generate_world(tags, 1)
+    with pytest.raises(sc.ScenarioError, match="only the mujoco backend draws; backend 'isaac'"):
+        isaac_stage.generate(tags, 1)

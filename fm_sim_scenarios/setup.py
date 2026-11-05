@@ -6,6 +6,8 @@ setup(
     name=package_name,
     version='0.0.0',
     packages=find_packages(exclude=['test']),
+    # The ChArUco board textures mujoco_world maps onto boards (tools/make_charuco_textures.py).
+    package_data={package_name: ['textures/*.png']},
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
