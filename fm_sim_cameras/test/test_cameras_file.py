@@ -22,9 +22,12 @@ def _write(tmp_path, data):
 
 def test_openarm_cameras_carry_the_real_chest_intrinsics():
     cameras = cameras_file.load(OPENARM_CAMERAS)
-    assert sorted(cameras) == ['chest', 'wrist_right']
-    assert cameras['chest']['frame'] == 'cam_chest_optical'
-    assert cameras['wrist_right']['frame'] == 'cam_wrist_r_optical'
+    assert {role: camera['frame'] for role, camera in cameras.items()} == {
+        'chest': 'cam_chest_optical',
+        'waist': 'cam_waist_optical',
+        'wrist_right': 'cam_wrist_r_optical',
+        'wrist_left': 'cam_wrist_l_optical',
+    }
     for camera in cameras.values():
         info = camera_info(camera['intrinsics'])
         assert list(info.k) == CHEST_K
@@ -38,7 +41,7 @@ def test_openarm_cameras_carry_the_real_chest_intrinsics():
 def test_check_returns_plain_normalised_data():
     data = _raw()
     data['cameras']['chest']['rate_hz'] = 10
-    (chest, _) = cameras_file.check(data).values()
+    chest = cameras_file.check(data)['chest']
     assert chest['rate_hz'] == 10.0 and isinstance(chest['rate_hz'], float)
     assert chest['allow_large_image'] is False
     assert isinstance(chest['intrinsics']['fx'], float)
@@ -95,4 +98,4 @@ def test_topics_follow_the_role_and_refuse_unknown_ones():
     assert cameras_file.image_topic('wrist_right') == '/cam_wrist_right/image_raw/compressed'
     assert cameras_file.info_topic('chest') == '/cam_chest/camera_info'
     with pytest.raises(cameras_file.CameraError):
-        cameras_file.image_topic('wrist_left')
+        cameras_file.image_topic('head')

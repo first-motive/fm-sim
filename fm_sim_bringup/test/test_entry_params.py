@@ -11,6 +11,7 @@ import re
 from ament_index_python.packages import get_package_share_directory
 from description_model import needs_openarm
 from fm_sim_bringup import catalog, params
+from fm_sim_cameras import cameras_file
 from fm_sim_models.models import mjcf_path
 import pytest
 import yaml
@@ -135,7 +136,7 @@ def test_the_camera_rate_never_exceeds_what_is_rendered():
     _, mujoco = _tunables('backends', 'mujoco')
     _, openarm = _tunables('robots', 'openarm')
     render_max = mujoco['camera_render_rate']['max']
-    for role in ('chest', 'wrist_right'):
+    for role in cameras_file.ROLES:
         assert openarm[f'{role}_camera_rate']['max'] <= render_max
 
 
