@@ -343,6 +343,7 @@
         "friction": {"type": "number", "exclusiveMinimum": 0, "description": "Sliding friction coefficient; required unless usd."},
         "color": {"$ref": "#/definitions/rgba"},
         "pose": {"$ref": "#/definitions/pose"},
+        "charuco": {"$ref": "#/definitions/charuco"},
         "spawn": {
           "description": "Seeded uniform offsets added to pose at every spawn (m, and rad for yaw). Not for a static object.",
           "type": "object",
@@ -380,8 +381,35 @@
             {"required": ["mass"]}, {"required": ["friction"]}, {"required": ["static"]}
           ]}},
           "else": {"required": ["friction"]}
+        },
+        {
+          "if": {"required": ["charuco"]},
+          "then": {
+            "required": ["static"],
+            "properties": {"shape": {"const": "box"}, "static": {"const": true}},
+            "not": {"required": ["usd"]}
+          }
         }
       ]
+    },
+    "charuco": {
+      "description": "A ChArUco board printed edge to edge on a static box's top face, for camera calibration. MuJoCo only: every other backend refuses it. The board is fm-twin board.py's, so squares, marker_fraction and dictionary each take its one value; the box's x and y size are squares times square_mm (checked on load). Markers are numbered from first_marker_id, and no two boards in a scenario share an id (checked on load). The board frame OpenCV reports is the object's pose moved to the top face's -x, +y corner and turned pi about its x axis. tools/make_charuco_textures.py draws the texture.",
+      "type": "object",
+      "required": ["squares", "square_mm", "marker_fraction", "dictionary", "first_marker_id"],
+      "additionalProperties": false,
+      "properties": {
+        "squares": {"const": [8, 5], "description": "Squares across (along the object's x) and down (along its -y)."},
+        "square_mm": {"type": "number", "exclusiveMinimum": 0, "maximum": 200, "description": "A square's side; 200 mm caps a board at 1.6 x 1 m."},
+        "marker_fraction": {"const": 0.75, "description": "A marker's side as a fraction of a square's."},
+        "dictionary": {"const": "DICT_5X5_100", "description": "The OpenCV ArUco dictionary."},
+        "first_marker_id": {
+          "description": "The id of the board's first marker; it numbers squares x squares / 2 markers. A multiple of 20 within the dictionary's 100.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 80,
+          "multipleOf": 20
+        }
+      }
     },
     "region": {
       "description": "A box volume in the world frame, drawn as a marker; never a body in the sim.",

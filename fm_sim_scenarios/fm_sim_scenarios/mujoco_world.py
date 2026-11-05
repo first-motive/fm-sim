@@ -9,6 +9,11 @@ MuJoCo world on the robot description's root frame; scenario poses are in that
 frame. Static objects become world geoms; the others become free bodies spawned
 at ``scenario.spawn_poses(scenario, seed)``.
 
+ChArUco boards: a static box with a ``charuco`` block wears its board's texture
+(``textures/``, drawn by tools/make_charuco_textures.py) on every face, the top one
+read from above with the image's top row along the box's +y side
+(``scenario.charuco_board_frame``).
+
 Contact parameters: every object geom takes the scenario's sliding friction with
 MuJoCo's default torsional (0.005) and rolling (0.0001) terms. Object geoms have
 priority 2, above the robot's collision geoms (priority 1), so an object's own
@@ -31,6 +36,10 @@ import xml.etree.ElementTree as ET
 
 from fm_sim_scenarios import scenario as sc
 
+# The ChArUco board textures tools/make_charuco_textures.py draws, shipped with the package.
+CHARUCO_TEXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'textures')
+# A board's own light, as a fraction of its texture's colour (MuJoCo material emission).
+CHARUCO_EMISSION = 0.5
 TORSIONAL_FRICTION = 0.005
 ROLLING_FRICTION = 0.0001
 OBJECT_PRIORITY = 2
@@ -85,6 +94,37 @@ def _geom(parent, obj, **extra):
         'rgba': _numbers(obj['color']),
         **extra,
     })
+
+
+def charuco_texture(board):
+    """Return the path of a ``charuco`` block's texture.
+
+    tools/make_charuco_textures.py names it the same way. The first marker id alone picks
+    it: the schema fixes the rest of the layout.
+    """
+    return os.path.join(CHARUCO_TEXTURES, f'charuco_ids{board["first_marker_id"]}.png')
+
+
+def _charuco_material(asset, obj):
+    """Add a board's texture and material to ``asset``; return the material's name.
+
+    MuJoCo maps a 2d texture onto each face of a box, so the top face shows the whole
+    board, edge to edge. Refuses a board whose texture has not been drawn.
+    """
+    path = charuco_texture(obj['charuco'])
+    if not os.path.isfile(path):
+        raise sc.ScenarioError(
+            f'{obj["name"]}: no texture {path}; run tools/make_charuco_textures.py'
+        )
+    name = f'{obj["name"]}_charuco'
+    ET.SubElement(asset, 'texture', {'name': name, 'type': '2d', 'file': path})
+    # No specular highlight or reflection, which would wash a marker out, and some emission,
+    # so a camera looking along the table still sees white squares white.
+    ET.SubElement(asset, 'material', {
+        'name': name, 'texture': name, 'specular': '0', 'shininess': '0', 'reflectance': '0',
+        'emission': f'{CHARUCO_EMISSION:g}',
+    })
+    return name
 
 
 def _mujoco_quat(optical_wxyz):
@@ -230,7 +270,8 @@ def generate(robot_mjcf, mount_xyz, scenario, seed, model_name='fm_sim_world', w
         name = obj['name']
         if sc.is_static(obj):
             xyz, quat = fixed[name]
-            _geom(world, obj, pos=_numbers(xyz), quat=_numbers(_wxyz(quat)))
+            board = {'material': _charuco_material(asset, obj)} if 'charuco' in obj else {}
+            _geom(world, obj, pos=_numbers(xyz), quat=_numbers(_wxyz(quat)), **board)
             continue
         xyz, quat = spawn[name]
         body = ET.SubElement(world, 'body', {

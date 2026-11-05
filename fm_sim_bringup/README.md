@@ -235,6 +235,7 @@ The robot is not reset; a controller under test returns it to its start.
 | `can_on_table` | `table` (top at 0.207), `paper` (A4), `can` (66 mm x 135 mm, 0.35 kg, spawned in a 60 mm x 50 mm box with any yaw) | `can` upright on the paper (`target`) for 2 s within 120 s |
 | `table_only` | `can_on_table`'s `table` and `paper`, no can: the empty scene a background-difference detector subtracts | none |
 | `tabletop_can`, `tabletop_block`, `tabletop_puck` | `can_on_table`'s `table`, an A5 `paper` whose centre a top-down release reaches, and one shared layout: green `can` (66 mm x 135 mm, 0.35 kg), red `block` (120 mm x 50 mm x 40 mm, 0.15 kg), blue `puck` (60 mm x 40 mm, 0.10 kg), each spawned in a 40 mm x 40 mm box, can and block with any yaw and puck at a fixed yaw | The named object on the paper (`target`, at its resting height) for 2 s within 120 s |
+| `tabletop_tags` | `tabletop_can` plus three ChArUco boards fixed flat on the table, clear of the paper and the right arm's reach, for the twin's fiducial mode. MuJoCo only | As `tabletop_can` |
 | `tabletop_simready` | The tabletop `table` and `paper`, with a SimReady can, canned food and boxed food in the three object slots. Isaac only: its entry records each asset's choice and bounds | none: it scores perception, with no closed-loop grasp |
 
 `can_on_table` takes its geometry from fm-skills (`openarm_v2_skills_config`
@@ -247,6 +248,18 @@ taking its geometry and physics from the entry. Only Isaac loads USD, so MuJoCo 
 Gazebo refuse such a scenario. The assets are NVIDIA SimReady packages under
 CC-BY-4.0; [`tools/README.md`](../tools/README.md) says how to fetch them and carries
 their attribution.
+
+An object may carry a `charuco` block: a ChArUco board printed edge to edge on a
+static box's top face. The board is fm-twin `board.py`'s (8 x 5 squares,
+`DICT_5X5_100`, markers 0.75 of a square), so the schema allows those values only;
+`square_mm` sets its size, which must match the box's, and `first_marker_id` numbers
+its 20 markers, which no two boards in a scenario may share. `/sim/objects` carries
+each board's centre pose like any static object's, and the catalog (`catalog --json`)
+carries its `charuco` block, so a consumer has both. The board frame OpenCV reports is
+that pose moved to the top face's -x, +y corner and turned pi about x
+(`fm_sim_scenarios.scenario.charuco_board_frame`). Only MuJoCo draws the texture, so
+Gazebo and Isaac refuse such a scenario. [`tools/README.md`](../tools/README.md) says
+how the textures are drawn.
 
 ## Cameras
 
@@ -419,7 +432,7 @@ is the contract for that output.
 | Test | Checks |
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, `requires_packages` (a missing package lists the entry as unavailable and is named when it is refused), schema validation (`robot_profile` a name or `null`, launch role shape, controller `launch_args`), run-owned `launch_args` names refused, `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
-| `test_tabletop_scenarios.py` | The three tabletop entries share one layout; the named object is the success object; target at its resting height; worst-case spawns never overlap, start on the paper or as a success, and stay reachable and on the table; colours clearly apart |
+| `test_tabletop_scenarios.py` | The three tabletop entries share one layout; the named object is the success object; target at its resting height; worst-case spawns never overlap, start on the paper or as a success, and stay reachable and on the table; colours clearly apart. `tabletop_tags` is `tabletop_can` plus its boards, which lie flat at the paper's height, stay on the table and apart, keep clear of the paper, every worst-case spawn and the arm's reach, are published at their yaml poses, and are refused by Gazebo and Isaac |
 | `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, the controller launch's arguments, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — both cameras in the compiled world at the description's camera frames at a random arm pose. The OpenArm rows skip without its private description |
 | `test_params.py` | Tunable declarations the loader refuses (default out of bounds or of the wrong type, `min` above `max`, an unknown target kind, a relative or wildcard node, a guarded param, an `mjcf` target without `backends`, an entry path naming nothing or not holding the default) and the shared value cases in `param_cases.json` |
 | `test_run_params.py` | Overrides through the launch: an entry override changes the generated world (can mass), an override the entry would refuse is refused, a description override changes the compiled MJCF (joint damping) and a xacro arg; through rcl, the params file beats the scenario node's own parameters and the controllers file, and the guard keeps what the launch owns |

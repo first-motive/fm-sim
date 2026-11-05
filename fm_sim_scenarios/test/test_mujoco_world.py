@@ -108,7 +108,7 @@ def test_objects_settle_on_the_table(mujoco, can_on_table, tmp_path):
     assert data.body('ball').xpos[2] == pytest.approx(table_top + 0.02, abs=1e-3)
 
 
-@pytest.mark.parametrize('name', ['tabletop_can', 'tabletop_block', 'tabletop_puck'])
+@pytest.mark.parametrize('name', ['tabletop_can', 'tabletop_block', 'tabletop_puck', 'tabletop_tags'])
 def test_tabletop_objects_settle_where_they_spawn(mujoco, name, tmp_path):
     with open(os.path.join(CATALOG_SCENARIOS, f'{name}.yaml')) as entry_file:
         scenario = yaml.safe_load(entry_file)

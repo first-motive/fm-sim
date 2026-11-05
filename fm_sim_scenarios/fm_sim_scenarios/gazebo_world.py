@@ -158,6 +158,7 @@ def generate_world(scenario, seed):
     it, and it loads no render engine while the world has no sensor.
     """
     sc.refuse_usd_objects(scenario, 'gazebo')
+    sc.refuse_charuco_objects(scenario, 'gazebo')
     for obj in scenario['objects']:
         # Each becomes a model, its topic and the set_pose target.
         if not sc.FRAME_NAME.fullmatch(str(obj['name'])):

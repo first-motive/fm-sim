@@ -266,6 +266,7 @@ def object_workspace(scenario):
 def generate(scenario, seed):
     """Return the scenario half as a dict; the same inputs give the same dict."""
     sc.check(scenario)
+    sc.refuse_charuco_objects(scenario, 'isaac')
     return {
         'schema_version': STAGE_SCHEMA_VERSION,
         'scenario': scenario['name'],
