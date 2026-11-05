@@ -192,6 +192,7 @@ def test_a_missing_params_file_is_refused(monkeypatch, tmp_path):
 def test_own_node_guards_are_what_params_reserves():
     camera = run.CameraPlacement(
         'chest', '/c/cameras.yaml', '/mujoco_cameras/cam_chest/color',
+        '/mujoco_cameras/cam_chest/depth',
         mujoco_world.Camera('cam_chest', None, (0, 0, 0), (1, 0, 0, 0), 60.0, (64, 48)),
     )
     entries = run.resolve('mujoco', 'so101', 'can_on_table', 'idle')
@@ -205,6 +206,7 @@ def _with_camera(monkeypatch):
     """so101 given a chest camera; its world is not built (it has no camera body)."""
     camera = run.CameraPlacement(
         'chest', '/c/cameras.yaml', '/mujoco_cameras/cam_chest/color',
+        '/mujoco_cameras/cam_chest/depth',
         mujoco_world.Camera('cam_chest', None, (0, 0, 0), (1, 0, 0, 0), 60.0, (64, 48)),
     )
     monkeypatch.setattr(run, 'sim_cameras', lambda *args: [camera])
@@ -221,6 +223,7 @@ def test_the_camera_guard_holds_and_its_tunables_win(monkeypatch, tmp_path):
     assert_params_file_wins(camera, context, {'jpeg_quality': 50})
     assert_guard_holds(camera, context, {
         'role': 'chest', 'render_topic': '/mujoco_cameras/cam_chest/color',
+        'depth_render_topic': '/mujoco_cameras/cam_chest/depth',
         'use_sim_time': True, 'cameras_file': '/c/cameras.yaml',
     })
 

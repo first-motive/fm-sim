@@ -112,7 +112,7 @@ PERCEPTION_DEBUG = "/perception/set_debug"
 #: depth and their camera_info under /mujoco_cameras), which sim_camera turns
 #: into the /cam_<role> topics; and the raw /cam_<role>/image_raw that Isaac and
 #: Gazebo publish beside its JPEG. The raw renders were 98 % of a MuJoCo run's
-#: MCAP, about 190 MB/s. The /cam_<role> JPEGs and camera_info are kept.
+#: MCAP, about 190 MB/s. The /cam_<role> JPEGs, depth PNGs and camera_info are kept.
 BAG_EXCLUDE = "^/perception/debug/.*|^/mujoco_cameras/.*|^/cam_[^/]+/image_raw$"
 
 #: How long each container call may take. A catalog is a fresh container that

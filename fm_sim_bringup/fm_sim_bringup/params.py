@@ -38,7 +38,9 @@ SCENARIO_NODE = 'sim_scenario'
 SCENARIO_OWNED = frozenset(('scenario', 'seed', 'backend', 'timeout_s', 'use_sim_time'))
 #: Every sim_camera node is ``<prefix><role>``; the params run.launch.py owns there.
 CAMERA_NODE_PREFIX = 'sim_camera_'
-CAMERA_OWNED = frozenset(('role', 'cameras_file', 'render_topic', 'use_sim_time'))
+CAMERA_OWNED = frozenset((
+    'role', 'cameras_file', 'render_topic', 'depth_render_topic', 'use_sim_time',
+))
 #: Entry fields that say what an object is or which one is meant, never how it behaves.
 IDENTITY_FIELDS = frozenset(('name', 'shape', 'static', 'type', 'object', 'region'))
 

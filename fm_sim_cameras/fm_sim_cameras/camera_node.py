@@ -7,6 +7,13 @@ real fisheye image (``fisheye.warp_maps``), and publishes it JPEG-compressed on
 camera's optical frame. The role's frame, rate and intrinsics come from the
 robot's cameras file (``cameras_file.load``).
 
+The depth render of the same camera goes through the same maps, nearest
+neighbour (``depth``), onto ``/cam_<role>/depth/compressed``: a 16-bit PNG of
+millimetres of z-depth, 0 where there is none. Depth follows colour: a depth
+render is published only once the colour render with the same stamp has been,
+with that header, so every depth frame has its colour frame. One whose colour
+was thinned or skipped is dropped.
+
 It publishes at most once per render and at most at the role's ``rate_hz`` (or
 the node's ``rate_hz`` parameter, when set),
 judged on the render stamps: a render less than three quarters of a period after
@@ -20,7 +27,7 @@ render arrives for ``STALL_PERIODS`` periods of sim time it warns.
 import sys
 
 import cv2
-from fm_sim_cameras import cameras_file, fisheye
+from fm_sim_cameras import cameras_file, depth, fisheye
 from fm_sim_cameras.camera_info import camera_info
 import numpy as np
 import rclpy
@@ -61,6 +68,11 @@ class SimCamera(Node):
         render_topic = self.declare_parameter('render_topic', '').value
         if not render_topic:
             raise cameras_file.CameraError('render_topic is empty')
+        depth_render_topic = self.declare_parameter('depth_render_topic', '').value
+        if not depth_render_topic:
+            raise cameras_file.CameraError('depth_render_topic is empty')
+        # The latest depth render whose colour render has not been published yet.
+        self.pending_depth = None
         self.quality = int(self.declare_parameter('jpeg_quality', 90).value)
         if not 1 <= self.quality <= 100:
             raise cameras_file.CameraError(
@@ -70,7 +82,8 @@ class SimCamera(Node):
         self.render = fisheye.render_camera(self.camera)
         map_x, map_y = fisheye.warp_maps(self.camera, self.render)
         # Fixed-point maps remap several times faster than float ones.
-        self.maps = cv2.convertMaps(map_x, map_y, cv2.CV_16SC2)
+        self.colour_maps = cv2.convertMaps(map_x, map_y, cv2.CV_16SC2)
+        self.depth_maps = depth.nearest_maps(map_x, map_y)
         self.info = camera_info(camera['intrinsics'])
         self.info.header.frame_id = self.frame_id
 
@@ -85,17 +98,22 @@ class SimCamera(Node):
         self.info_pub = self.create_publisher(
             CameraInfo, cameras_file.info_topic(self.role), latest
         )
+        self.depth_pub = self.create_publisher(
+            CompressedImage, cameras_file.depth_topic(self.role), latest
+        )
         self.create_subscription(Image, render_topic, self.on_render, latest)
+        self.create_subscription(Image, depth_render_topic, self.on_depth_render, latest)
         self.create_timer(self.period_ns * 1e-9, self.check_stalled)
         self.get_logger().info(
             f'{self.role}: {render_topic} ({self.render.width}x{self.render.height}, '
             f'fovy {self.render.fovy_deg:.3f} deg) -> {cameras_file.image_topic(self.role)} '
-            f'({self.camera.width}x{self.camera.height} fisheye, frame {self.frame_id})'
+            f'({self.camera.width}x{self.camera.height} fisheye, frame {self.frame_id}); '
+            f'{depth_render_topic} -> {cameras_file.depth_topic(self.role)}'
         )
 
-    def _skip(self, reason):
+    def _skip(self, reason, kind='render'):
         self.get_logger().warn(
-            f'{self.role}: skipping a render: {reason}', throttle_duration_sec=LOG_THROTTLE_S
+            f'{self.role}: skipping a {kind}: {reason}', throttle_duration_sec=LOG_THROTTLE_S
         )
 
     def check_stalled(self):
@@ -108,6 +126,8 @@ class SimCamera(Node):
                 f'{self.role}: no render for {(now_ns - self.last_render_ns) * 1e-9:.1f} s '
                 'of sim time', throttle_duration_sec=LOG_THROTTLE_S,
             )
+            # A stalled colour render would otherwise hold a whole depth render.
+            self.pending_depth = None
 
     def on_render(self, msg):
         now_ns = self.get_clock().now().nanoseconds
@@ -115,7 +135,7 @@ class SimCamera(Node):
         expected = (self.render.width, self.render.height, RENDER_ENCODING)
         if (msg.width, msg.height, msg.encoding) != expected:
             self._skip(
-                f'{msg.width}x{msg.height} {msg.encoding}, expected '
+                f'{msg.width}x{msg.height} {msg.encoding[:32]!r}, expected '
                 f'{expected[0]}x{expected[1]} {expected[2]}'
             )
             return
@@ -140,7 +160,7 @@ class SimCamera(Node):
             return
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         image = cv2.remap(
-            bgr, *self.maps, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0
+            bgr, *self.colour_maps, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0
         )
         ok, jpeg = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         if not ok:
@@ -153,6 +173,67 @@ class SimCamera(Node):
         self.last_published_ns = stamp_ns
         self.image_pub.publish(compressed)
         self.info_pub.publish(self.info)
+        self.publish_paired_depth()
+
+    def on_depth_render(self, msg):
+        now_ns = self.get_clock().now().nanoseconds
+        expected = (self.render.width, self.render.height, depth.RENDER_ENCODING)
+        if (msg.width, msg.height, msg.encoding) != expected:
+            self._skip(
+                f'{msg.width}x{msg.height} {msg.encoding[:32]!r}, expected '
+                f'{expected[0]}x{expected[1]} {expected[2]}', 'depth render',
+            )
+            return
+        if msg.step != msg.width * 4 or len(msg.data) != msg.step * msg.height:
+            self._skip(
+                f'step {msg.step} and {len(msg.data)} bytes do not fit the size', 'depth render'
+            )
+            return
+        stamp_ns = Time.from_msg(msg.header.stamp).nanoseconds
+        if now_ns == 0:
+            self._skip('the sim clock is not running yet', 'depth render')
+            return
+        if stamp_ns > now_ns + self.period_ns:
+            self._skip(
+                f'stamped {(stamp_ns - now_ns) * 1e-9:.3f} s ahead of the sim clock',
+                'depth render',
+            )
+            return
+        if self.last_published_ns is not None and stamp_ns < self.last_published_ns:
+            self.get_logger().debug(
+                f'{self.role}: dropping a depth render older than the last colour published',
+                throttle_duration_sec=LOG_THROTTLE_S,
+            )
+            return
+        self.pending_depth = msg
+        self.publish_paired_depth()
+
+    def publish_paired_depth(self):
+        """Publish the pending depth render once its colour render has been published."""
+        if self.pending_depth is None or self.last_published_ns is None:
+            return
+        msg = self.pending_depth
+        stamp_ns = Time.from_msg(msg.header.stamp).nanoseconds
+        if stamp_ns > self.last_published_ns:
+            return  # its colour render has not arrived yet
+        self.pending_depth = None
+        if stamp_ns < self.last_published_ns:
+            return  # its colour render was thinned or skipped
+        dtype = np.dtype('>f4' if msg.is_bigendian else '<f4')
+        try:
+            render_m = np.frombuffer(msg.data, dtype=dtype).reshape(msg.height, msg.width)
+        except ValueError as error:
+            self._skip(f'cannot read the buffer: {error}', 'depth render')
+            return
+        try:
+            png = depth.encode(depth.to_millimetres(depth.warp(render_m, self.depth_maps)))
+        except cameras_file.CameraError as error:
+            self.get_logger().error(str(error), throttle_duration_sec=LOG_THROTTLE_S)
+            return
+        compressed = CompressedImage(format=depth.FORMAT, data=png)
+        compressed.header.stamp = msg.header.stamp
+        compressed.header.frame_id = self.frame_id
+        self.depth_pub.publish(compressed)
 
 
 def main(args=None):
