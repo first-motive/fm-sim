@@ -2,17 +2,23 @@
 
 Each default is checked against the file or model its target overrides, so the
 app never shows a value the run does not start with, and no tunable names a
-parameter the launch owns.
+parameter the launch owns: neither one ``params.GUARDED_PARAMS`` reserves nor
+one the launch that starts the tunable's node guards.
 """
 
+import importlib.util
 import json
 import re
+import tempfile
 
 from ament_index_python.packages import get_package_share_directory
 from description_model import needs_openarm
+from fm_sim_backends.params_check import assert_params_file_wins
 from fm_sim_bringup import catalog, params
 from fm_sim_cameras import cameras_file
 from fm_sim_models.models import mjcf_path
+from launch import LaunchContext
+from launch_ros.actions import Node
 import pytest
 import yaml
 
@@ -24,6 +30,14 @@ PLUGINS_FILE = ('fm_sim_backends', 'config/mujoco_plugins.yaml')
 SERVO_FILE = ('fm_control', 'config/openarm/servo_sim.yaml')
 # The sim_camera node's own default for a param no file sets.
 CAMERA_DEFAULTS = {'jpeg_quality': 90, 'depth_sensor': False}
+# The launches that start a node an fm-sim tunable targets, and guard it.
+ENGINE_LAUNCH = ('fm_sim_backends', 'launch/mujoco.launch.py')
+SERVO_LAUNCH = ('fm_control', 'launch/openarm_sim_servo.launch.py')
+# Just the right_arm chain the servo launch checks a passed description for.
+SERVO_CHAIN_URDF = (
+    '<robot name="probe"><link name="openarm_body_link0"/>'
+    '<link name="openarm_right_grasp_frame"/></robot>'
+)
 
 
 def _tunables(kind, name):
@@ -130,6 +144,80 @@ def test_no_tunable_names_what_the_launch_owns(kind, name):
         target = tunable['target']
         if target['kind'] == 'ros_param':
             assert not params.guarded(target['node'], target['param'])
+
+
+def _launch_module(package, path):
+    """Load the launch file ``path`` in ``package``'s share as a module."""
+    spec = importlib.util.spec_from_file_location(
+        path.replace('/', '_').removesuffix('.py').replace('.', '_'),
+        f'{get_package_share_directory(package)}/{path}',
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _ros_param_tunables(kind, name, node):
+    """``{param: tunable}`` for the tunables of entry ``name`` that target ``node``."""
+    return {
+        tunable['target']['param']: tunable
+        for tunable in _tunables(kind, name)[1].values()
+        if tunable['target']['kind'] == 'ros_param' and tunable['target']['node'] == node
+    }
+
+
+def _covers(guard, param):
+    """Whether the nested ``guard`` holds ``param`` (dotted) or a key above it."""
+    for segment in param.split('.'):
+        if not isinstance(guard, dict):
+            return True
+        if segment not in guard:
+            return False
+        guard = guard[segment]
+    return True
+
+
+def test_the_engine_launch_guards_no_engine_tunable():
+    engine = _launch_module(*ENGINE_LAUNCH)
+    plugins_file = f'{get_package_share_directory(PLUGINS_FILE[0])}/{PLUGINS_FILE[1]}'
+    guards = engine._guards('', plugins_file)
+    tunables = _ros_param_tunables('backends', 'mujoco', engine.HARDWARE_NODE)
+    assert tunables
+    for param in tunables:
+        assert not _covers(guards[engine.HARDWARE_NODE], param), param
+
+
+def test_a_params_file_wins_for_every_servo_tunable(monkeypatch, tmp_path):
+    """Each servo tunable, set in a params file, resolves through rcl to the file's value.
+
+    Judged on the Node the servo launch (fm-robot) builds, so the check follows
+    whatever its guard file holds, not a copy of its keys here.
+    """
+    tunables = _ros_param_tunables('robots', 'openarm', '/servo_node')
+    assert tunables
+    # A step off each default, so a value that resolves to it came from the file.
+    expected = {param: tunable['default'] + tunable['step'] for param, tunable in tunables.items()}
+    document = {}
+    for param, value in expected.items():
+        *parents, leaf = param.split('.')
+        level = document
+        for segment in parents:
+            level = level.setdefault(segment, {})
+        level[leaf] = value
+    params_file = tmp_path / 'params.yaml'
+    params_file.write_text(yaml.safe_dump({'/servo_node': {'ros__parameters': document}}))
+    # The launch refuses to start unless ROS discovery is host-local.
+    monkeypatch.setenv('ROS_AUTOMATIC_DISCOVERY_RANGE', 'LOCALHOST')
+    # The launch writes its guard file to the temp dir; keep it in this test's.
+    monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path))
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'sim_only': 'true', 'command_type': 'joint_jog', 'names': 'openarm',
+        'robot_description': SERVO_CHAIN_URDF, 'params_file': str(params_file),
+    })
+    actions = _launch_module(*SERVO_LAUNCH)._launch_setup(context)
+    (servo,) = [action for action in actions if isinstance(action, Node)]
+    assert_params_file_wins(servo, context, expected)
 
 
 def test_the_camera_rate_never_exceeds_what_is_rendered():
