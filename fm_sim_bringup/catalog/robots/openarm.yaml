@@ -367,9 +367,9 @@ params:
     description: End-effector turn rate at a full-scale twist command.
     type: float
     default: 0.8
-    min: 0.1
+    min: 0.05
     max: 2.0
-    step: 0.1
+    step: 0.05
     unit: rad/s
     advanced: true
     target:
