@@ -1,6 +1,6 @@
 """The fisheye camera model: the render that covers it, and the warp."""
 
-from conftest import OPENARM_CAMERAS
+from conftest import AXOL_CAMERAS, OPENARM_CAMERAS
 import cv2
 from fm_sim_cameras import cameras_file, fisheye
 import numpy as np
@@ -15,10 +15,26 @@ def chest():
 def test_warp_refuses_a_model_it_cannot_invert():
     intrinsics = dict(
         cameras_file.load(OPENARM_CAMERAS)['chest']['intrinsics'],
-        distortion_model='plumb_bob', distortion=[0.0] * 5,
+        distortion_model='plumb_bob', distortion=[0.1, 0.0, 0.0, 0.0, 0.0],
     )
-    with pytest.raises(cameras_file.CameraError, match="'plumb_bob' cannot be rendered"):
+    with pytest.raises(cameras_file.CameraError, match="'plumb_bob' .* cannot be rendered"):
         fisheye.from_intrinsics(intrinsics)
+
+
+def test_a_rectified_pinhole_warps_onto_its_render_pixel_for_pixel():
+    head = fisheye.from_intrinsics(cameras_file.load(AXOL_CAMERAS)['head']['intrinsics'])
+    render = fisheye.render_camera(head)
+    assert (render.width, render.height) == (head.width, head.height)
+    map_x, map_y = fisheye.warp_maps(head, render)
+    # No black corners, and each real pixel reads within a pixel of its own place:
+    # the render differs only by its square pixels and centred principal point.
+    assert np.all(map_x >= 0) and np.all(map_y >= 0)
+    v, u = np.mgrid[0:head.height, 0:head.width]
+    assert np.max(np.abs(map_x - u)) < 1.0 and np.max(np.abs(map_y - v)) < 1.0
+    # Every real ray is the pinhole's: (u - cx) / fx, with no distortion.
+    x, y = fisheye.rays(head, [0.0, head.width - 1.0], [0.0, head.height - 1.0])
+    assert x == pytest.approx([-head.cx / head.fx, (head.width - 1 - head.cx) / head.fx])
+    assert y == pytest.approx([-head.cy / head.fy, (head.height - 1 - head.cy) / head.fy])
 
 
 def test_render_reaches_the_edge_midpoints(chest):

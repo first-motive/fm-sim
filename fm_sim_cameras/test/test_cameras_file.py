@@ -2,7 +2,7 @@
 
 import copy
 
-from conftest import CHEST_D, CHEST_K, OPENARM_CAMERAS
+from conftest import AXOL_CAMERAS, CHEST_D, CHEST_K, OPENARM_CAMERAS
 from fm_sim_cameras import cameras_file
 from fm_sim_cameras.camera_info import camera_info
 import pytest
@@ -38,12 +38,32 @@ def test_openarm_cameras_carry_the_real_chest_intrinsics():
         assert list(info.p) == [*CHEST_K[:3], 0.0, *CHEST_K[3:6], 0.0, *CHEST_K[6:], 0.0]
 
 
+def test_axol_cameras_are_rectified_zeds_on_the_urdf_frames():
+    cameras = cameras_file.load(AXOL_CAMERAS)
+    assert {role: camera['frame'] for role, camera in cameras.items()} == {
+        'head': 'head_camera_left_optical',
+        'wrist_left': 'left_wrist_camera_optical',
+        'wrist_right': 'right_wrist_camera_optical',
+    }
+    # Depth from the stereo head only; the wrists are mono.
+    assert {role: camera['depth_sensor'] for role, camera in cameras.items()} == {
+        'head': True, 'wrist_left': False, 'wrist_right': False,
+    }
+    for camera in cameras.values():
+        info = camera_info(camera['intrinsics'])
+        assert info.distortion_model == 'plumb_bob'
+        assert list(info.d) == [0.0] * 5
+        assert (info.width, info.height) == (1920, 1080)
+        assert list(info.k) == [733.0, 0.0, 959.5, 0.0, 733.0, 539.5, 0.0, 0.0, 1.0]
+
+
 def test_check_returns_plain_normalised_data():
     data = _raw()
     data['cameras']['chest']['rate_hz'] = 10
     chest = cameras_file.check(data)['chest']
     assert chest['rate_hz'] == 10.0 and isinstance(chest['rate_hz'], float)
     assert chest['allow_large_image'] is False
+    assert chest['depth_sensor'] is False
     assert isinstance(chest['intrinsics']['fx'], float)
 
 
@@ -67,13 +87,14 @@ def test_a_large_image_needs_allow_large_image():
 
 
 @pytest.mark.parametrize('change, message', [
-    (lambda d: d['cameras'].update(head=d['cameras']['chest']), "unknown camera role 'head'"),
+    (lambda d: d['cameras'].update(tail=d['cameras']['chest']), "unknown camera role 'tail'"),
     (lambda d: d['cameras'].update({'../x': d['cameras']['chest']}), 'unknown camera role'),
     (lambda d: d['cameras']['chest'].update(frame='../x'), 'not a frame name'),
     (lambda d: d['cameras']['chest'].update(rate_hz=0), 'rate_hz must be a positive'),
     (lambda d: d['cameras']['chest'].update(rate_hz=True), 'rate_hz must be a positive'),
     (lambda d: d['cameras']['chest'].update(rate_hz=float('inf')), 'rate_hz must be a positive'),
     (lambda d: d['cameras']['chest'].update(allow_large_image='yes'), 'true or false'),
+    (lambda d: d['cameras']['chest'].update(depth_sensor=1), 'depth_sensor must be true'),
     (lambda d: d['cameras']['chest'].pop('intrinsics'), 'intrinsics must be a mapping'),
     (lambda d: d['cameras']['chest']['intrinsics'].update(distortion_model='rational'),
      "unknown distortion_model 'rational'"),
@@ -97,5 +118,6 @@ def test_load_refuses_a_bad_cameras_file(tmp_path, change, message):
 def test_topics_follow_the_role_and_refuse_unknown_ones():
     assert cameras_file.image_topic('wrist_right') == '/cam_wrist_right/image_raw/compressed'
     assert cameras_file.info_topic('chest') == '/cam_chest/camera_info'
+    assert cameras_file.depth_sensor_topic('head') == '/cam_head/depth_sensor/compressed'
     with pytest.raises(cameras_file.CameraError):
-        cameras_file.image_topic('head')
+        cameras_file.image_topic('tail')

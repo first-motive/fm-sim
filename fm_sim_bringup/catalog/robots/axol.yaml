@@ -21,6 +21,10 @@ mesh_roots:
 controllers_file:
   package: fm_sim_bringup
   path: config/axol/axol.controllers.yaml
+# Camera frames and nominal ZED intrinsics, for the backends that render cameras.
+cameras_file:
+  package: fm_sim_bringup
+  path: config/axol/cameras.yaml
 controller_roles:
   broadcasters: [joint_state_broadcaster]
   arm_trajectory: [axol_left_jtc, axol_right_jtc]
@@ -46,3 +50,102 @@ params:
       kind: ros_param
       node: /controller_manager
       param: update_rate
+  head_camera_rate:
+    label: Head camera rate
+    description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_head
+      param: rate_hz
+  head_jpeg_quality:
+    label: Head JPEG quality
+    type: int
+    default: 90
+    min: 10
+    max: 100
+    step: 5
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_head
+      param: jpeg_quality
+  wrist_left_camera_rate:
+    label: Left wrist camera rate
+    description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_left
+      param: rate_hz
+  wrist_left_jpeg_quality:
+    label: Left wrist JPEG quality
+    type: int
+    default: 90
+    min: 10
+    max: 100
+    step: 5
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_left
+      param: jpeg_quality
+  wrist_right_camera_rate:
+    label: Right wrist camera rate
+    description: How often the camera publishes, at most. The engine renders 10 Hz (backend camera_render_rate) and the bridge carries 10 Hz, so the cameras file's 15 runs at 10.
+    type: float
+    default: 10.0
+    min: 1.0
+    max: 10.0
+    step: 1.0
+    unit: Hz
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_right
+      param: rate_hz
+  wrist_right_jpeg_quality:
+    label: Right wrist JPEG quality
+    type: int
+    default: 90
+    min: 10
+    max: 100
+    step: 5
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_wrist_right
+      param: jpeg_quality
+  head_depth_sensor:
+    label: Head depth sensor
+    description: Publish /cam_head/depth_sensor/compressed, the head camera's depth as a RealSense D435-like sensor reports it (noise growing with depth squared, dropout at edges and out of range), drawn from the run's seed. On by default, as the real ZED X Mini publishes depth.
+    type: bool
+    default: true
+    advanced: true
+    backends:
+    - mujoco
+    target:
+      kind: ros_param
+      node: /sim_camera_head
+      param: depth_sensor

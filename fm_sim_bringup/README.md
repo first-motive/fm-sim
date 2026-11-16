@@ -162,7 +162,7 @@ only rclpy and launch_ros). `test/test_run_params.py` uses them on this launch.
 |-------|----------|
 | `mujoco` | Object pose and camera render rates of the MuJoCo plugins (advanced) |
 | `so101` | Control rate (mujoco), each JTC's end-velocity flag, and each joint's damping and actuator force limit in the MJCF (all advanced) |
-| `axol` | Control rate (mujoco, advanced) |
+| `axol` | Control rate (mujoco, advanced), each camera's rate (basic) and JPEG quality, and the head depth sensor (on by default; both advanced; all mujoco) |
 | `panda` | Control rate (mujoco), each JTC's end-velocity flag, and the hand servo's stiffness and force limit in the MJCF (all advanced) |
 | `openarm` | Control rate, each arm JTC's end-velocity flag, each camera's rate (at most the 10 Hz the engine renders and the bridge carries) and JPEG quality, each finger's stiffness and force limit (mujoco for all but the JTC flags; camera rates basic), and MoveIt Servo's joint speed (basic) and linear and rotational speeds for the `servo` launch role, on every backend, used only by a controller that activates `servo` |
 | `can_on_table` | Can mass, friction and timeout (basic); can size (no taller than it is, since it spawns at a fixed height on the paper), spawn ranges, and the success tolerance, hold and at-rest speed, bounded so a success is still a can standing placed on the paper (advanced) |
@@ -264,32 +264,44 @@ how the textures are drawn.
 ## Cameras
 
 A robot entry's optional `cameras_file` lists its cameras by role (`chest`,
-`waist`, `wrist_right`, `wrist_left`; any other role is refused): each role's optical frame in the
-robot description, its `rate_hz` and the real camera's intrinsics. OpenArm's is
+`waist`, `wrist_right`, `wrist_left`, `head`; any other role is refused): each role's optical frame in the
+robot description, its `rate_hz`, the real camera's intrinsics and, optionally,
+`depth_sensor: true` to publish its simulated depth sensor by default. OpenArm's is
 [`config/openarm/cameras.yaml`](config/openarm/cameras.yaml): the chest fisheye's
 calibration, copied from fm-skills `openarm_v2_skills_config/config/camera_chest.yaml`
 (the waist and wrist cameras have none of their own, and stand in with the same
 numbers, as fm-skills does for the right wrist).
 
+Axol's is [`config/axol/cameras.yaml`](config/axol/cameras.yaml): `head` on the
+ZED X Mini's left lens (`head_camera_left_optical`), `wrist_left` and
+`wrist_right` on the ZED X One GS wrist cameras (`<side>_wrist_camera_optical`),
+the optical links of Almond's `axol_ox_cart.urdf` under their own names. The real
+ZEDs publish rectified images, so each is a pinhole (`plumb_bob`, every coefficient
+zero) at HD1080 with nominal 2.2 mm lens intrinsics, until the robot's own
+`camera_info` replaces them. The head carries the depth sensor, on by default
+(`/cam_head/depth_sensor/compressed`, the colour frame's stamp); the mono wrists
+carry none.
+
 On MuJoCo, `run.launch.py` puts every role into the generated world and starts
 one `fm_sim_cameras` `sim_camera` node per role. Simulators render pinhole
-images and the cameras are fisheyes, so each MJCF camera is a pinhole wide
-enough for its fisheye's edge midpoints (`fisheye.render_camera`), mounted where
+images and the OpenArm cameras are fisheyes, so each MJCF camera is a pinhole wide
+enough for its fisheye's edge midpoints (`fisheye.render_camera`; a rectified
+camera renders at its own size), mounted where
 the description puts the optical frame: `fm_sim_cameras.mount` walks the frame's
 fixed joints up to the nearest link the MJCF also has as a body (each camera
 rides the description link of its name: `chest_cam`, `waist_cam`,
-`right_wrist_cam`, `left_wrist_cam`), or to the description's root (a world camera). The engine's
+`right_wrist_cam`, `left_wrist_cam`; each Axol camera its optical link itself), or to the description's root (a world camera). The engine's
 CameraPlugin renders each at 10 Hz of sim time (mujoco_ros2_control 0.1.2's behaviour; `test_camera_launch.py`
-checks it live); `sim_camera` warps the render into the real fisheye image,
+checks it live); `sim_camera` warps the render into the real camera's image,
 JPEG-compresses it, warps the depth render through the same maps (nearest
 neighbour), and publishes:
 
 | Topic | Type | Contents |
 |-------|------|----------|
 | `/cam_<role>/image_raw/compressed` | `sensor_msgs/CompressedImage` | `jpeg`, the real image size, the render's sim-time stamp, `frame_id` the role's optical frame |
-| `/cam_<role>/camera_info` | `sensor_msgs/CameraInfo` | The real K, `equidistant` distortion (cv2.fisheye's k1..k4), same header |
+| `/cam_<role>/camera_info` | `sensor_msgs/CameraInfo` | The real K and distortion (OpenArm `equidistant`, cv2.fisheye's k1..k4; Axol `plumb_bob`, all zero), same header |
 | `/cam_<role>/depth/compressed` | `sensor_msgs/CompressedImage` | `16UC1; png`: a 16-bit PNG of z-depth along the optical axis in millimetres, 0 where there is none; the colour frame's header. MuJoCo only |
-| `/cam_<role>/depth_sensor/compressed` | `sensor_msgs/CompressedImage` | Only for a role whose `depth_sensor` a run enables (OpenArm's `<role>_depth_sensor` tunables, off by default): the same depth as a RealSense D435-like sensor reports it (`fm_sim_cameras.depth_sensor`: noise growing with z^2, dropout at edges, at random and out of range), same format and header, its noise drawn from the run's `seed`. MuJoCo only |
+| `/cam_<role>/depth_sensor/compressed` | `sensor_msgs/CompressedImage` | Only for a role whose `depth_sensor` is on: the cameras file's value (Axol's `head`), unless a run sets it (the `<role>_depth_sensor` tunables): the same depth as a RealSense D435-like sensor reports it (`fm_sim_cameras.depth_sensor`: noise growing with z^2, dropout at edges, at random and out of range), same format and header, its noise drawn from the run's `seed`. MuJoCo only |
 
 `sim_camera` publishes at most at the role's `rate_hz`, judged on the stamps; the
 10 Hz render bounds it below that (OpenArm's file says 15). Fisheye pixels whose
@@ -324,7 +336,7 @@ file back to its source). An
 | Kind | Registered here | Fields beyond `name`, `description`, `available`, optional `requires_packages` |
 |------|-----------------|---------------------------------------------------|
 | `backends` | `mujoco`, `gazebo`, `isaac` (by `fm_sim_backends`) | `launch`, `description_args`, optional `launch_args` |
-| `robots` | `openarm`, `so101`, `axol`, `panda` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics; openarm's is `config/openarm/cameras.yaml`), optional `launch_roles` |
+| `robots` | `openarm`, `so101`, `axol`, `panda` (each `supported_backends: [mujoco, gazebo, isaac]`) | `description_file`, `description_args`, `mjcf`, `controllers_file`, `controller_roles`, `robot_profile`, `supported_backends`, optional `mjcf_mount_xyz`, optional `mesh_roots` (mesh URI prefix → share directory, for URIs no package resolves), optional `cameras_file` (per role: optical frame, `rate_hz`, real intrinsics, optional `depth_sensor`; `config/openarm/cameras.yaml` and `config/axol/cameras.yaml`), optional `launch_roles` |
 | `scenarios` | `empty`, `can_on_table` | `objects`, optional `regions` and `success` (see [Scenarios](#scenarios)) |
 | every kind | | optional `params` (see [Run Params](#run-params)) |
 | `controllers` | `idle`, `teleop` | `activate`, `launch`, optional `launch_args` (fixed string arguments for that launch; the loader refuses a name `run.launch.py` sets itself, `catalog.CONTROLLER_LAUNCH_OWNED`, so an entry cannot overwrite `use_sim`, `robot_profile`, `scenario` or `params_file`), optional `family` (groups variants of one controller), optional `scenarios` (the only scenarios it runs on; absent means all), optional `control` (see [Control Descriptor](#control-descriptor)) |
@@ -437,10 +449,10 @@ is the contract for that output.
 |------|--------|
 | `test_catalog.py` | Lookup, unknown and unavailable entries, `requires_packages` (a missing package lists the entry as unavailable and is named when it is refused), schema validation (`robot_profile` a name or `null`, launch role shape, controller `launch_args`), run-owned `launch_args` names refused, `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
 | `test_tabletop_scenarios.py` | The three tabletop entries share one layout; the named object is the success object; target at its resting height; worst-case spawns never overlap, start on the paper or as a success, and stay reachable and on the table; colours clearly apart. `tabletop_tags` is `tabletop_can` plus its boards, which lie flat at the paper's height, stay on the table and apart, keep clear of the paper, every worst-case spawn and the arm's reach, are published at their yaml poses, and are refused by Gazebo and Isaac |
-| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, the controller launch's arguments, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, and — with the mujoco binding — every camera in the compiled world at the description's camera frames at a random arm pose. The OpenArm rows skip without its private description |
+| `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, the controller launch's arguments, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, both cameras files shipped, and — with the mujoco binding — every OpenArm and Axol camera in the compiled world at the description's camera frames at a random arm pose (Axol's on its optical links, at the real image size). The OpenArm rows skip without its private description |
 | `test_params.py` | Tunable declarations the loader refuses (default out of bounds or of the wrong type, `min` above `max`, an unknown target kind, a relative or wildcard node, a guarded param, an `mjcf` target without `backends`, an entry path naming nothing or not holding the default) and the shared value cases in `param_cases.json` |
 | `test_run_params.py` | Overrides through the launch: an entry override changes the generated world (can mass), an override the entry would refuse is refused, a description override changes the compiled MJCF (joint damping) and a xacro arg; through rcl, the params file beats the scenario node's own parameters and the controllers file, and the guard keeps what the launch owns |
-| `test_entry_params.py` | fm-sim's own tunables: every default is what the node, file or compiled model holds (OpenArm's MJCF ones skip without its description), none names what the launch owns, and overrides reach the world through the launch |
+| `test_entry_params.py` | fm-sim's own tunables: every default is what the node, file or compiled model holds (OpenArm's MJCF ones skip without its description), no camera rate above the engine's render rate on either camera robot, none names what the launch owns, and overrides reach the world through the launch |
 | `test_openarm_entry.py` | The OpenArm entry's description against its MJCF, built as `run.launch.py` builds them: joints, limits, prismatic fingers and actuators; a position servo on every `ros2_control` joint; the hand and camera frames at random poses; a clean spawn; the fingers' travel; the right hand closing on the `can_on_table` can between its pads and holding it, still and while the elbow lifts the hand. Skips without the private description |
 | `test_openarm_hand.py` | fm-robot's `openarm.sim.urdf.xacro` (loader hand) against `fm_sim_models`' `openarm` model, which the entry ran before it moved to the Anvil description; both are retired once the Anvil model passes a live pick in sim |
 | `test_run_launch_roles.py` | `run.launch.py`'s setup with SO-101 given OpenArm's `servo` role (SO-101 is public, so this runs in every image) and a controller that activates it: Servo waits on the active spawner and gets the run's description and `sim_only:=true`; a failed spawner shuts the run down; a missing launch file fails at setup; a controller's `launch_args` reach its launch, and every name the launch sets is refused in them |

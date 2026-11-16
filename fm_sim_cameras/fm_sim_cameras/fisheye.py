@@ -5,6 +5,10 @@ equidistant model). A sim camera therefore renders a wider pinhole view, the
 ``render_camera``, and ``warp_maps`` resamples it into the real camera's image, so
 every pixel looks along the ray the real camera's intrinsics give it.
 
+A rectified camera (the Axol's ZEDs) is a ``plumb_bob`` with no distortion: the same
+warp then only moves the real principal point and focal lengths onto the render's
+centred, square-pixel ones.
+
 The render follows the MuJoCo camera convention mujoco_ros2_control's CameraPlugin
 uses: square pixels, the principal point at the image centre, and a focal length
 of ``height / 2 / tan(fovy / 2)``. The render covers the rays through the
@@ -19,14 +23,23 @@ from fm_sim_cameras.cameras_file import CameraError
 import numpy as np
 
 DISTORTION_MODEL = 'equidistant'
+# A rectified image: camera_info's plumb_bob with every coefficient zero.
+RECTIFIED_MODEL = 'plumb_bob'
 # Newton steps that invert the fisheye model; it converges in a handful.
 _NEWTON_STEPS = 30
 _NEWTON_TOLERANCE = 1e-9
+# render_camera aims the outermost rays at the render's edge pixel centres; float
+# rounding can land them a hair outside, which must not blacken the edge.
+_EDGE_TOLERANCE_PX = 1e-6
 
 
 @dataclass(frozen=True)
 class Fisheye:
-    """Real intrinsics: image size (px), K (px) and cv2.fisheye's k1..k4."""
+    """Real intrinsics: image size (px), K (px) and cv2.fisheye's k1..k4.
+
+    ``distortion_model`` ``RECTIFIED_MODEL`` is a rectified pinhole, whose
+    ``distortion`` is all zero.
+    """
 
     width: int
     height: int
@@ -35,6 +48,7 @@ class Fisheye:
     cx: float
     cy: float
     distortion: tuple
+    distortion_model: str = DISTORTION_MODEL
 
     @property
     def k(self):
@@ -57,18 +71,20 @@ class Pinhole:
 def from_intrinsics(intrinsics):
     """Return the ``Fisheye`` of a camera's checked intrinsics (``cameras_file.check``).
 
-    Refuses any distortion model but equidistant: it is the only one the warp
-    inverts.
+    Refuses any model but equidistant and a rectified (all-zero) plumb_bob: they
+    are the ones the warp inverts.
     """
     model = intrinsics['distortion_model']
-    if model != DISTORTION_MODEL:
+    rectified = model == RECTIFIED_MODEL and not any(intrinsics['distortion'])
+    if model != DISTORTION_MODEL and not rectified:
         raise CameraError(
-            f'distortion_model {model!r} cannot be rendered by the fisheye warp; '
-            f'only {DISTORTION_MODEL!r}'
+            f'distortion_model {model!r} with distortion {intrinsics["distortion"]} cannot '
+            f'be rendered by the fisheye warp; only {DISTORTION_MODEL!r} or a rectified '
+            f'{RECTIFIED_MODEL!r} (every coefficient 0)'
         )
     return Fisheye(
         intrinsics['width'], intrinsics['height'], intrinsics['fx'], intrinsics['fy'],
-        intrinsics['cx'], intrinsics['cy'], tuple(intrinsics['distortion']),
+        intrinsics['cx'], intrinsics['cy'], tuple(intrinsics['distortion']), model,
     )
 
 
@@ -96,6 +112,8 @@ def rays(fisheye, u, v):
     """Return the pinhole-plane ray ``(x, y)`` of fisheye pixels ``(u, v)``; NaN if none."""
     xd = (np.asarray(u, dtype=float) - fisheye.cx) / fisheye.fx
     yd = (np.asarray(v, dtype=float) - fisheye.cy) / fisheye.fy
+    if fisheye.distortion_model == RECTIFIED_MODEL:
+        return xd, yd
     theta_d = np.hypot(xd, yd)
     theta = _theta(fisheye, theta_d)
     with np.errstate(divide='ignore', invalid='ignore'):
@@ -141,11 +159,12 @@ def warp_maps(fisheye, pinhole):
     # coordinates: half a pixel less in OpenCV's pixel-centre ones.
     map_x = focal * x + pinhole.width / 2.0 - 0.5
     map_y = focal * y + pinhole.height / 2.0 - 0.5
+    last_x, last_y = pinhole.width - 1, pinhole.height - 1
     inside = (
         np.isfinite(map_x) & np.isfinite(map_y)
-        & (map_x >= 0) & (map_x <= pinhole.width - 1)
-        & (map_y >= 0) & (map_y <= pinhole.height - 1)
+        & (map_x >= -_EDGE_TOLERANCE_PX) & (map_x <= last_x + _EDGE_TOLERANCE_PX)
+        & (map_y >= -_EDGE_TOLERANCE_PX) & (map_y <= last_y + _EDGE_TOLERANCE_PX)
     )
-    map_x = np.where(inside, map_x, -1.0).astype(np.float32)
-    map_y = np.where(inside, map_y, -1.0).astype(np.float32)
+    map_x = np.where(inside, np.clip(map_x, 0, last_x), -1.0).astype(np.float32)
+    map_y = np.where(inside, np.clip(map_y, 0, last_y), -1.0).astype(np.float32)
     return map_x, map_y
