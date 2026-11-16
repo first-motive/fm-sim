@@ -11,10 +11,10 @@ The container mounts that workspace at ``/ws``; natively it stays at the checkou
 root. So paths are stored relative to ``external/`` and resolved against the
 workspace root at call time — ``/ws/external/...`` in the container,
 ``<checkout>/external/...`` on the Mac — instead of hardcoding the container mount.
-Axol is the exception: Almond Bot ships no upstream MJCF, so its model is authored
-and committed into this package's share (see ``models/axol/``), resolved from the
-share dir. Keys are the robot keys: ``openarm_anvil``, ``openarm``,
-``openarm_pinch``, ``so101``, ``g1_d``, ``axol``, ``panda``.
+Almond Bot ships no Axol MJCF, so ``axol`` is compiled at run time from the ox_cart
+URDF fm-robot's fm_description installs (see ``axol``). Keys are the robot keys:
+``openarm_anvil``, ``openarm``, ``openarm_pinch``, ``so101``, ``g1_d``, ``axol``,
+``panda``.
 
 ``openarm_anvil`` is built at run time from the private Anvil description of the
 OpenArm, where it is installed (see ``openarm_anvil``); it is what the ``openarm``
@@ -26,7 +26,7 @@ unchanged. ``panda`` is mujoco_menagerie's Franka Panda renamed to fm-robot's
 
 import os
 
-from fm_sim_models import openarm_anvil, openarm_loader, panda
+from fm_sim_models import axol, openarm_anvil, openarm_loader, panda
 
 
 def _workspace_root():
@@ -59,26 +59,6 @@ def _vendored(*parts):
     return os.path.join(_workspace_root(), 'external', *parts)
 
 
-def _axol_mjcf():
-    """Resolve Axol's committed MJCF (unlike the vendored models, it ships in-repo).
-
-    Called lazily (only when Axol is requested), not at import, so this module imports
-    with no ROS dependency. In a built workspace the model lives in the ament share;
-    in a ROS-free context (the native macOS sim-core smoke runs the sources straight
-    off ``PYTHONPATH``, with no ament index) it lives beside this package's source. Try
-    the share first, fall back to the source tree.
-    """
-    try:
-        from ament_index_python.packages import get_package_share_directory
-
-        base = get_package_share_directory('fm_sim_models')
-    except Exception:
-        # No ament index (or package not installed): resolve relative to this file,
-        # where models/ sits one level up from the inner package dir.
-        base = os.path.join(os.path.dirname(__file__), '..')
-    return os.path.join(base, 'models', 'axol', 'axol.xml')
-
-
 # robot key -> zero-arg callable returning the MJCF path the mujoco backend loads.
 # Callables (not strings) so the workspace root is resolved at call time — the same
 # registry works in the container (/ws) and natively (the checkout root).
@@ -95,9 +75,9 @@ _MJCF = {
     # Bipedal g1_29dof: right-arm joints match, but its legs differ from the wheeled
     # G1-D, so mujoco is wired-not-yet-validated (pending a wheeled-G1 MJCF).
     'g1_d': lambda: _vendored('unitree_mujoco', 'unitree_robots', 'g1', 'g1_29dof.xml'),
-    # Authored + committed into this package's share; joint names match the
-    # description + ros2_control exactly. Resolved lazily (see _axol_mjcf).
-    'axol': _axol_mjcf,
+    # Compiled from fm_description's ox_cart URDF with the fingers and the cart; raises
+    # naming fm_description where it is not installed (see axol).
+    'axol': axol.mjcf_path,
     # mujoco_menagerie's Franka Panda (arm + hand), its joints renamed to fm-robot's
     # fer_* names and its actuators made position servos (see panda).
     'panda': lambda: panda.mjcf_path(_vendored('mujoco_menagerie')),

@@ -1,25 +1,31 @@
-# Catalog entry (fm_sim.robots): the bimanual Almond Bot Axol in fm-robot's axol
-# names. Its grippers are fixed, so it has no gripper role. No robot profile
+# Catalog entry (fm_sim.robots): the bimanual Almond Bot Axol on its Ox cart, in
+# fm-robot's axol names. As on the OpenArm, each arm's forward position controller
+# commands its seven joints and then the finger, so there is no gripper controller:
+# the finger moves only while the forward controller is active. No robot profile
 # describes it yet, so a controller with a launch of its own is refused on it; idle
 # and teleop run.
 name: axol
-description: Almond Bot Axol, two 7-DOF arms with fixed grippers (fm-robot axol names)
+description: Almond Bot Axol on the Ox cart, two 7-DOF arms with grippers (fm-robot axol names)
 available: true
 description_file:
   package: fm_control
   path: urdf/axol.sim.urdf.xacro
 description_args: {}
+# fm_sim_models compiles the MJCF from fm_description's axol_ox_cart.urdf. Its origin
+# is the description's root (world), so it mounts at the default [0, 0, 0].
 mjcf: axol
-# The vendored URDF keeps its upstream package://assembly/ mesh URIs; fm-robot
-# vendors those meshes into fm_description's axol_description.
+# The vendored URDF names its meshes relative to its own file; the generators write
+# the expanded description elsewhere, so they resolve them here.
 mesh_roots:
-  - {prefix: 'package://assembly/', package: fm_description, path: axol_description}
+  - {prefix: meshes/, package: fm_description, path: axol_description/meshes}
 controllers_file:
   package: fm_sim_bringup
   path: config/axol/axol.controllers.yaml
 controller_roles:
   broadcasters: [joint_state_broadcaster]
-  arm_trajectory: [axol_left_arm_controller, axol_right_arm_controller]
+  arm_trajectory: [axol_left_jtc, axol_right_jtc]
+  arm_forward_position:
+    [axol_left_forward_position_controller, axol_right_forward_position_controller]
 robot_profile: null
 supported_backends: [mujoco, gazebo, isaac]
 # Run tunables (fm_sim_bringup.params).

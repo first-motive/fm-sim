@@ -36,15 +36,16 @@ mjcf_path("unknown")   # -> RuntimeError listing the registered keys
 | `openarm_pinch` | `openarm_mujoco/v2/openarm_bimanual.xml` | Stock v2.0 pinch gripper; matches `hand:=pinch` |
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match the system |
 | `g1_d` | `unitree_mujoco/unitree_robots/g1/g1_29dof.xml` | Bipedal model — right-arm joints match; legs differ from the wheeled G1-D, so mujoco is wired-not-yet-validated |
-| `axol` | `models/axol/axol.xml` (this package's share) | Almond Bot Axol, bimanual 2×7-DOF — mujoco validated; mock validated, real CAN deferred |
+| `axol` | Compiled at run time from fm_description's `axol_ox_cart.urdf` (see `axol.py`) | Almond Bot Axol on the Ox cart: two 7-DOF arms and a finger per gripper; matches fm-robot's `axol.sim.urdf.xacro` |
 | `panda` | `mujoco_menagerie/franka_emika_panda/panda.xml` renamed to `fer_*` (see below) | Franka Panda arm + hand; matches fm-robot's `panda.sim.urdf.xacro` |
 
 The vendored paths are the in-container locations under `/ws/external`
-(gitignored on the host, mounted at `/ws` in the dev container). `axol` is the
-exception: it ships no upstream MJCF, so First Motive authored one (compiled from
-`axol.urdf`) and committed it into this package's share at `models/axol/axol.xml`
-(with its meshes). `models.py` resolves it from the package share, not
-`/ws/external`.
+(gitignored on the host, mounted at `/ws` in the dev container). `axol` has no
+upstream MJCF, so `axol.py` compiles one from the ox_cart URDF that fm-robot's
+fm_description vendors. It fixes the cart's lift, and it takes each arm servo's gains
+from the URDF's `<drive>`. It also adds a servo on each `finger_1_joint`, a stiff
+finger mimic, and the implicitfast integrator. An Almond release that fm-robot's pin
+picks up reaches the sim with no change here.
 
 ## Franka Panda Model
 

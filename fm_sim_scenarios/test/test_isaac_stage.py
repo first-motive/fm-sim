@@ -128,7 +128,7 @@ def test_package_paths_must_stay_in_their_share(uri):
         stage.mesh_path(uri, [], lambda p: f'/opt/share/{p}')
 
 
-# Axol's package://assembly/ (no such package) and SO-101's relative assets/.
+# A package:// no package resolves (assembly) and SO-101's relative assets/.
 ROOTS = [('package://assembly/', '/opt/share/fm_description/axol_description'),
          ('assets/', '/opt/share/fm_description/so101_description/assets')]
 

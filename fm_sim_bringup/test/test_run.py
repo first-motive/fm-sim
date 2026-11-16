@@ -129,7 +129,7 @@ def test_resolve_refuses_an_unknown_backend():
 
 
 @pytest.mark.parametrize('robot,controllers', [
-    pytest.param('openarm', 4, marks=needs_openarm), ('so101', 2), ('axol', 2), ('panda', 3),
+    pytest.param('openarm', 4, marks=needs_openarm), ('so101', 2), ('axol', 4), ('panda', 3),
 ])
 def test_idle_loads_every_controller_once(robot, controllers):
     entries = run.resolve('mujoco', robot, 'empty', 'idle')
@@ -141,7 +141,7 @@ def test_idle_loads_every_controller_once(robot, controllers):
 @pytest.mark.parametrize('robot,arm_controllers', [
     pytest.param('openarm', ['follower_l_jtc', 'follower_r_jtc'], marks=needs_openarm),
     ('so101', ['so101_arm_controller']),
-    ('axol', ['axol_left_arm_controller', 'axol_right_arm_controller']),
+    ('axol', ['axol_left_jtc', 'axol_right_jtc']),
     ('panda', ['panda_arm_controller']),
 ])
 def test_teleop_activates_the_arm_trajectory_controllers(robot, arm_controllers):
@@ -340,8 +340,8 @@ def test_stage_backends_get_the_world_and_the_robot_cameras(backend):
 def test_mesh_roots_resolve_to_shares():
     assert run.mesh_roots(catalog.load('robots', 'openarm')) == []
     ((prefix, directory),) = run.mesh_roots(catalog.load('robots', 'axol'))
-    assert prefix == 'package://assembly/'
-    assert directory.endswith('/fm_description/axol_description')
+    assert prefix == 'meshes/'
+    assert directory.endswith('/fm_description/axol_description/meshes')
     ((prefix, directory),) = run.mesh_roots(catalog.load('robots', 'so101'))
     assert prefix == 'assets/'
     assert directory.endswith('/fm_description/so101_description/assets')

@@ -44,7 +44,7 @@ agent, so a run either one starts shows in both.
 |---------|-------|----------------|
 | `fm_sim_core` | ament_python | Headless MuJoCo stepper + `sim_loop` node; physics split from ROS comms for testability |
 | `fm_sim_backends` | ament_python | One launch file per engine (MuJoCo, Gazebo, Isaac), each hosting a `controller_manager` |
-| `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `axol`'s committed MJCF resolves from this package's share |
+| `fm_sim_models` | ament_python | MJCF model registry — single source of truth mapping robot key → MuJoCo model path; vendored models resolve under `/ws/external`, while `openarm_anvil` and `axol` compile from their installed descriptions |
 | `fm_sim_ee_follower` | ament_python | `ee_follower` node: damped-least-squares IK from `/commanded_ee_right` to the right arm's forward position controller, standing in for the loader's IK; ROS-free DLS core |
 | `fm_sim_bringup` | ament_python | `run.launch.py` and the catalog of backends, robots, scenarios and controllers, resolved from the ament index |
 | `fm_sim_scenarios` | ament_python | Backend-neutral scenario logic (seeded spawns, success predicate), the per-backend world generators (MuJoCo, Gazebo, and the Isaac Sim stage spec) and the scenario node serving `/sim/objects`, `/sim/markers`, `/sim/reset`, `/sim/outcome` |
@@ -197,13 +197,12 @@ fm-robot's sim xacro passes the looked-up path as its `mujoco_model` argument.
 | `openarm_pinch` | `openarm_mujoco/v2/openarm_bimanual.xml` | Stock v2.0 pinch gripper; matches `hand:=pinch` |
 | `so101` | `so_arm/Simulation/SO101/so101_new_calib.xml` | Joint names match system |
 | `g1_d` | `unitree_mujoco/.../g1_29dof.xml` | Wired, not yet validated — bipedal legs differ from wheeled G1-D |
-| `axol` | `models/axol/axol.xml` (package share) | Almond Bot Axol, bimanual 2×7-DOF — mujoco validated; real CAN deferred |
+| `axol` | Compiled at run time from fm_description's `axol_ox_cart.urdf` | Almond Bot Axol on the Ox cart, two 7-DOF arms with grippers |
 
 Most models are vendored under `external/` (gitignored on host, mounted at `/ws` in
-the dev container) via `fm-sim.repos`. `axol` is the exception: it has no upstream
-MJCF, so First Motive compiled one from `axol.urdf` and committed it into
-`fm_sim_models`' share at `models/axol/axol.xml`; the registry resolves it from the
-package share rather than `/ws/external`.
+the dev container) via `fm-sim.repos`. `axol` has no upstream MJCF, so
+`fm_sim_models` compiles one at run time from the ox_cart URDF fm-robot's
+fm_description vendors, as it does for `openarm_anvil`.
 
 ## Headless Dev Loop
 

@@ -49,7 +49,12 @@ EXPECTED_INACTIVE = {
         'follower_r_forward_position_controller',
     },
     'so101': {'so101_arm_controller', 'so101_gripper_controller'},
-    'axol': {'axol_left_arm_controller', 'axol_right_arm_controller'},
+    'axol': {
+        'axol_left_jtc',
+        'axol_right_jtc',
+        'axol_left_forward_position_controller',
+        'axol_right_forward_position_controller',
+    },
     'panda': {
         'panda_arm_controller',
         'panda_arm_forward_position_controller',
