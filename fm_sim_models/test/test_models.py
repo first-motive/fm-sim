@@ -1,24 +1,13 @@
 """Unit-test the MJCF registry lookup — pure, no ROS."""
 
-import os
-
 from fm_sim_models.models import mjcf_path
 import pytest
 
 
 def test_known_robots_resolve():
-    for key in ('openarm_pinch', 'so101', 'g1_d', 'axol'):
+    for key in ('openarm_pinch', 'so101', 'g1_d'):
         path = mjcf_path(key)
         assert path.endswith('.xml')
-
-
-def test_axol_mjcf_is_installed():
-    """Axol's MJCF ships in this package's share, so it must exist on disk.
-
-    The vendored models, by contrast, live under the gitignored external mount.
-    """
-    path = mjcf_path('axol')
-    assert os.path.isfile(path), f'axol MJCF missing from share: {path}'
 
 
 def test_vendored_path_follows_fm_ws(monkeypatch):

@@ -41,7 +41,7 @@ repositories:
   external/fm-robot:
     type: git
     url: https://github.com/first-motive/fm-robot.git
-    version: bf06c64955b5aec6b5ec7242013b64a67b6bfb11
+    version: 2c57b3e5f28f9cdb469d8fedd357287831fde367
   external/openarm_description:
     type: git
     url: https://github.com/enactic/openarm_description.git
@@ -58,7 +58,7 @@ repositories:
   external/axol:
     type: git
     url: https://github.com/almond-bot/axol.git
-    version: ca5de52e5938c6bb174782dd5d504f8d6ec07662
+    version: 021eb965551287f30364f6d753e1cbe81e509f25
   external/unitree_ros2:
     type: git
     url: https://github.com/unitreerobotics/unitree_ros2.git

@@ -399,16 +399,19 @@ their `robot_profile` is `null`.
 | Robot | `arm_trajectory` | `gripper` |
 |-------|------------------|-----------|
 | `so101` | `so101_arm_controller` | `so101_gripper_controller` |
-| `axol` | `axol_{left,right}_arm_controller` | none (the grippers are fixed) |
+| `axol` | `axol_{left,right}_jtc` | none (each forward controller carries its finger) |
 | `panda` | `panda_arm_controller` | `panda_gripper_controller` |
 
 All three also have `broadcasters: [joint_state_broadcaster]`. The Panda also has
 `arm_forward_position: [panda_arm_forward_position_controller]`, which claims the
 same joints as its JTC. Its description keeps franka_description's
 `package://franka_description/` meshes, which resolve from that package's share,
-so it needs no `mesh_roots`. The SO-101's and Axol's vendored URDFs
-name meshes no package resolves (the SO-101's relative `assets/`, the Axol's
-`package://assembly/`); each entry's `mesh_roots` maps that prefix to the
+so it needs no `mesh_roots`. The Axol has
+`arm_forward_position: [axol_{left,right}_forward_position_controller]`: each one
+commands its arm's seven joints and then `finger_1_joint`, as on the OpenArm. The
+SO-101's and Axol's vendored URDFs name meshes no package resolves (the SO-101's
+relative `assets/`, the Axol's relative `meshes/`); each entry's `mesh_roots` maps
+that prefix to the
 directory in fm_description's share. The Gazebo and Isaac backends read it.
 
 | Controller | Activates | Launch |
