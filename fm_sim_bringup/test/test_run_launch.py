@@ -7,8 +7,8 @@ initialises); Isaac keeps the description's per-arm systems and needs no Isaac S
 running for the controllers to come up. Needs the MJCF and description externals
 (vcs import fm-sim.repos), topic_based_ros2_control and Mesa's EGL; the engines run
 headless on software GL, Gazebo server-only. A model compiled at run time
-(live_rows.MJCF_COMPILED) also needs the mujoco Python binding: without it that robot's mujoco
-row is skipped, with its reason, rather than launched.
+(live_rows.MJCF_COMPILED) also needs the mujoco Python binding on every backend:
+without it that robot's rows are skipped, with their reason, rather than launched.
 """
 
 import importlib.util

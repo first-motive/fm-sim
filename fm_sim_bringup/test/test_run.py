@@ -609,8 +609,8 @@ def test_resolve_matches_the_shared_combination_cases(monkeypatch, case):
 
 @pytest.mark.parametrize('robot,backend,has_binding,skipped', [
     ('axol', 'mujoco', False, True),
+    ('axol', 'gazebo', False, True),
     ('axol', 'mujoco', True, False),
-    ('axol', 'isaac', False, False),
     ('panda', 'mujoco', False, False),
 ])
 def test_live_rows_skip_only_a_compiled_mjcf_without_the_binding(
