@@ -6,9 +6,12 @@ in one hardware component (one MuJoCo world; the one system gz_ros2_control
 initialises); Isaac keeps the description's per-arm systems and needs no Isaac Sim
 running for the controllers to come up. Needs the MJCF and description externals
 (vcs import fm-sim.repos), topic_based_ros2_control and Mesa's EGL; the engines run
-headless on software GL, Gazebo server-only.
+headless on software GL, Gazebo server-only. A model compiled at run time
+(live_rows.MJCF_COMPILED) also needs the mujoco Python binding: without it that robot's mujoco
+row is skipped, with its reason, rather than launched.
 """
 
+import importlib.util
 import os
 import time
 import unittest
@@ -21,6 +24,8 @@ from launch.actions import ExecuteProcess, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 import launch_testing
 import launch_testing.actions
+import launch_testing.util
+from live_rows import skip_reason
 import pytest
 import rclpy
 
@@ -93,6 +98,14 @@ def generate_test_description(robot, backend):
         get_package_share_directory('fm_sim_bringup'), 'launch', 'run.launch.py'
     )
     stage_clock = [ExecuteProcess(cmd=['python3', '-c', STAGE_CLOCK])] if backend == 'isaac' else []
+    skip = skip_reason(robot, backend, importlib.util.find_spec('mujoco') is not None)
+    if skip:
+        # KeepAliveProc holds the launch open until the test has skipped.
+        return LaunchDescription([
+            launch_testing.util.KeepAliveProc(), launch_testing.actions.ReadyToTest(),
+        ]), {
+            'robot': robot, 'backend': backend, 'skip': skip,
+        }
     # The returned dict is how launch_testing hands the parameters to the test.
     return LaunchDescription([
         *stage_clock,
@@ -106,7 +119,7 @@ def generate_test_description(robot, backend):
             }.items(),
         ),
         launch_testing.actions.ReadyToTest(),
-    ]), {'robot': robot, 'backend': backend}
+    ]), {'robot': robot, 'backend': backend, 'skip': None}
 
 
 def _call(node, client, request):
@@ -119,7 +132,9 @@ def _call(node, client, request):
 
 class TestIdle(unittest.TestCase):
 
-    def test_controllers_reach_their_states(self, robot, backend):
+    def test_controllers_reach_their_states(self, robot, backend, skip):
+        if skip:
+            self.skipTest(skip)
         expected_inactive = EXPECTED_INACTIVE[robot]
         simulators, isaac = EXPECTED_COMPONENTS[robot]
         expected_components = isaac if backend == 'isaac' else simulators

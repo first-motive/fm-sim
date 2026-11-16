@@ -11,6 +11,7 @@ from fm_sim_bringup import catalog, run
 from fm_sim_cameras import cameras_file
 from fm_sim_models.models import mjcf_path
 from fm_sim_scenarios import gazebo_world, isaac_stage, scenario as sc
+from live_rows import skip_reason
 import numpy as np
 import pytest
 import yaml
@@ -604,3 +605,15 @@ def test_resolve_matches_the_shared_combination_cases(monkeypatch, case):
         refusal = None
     assert (refusal is not None) == case['refused']
     assert case.get('reason', '') in (refusal or '')
+
+
+@pytest.mark.parametrize('robot,backend,has_binding,skipped', [
+    ('axol', 'mujoco', False, True),
+    ('axol', 'mujoco', True, False),
+    ('axol', 'isaac', False, False),
+    ('panda', 'mujoco', False, False),
+])
+def test_live_rows_skip_only_a_compiled_mjcf_without_the_binding(
+    robot, backend, has_binding, skipped
+):
+    assert (skip_reason(robot, backend, has_binding) is not None) == skipped
