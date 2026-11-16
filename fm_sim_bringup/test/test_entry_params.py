@@ -29,7 +29,7 @@ PLUGINS_FILE = ('fm_sim_backends', 'config/mujoco_plugins.yaml')
 # The servo role's own file (fm-robot), which the openarm servo tunables default to.
 SERVO_FILE = ('fm_control', 'config/openarm/servo_sim.yaml')
 # The sim_camera node's own default for a param no file sets.
-CAMERA_DEFAULTS = {'jpeg_quality': 90, 'depth_sensor': False}
+CAMERA_DEFAULTS = {'jpeg_quality': 90}
 # The launches that start a node an fm-sim tunable targets, and guard it.
 ENGINE_LAUNCH = ('fm_sim_backends', 'launch/mujoco.launch.py')
 SERVO_LAUNCH = ('fm_control', 'launch/openarm_sim_servo.launch.py')
@@ -85,10 +85,12 @@ def test_ros_param_defaults_are_what_the_nodes_read(kind, name):
                 _share_yaml(*PLUGINS_FILE), '/mujoco_ros2_control_node',
                 'mujoco_plugins.mujoco_cameras.camera_publish_rate',
             )
-            expected = (
-                min(cameras[role][param], render) if param == 'rate_hz'
-                else CAMERA_DEFAULTS[param]
-            )
+            if param == 'rate_hz':
+                expected = min(cameras[role][param], render)
+            elif param == 'depth_sensor':
+                expected = cameras[role].get('depth_sensor', False)
+            else:
+                expected = CAMERA_DEFAULTS[param]
         elif node == '/mujoco_ros2_control_node':
             expected = _node_yaml_value(_share_yaml(*PLUGINS_FILE), node, param)
         elif node == '/servo_node':
@@ -220,12 +222,15 @@ def test_a_params_file_wins_for_every_servo_tunable(monkeypatch, tmp_path):
     assert_params_file_wins(servo, context, expected)
 
 
-def test_the_camera_rate_never_exceeds_what_is_rendered():
+@pytest.mark.parametrize('robot', ['openarm', 'axol'])
+def test_the_camera_rate_never_exceeds_what_is_rendered(robot):
     _, mujoco = _tunables('backends', 'mujoco')
-    _, openarm = _tunables('robots', 'openarm')
+    entry, tunables = _tunables('robots', robot)
     render_max = mujoco['camera_render_rate']['max']
-    for role in cameras_file.ROLES:
-        assert openarm[f'{role}_camera_rate']['max'] <= render_max
+    roles = cameras_file.load(catalog.share_file(entry['cameras_file']))
+    assert roles
+    for role in roles:
+        assert tunables[f'{role}_camera_rate']['max'] <= render_max
 
 
 def test_can_size_bounds_keep_the_spawn_out_of_what_it_stands_on():

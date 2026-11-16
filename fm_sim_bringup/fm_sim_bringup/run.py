@@ -349,8 +349,8 @@ def sim_cameras(backend, robot, robot_description, robot_mjcf):
 
     The cameras are the roles of the robot's ``cameras_file``
     (``cameras_file.load``). Each renders a pinhole view wide enough for its real
-    fisheye (``fisheye.render_camera``; the warp renders equidistant cameras
-    only), mounted where the description puts its optical frame, on the nearest
+    image (``fisheye.render_camera``; the warp renders equidistant and rectified
+    plumb_bob cameras only), mounted where the description puts its optical frame, on the nearest
     body the backend's model shares with the description. Refuses a cameras file
     the loader refuses, a camera the warp cannot render, and a frame that does
     not reach a body through fixed joints.

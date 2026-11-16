@@ -1,0 +1,41 @@
+# Axol sim cameras: per role, the optical frame it renders from, its rate and its
+# intrinsics. Roles give the contract's topics (/cam_<role>/image_raw/compressed,
+# /cam_<role>/camera_info). The frames are the optical links of Almond's
+# axol_ox_cart.urdf (fm_description's axol_description), unprefixed:
+# head_camera_left_optical on head, and <side>_wrist_camera_optical on each
+# <side>_wrist_camera.
+#
+# The real cameras publish rectified images, so each is a pinhole: plumb_bob with
+# every coefficient zero. The head is a ZED X Mini (stereo) whose depth is
+# registered to its left lens; the sim publishes that depth on
+# /cam_head/depth_sensor/compressed (depth_sensor: true), stamped as the colour
+# frame. The wrists are ZED X One GS (mono, global shutter), with no depth sensor.
+#
+# Intrinsics are nominal until the robot's own camera_info is copied in: HD1080
+# (1920x1080, a crop of the 1920x1200 sensor at its 3 um pitch), the 2.2 mm lens
+# both models ship with (f = 2.2 mm / 3 um = 733 px, about 105 x 73 degrees), and
+# the principal point at the image centre.
+zed_hd1080_intrinsics: &zed_hd1080_intrinsics
+  width: 1920
+  height: 1080
+  fx: 733.0
+  fy: 733.0
+  cx: 959.5
+  cy: 539.5
+  distortion_model: plumb_bob
+  distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+cameras:
+  head:
+    frame: head_camera_left_optical
+    rate_hz: 15
+    intrinsics: *zed_hd1080_intrinsics
+    depth_sensor: true
+  wrist_left:
+    frame: left_wrist_camera_optical
+    rate_hz: 15
+    intrinsics: *zed_hd1080_intrinsics
+  wrist_right:
+    frame: right_wrist_camera_optical
+    rate_hz: 15
+    intrinsics: *zed_hd1080_intrinsics

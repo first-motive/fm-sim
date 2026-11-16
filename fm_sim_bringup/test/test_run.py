@@ -354,9 +354,10 @@ def test_mesh_roots_resolve_to_shares():
     assert json.loads(arguments['mesh_roots']) == run.mesh_roots(entries['robot'])
 
 
-def test_openarm_cameras_file_is_shipped():
-    robot = catalog.load('robots', 'openarm')
-    assert os.path.isfile(catalog.share_file(robot['cameras_file']))
+@pytest.mark.parametrize('robot', ['openarm', 'axol'])
+def test_cameras_file_is_shipped(robot):
+    entry = catalog.load('robots', robot)
+    assert os.path.isfile(catalog.share_file(entry['cameras_file']))
 
 
 def test_scenario_node_runs_only_with_objects():
@@ -398,7 +399,7 @@ def test_mujoco_camera_render_is_the_plugin_default_topic():
     assert plugins[key]['camera_publish_rate'] <= 10.0
 
 
-def _openarm_description(entries, world):
+def _description(entries, world):
     import xacro
     robot = entries['robot']
     return xacro.process_file(
@@ -415,7 +416,7 @@ def test_openarm_cameras_mount_on_the_description_camera_links(tmp_path):
     world = run.world_file(entries['backend'], entries['scenario'], 0, str(tmp_path))
     robot_mjcf = mjcf_path(entries['robot']['mjcf'])
     cameras = run.sim_cameras(
-        entries['backend'], entries['robot'], _openarm_description(entries, world), robot_mjcf,
+        entries['backend'], entries['robot'], _description(entries, world), robot_mjcf,
     )
     by_role = {camera.role: camera for camera in cameras}
     assert {role: camera.model.body for role, camera in by_role.items()} == {
@@ -444,7 +445,7 @@ def test_openarm_cameras_mount_on_the_description_camera_links(tmp_path):
 @needs_openarm
 def test_openarm_camera_refused_off_a_shared_body(monkeypatch, tmp_path):
     entries = _entries('mujoco', 'empty', 'openarm')
-    description = _openarm_description(entries, '/unused.xml')
+    description = _description(entries, '/unused.xml')
     monkeypatch.setattr(run.mujoco_world, 'body_names', lambda robot_mjcf: set())
     with pytest.raises(catalog.CatalogError, match='moves with joint'):
         run.sim_cameras(entries['backend'], entries['robot'], description, '/unused.xml')
@@ -457,7 +458,7 @@ def test_openarm_mujoco_cameras_sit_on_the_description_frames(tmp_path):
     mujoco = pytest.importorskip('mujoco', reason='mujoco Python binding (requirements-sim.txt)')
     entries = _entries('mujoco', 'can_on_table', 'openarm')
     world = run.world_file(entries['backend'], entries['scenario'], 4, str(tmp_path))
-    description = _openarm_description(entries, world)
+    description = _description(entries, world)
     robot_mjcf = mjcf_path(entries['robot']['mjcf'])
     cameras = run.sim_cameras(entries['backend'], entries['robot'], description, robot_mjcf)
     run.world_model(
@@ -483,6 +484,45 @@ def test_openarm_mujoco_cameras_sit_on_the_description_frames(tmp_path):
         # MuJoCo's camera x is optical x; its y and z are optical -y and -z.
         assert rotation @ np.diag([1.0, -1.0, -1.0]) == pytest.approx(expected[:3, :3], abs=1e-5)
         assert model.cam(camera.model.name).fovy[0] == pytest.approx(camera.model.fovy_deg)
+
+
+def test_axol_mujoco_cameras_sit_on_the_urdf_optical_frames(tmp_path):
+    # The Axol's MJCF keeps every URDF link a body, so each camera rides its own
+    # optical link; checked against the description's FK at an arbitrary arm pose.
+    mujoco = pytest.importorskip('mujoco', reason='mujoco Python binding (requirements-sim.txt)')
+    entries = _entries('mujoco', 'empty', 'axol')
+    world = run.world_file(entries['backend'], entries['scenario'], 3, str(tmp_path))
+    description = _description(entries, world)
+    robot_mjcf = mjcf_path(entries['robot']['mjcf'])
+    cameras = run.sim_cameras(entries['backend'], entries['robot'], description, robot_mjcf)
+    assert {camera.role: camera.model.body for camera in cameras} == {
+        'head': 'head_camera_left_optical',
+        'wrist_left': 'left_wrist_camera_optical',
+        'wrist_right': 'right_wrist_camera_optical',
+    }
+    run.world_model(
+        entries['backend'], entries['robot'], entries['scenario'], 3, robot_mjcf,
+        str(tmp_path), cameras,
+    )
+    model = mujoco.MjModel.from_xml_path(world)
+    data = mujoco.MjData(model)
+    rng = np.random.default_rng(3)
+    positions = {}
+    for side in ('left', 'right'):
+        for joint in ('s1', 's2', 's3', 'e1', 'e2', 'w1', 'w2'):
+            name = f'{side}_{joint}_0'
+            low, high = model.joint(name).range
+            positions[name] = float(rng.uniform(low, high))
+            data.qpos[model.joint(name).qposadr[0]] = positions[name]
+    mujoco.mj_forward(model, data)
+    specs = cameras_file.load(catalog.share_file(entries['robot']['cameras_file']))
+    for camera in cameras:
+        expected = fk(ET.fromstring(description), specs[camera.role]['frame'], positions)
+        rotation = data.cam(camera.model.name).xmat.reshape(3, 3)
+        assert data.cam(camera.model.name).xpos == pytest.approx(expected[:3, 3], abs=1e-5)
+        assert rotation @ np.diag([1.0, -1.0, -1.0]) == pytest.approx(expected[:3, :3], abs=1e-5)
+        # A rectified ZED renders unwarped: the render is the real image's size.
+        assert camera.model.resolution == (1920, 1080)
 
 
 def test_world_file_names_the_world_only_where_it_carries_cameras(tmp_path):
@@ -514,7 +554,7 @@ def _openarm_cameras(change=None):
 def mujoco_verdict(monkeypatch, tmp_path):
     """Return MuJoCo's verdict on a cameras file: ``run.sim_cameras`` on the real OpenArm."""
     entries = _entries('mujoco', 'empty', 'openarm')
-    description = _openarm_description(entries, '/unused.xml')
+    description = _description(entries, '/unused.xml')
     share_file = catalog.share_file
 
     def verdict(data):
@@ -545,7 +585,7 @@ def test_the_shipped_cameras_file_passes_both_backends(mujoco_verdict):
 
 
 @pytest.mark.parametrize('change', [
-    lambda d: d['cameras'].update(head=d['cameras']['chest']),
+    lambda d: d['cameras'].update(tail=d['cameras']['chest']),
     lambda d: d['cameras']['chest'].update(rate_hz=-1),
     lambda d: d['cameras']['chest'].update(intrinsics=dict(
         d['cameras']['chest']['intrinsics'], width=3840, height=2160)),
@@ -559,11 +599,13 @@ def test_the_shared_loader_refuses_for_both_backends(mujoco_verdict, change):
 
 
 @needs_openarm
-def test_plumb_bob_renders_on_isaac_but_not_through_the_mujoco_warp(mujoco_verdict):
+def test_distorted_plumb_bob_renders_on_isaac_but_not_through_the_mujoco_warp(
+    mujoco_verdict
+):
     def plumb_bob(d):
         d['cameras']['chest']['intrinsics'] = dict(
             d['cameras']['chest']['intrinsics'], distortion_model='plumb_bob',
-            distortion=[0.0, 0.0, 0.0, 0.0, 0.0],
+            distortion=[0.1, 0.0, 0.0, 0.0, 0.0],
         )
     data = _openarm_cameras(plumb_bob)
     assert _isaac_verdict(data)

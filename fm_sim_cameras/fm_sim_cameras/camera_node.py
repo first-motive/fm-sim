@@ -14,9 +14,10 @@ render is published only once the colour render with the same stamp has been,
 with that header, so every depth frame has its colour frame. One whose colour
 was thinned or skipped is dropped.
 
-With ``depth_sensor`` true it also publishes ``/cam_<role>/depth_sensor/compressed``:
-the same depth as a RealSense-like sensor would report it (``depth_sensor.measure``),
-in the same format and header, its noise drawn from ``seed``, the role and the stamp.
+With ``depth_sensor`` true (the cameras file's value unless a run sets it) it also
+publishes ``/cam_<role>/depth_sensor/compressed``: the same depth as a
+RealSense-like sensor would report it (``depth_sensor.measure``), in the same
+format and header, its noise drawn from ``seed``, the role and the stamp.
 
 It publishes at most once per render and at most at the role's ``rate_hz`` (or
 the node's ``rate_hz`` parameter, when set),
@@ -77,8 +78,9 @@ class SimCamera(Node):
             raise cameras_file.CameraError('depth_render_topic is empty')
         # The latest depth render whose colour render has not been published yet.
         self.pending_depth = None
-        # A simulated depth sensor on this camera (depth_sensor): off unless a run opts in.
-        sensor = self.declare_parameter('depth_sensor', False).value
+        # A simulated depth sensor on this camera: the cameras file's choice (off
+        # unless it says so), which a run may override.
+        sensor = self.declare_parameter('depth_sensor', camera['depth_sensor']).value
         # The run's seed (launch-owned): the sensor's noise, frame by frame.
         self.seed = self.declare_parameter('seed', 0).value
         try:
@@ -122,7 +124,8 @@ class SimCamera(Node):
         self.get_logger().info(
             f'{self.role}: {render_topic} ({self.render.width}x{self.render.height}, '
             f'fovy {self.render.fovy_deg:.3f} deg) -> {cameras_file.image_topic(self.role)} '
-            f'({self.camera.width}x{self.camera.height} fisheye, frame {self.frame_id}); '
+            f'({self.camera.width}x{self.camera.height} {self.camera.distortion_model}, '
+            f'frame {self.frame_id}); '
             f'{depth_render_topic} -> {cameras_file.depth_topic(self.role)}'
             + (f', {cameras_file.depth_sensor_topic(self.role)} (seed {self.seed})'
                if sensor else '')

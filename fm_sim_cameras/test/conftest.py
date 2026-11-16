@@ -31,6 +31,11 @@ OPENARM_CAMERAS = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     '..', '..', 'fm_sim_bringup', 'config', 'openarm', 'cameras.yaml',
 )
+# The Axol cameras file fm_sim_bringup ships, read the same way.
+AXOL_CAMERAS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    '..', '..', 'fm_sim_bringup', 'config', 'axol', 'cameras.yaml',
+)
 # fm-skills src/openarm_v2_skills_config/config/camera_chest.yaml at aa91a3f.
 CHEST_K = [740.244, 0.0, 958.504, 0.0, 750.103, 573.152, 0.0, 0.0, 1.0]
 CHEST_D = [0.111681, -0.028494, 0.0, 0.0]

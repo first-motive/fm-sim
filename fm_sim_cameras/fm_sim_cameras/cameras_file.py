@@ -8,6 +8,7 @@ The file (a robot entry's ``cameras_file``) maps ``cameras`` to roles::
         rate_hz: 15
         intrinsics: {width, height, fx, fy, cx, cy, distortion_model, distortion}
         allow_large_image: true            # optional; needed above 1920x1080
+        depth_sensor: true                 # optional; publish the simulated depth sensor
 
 ``check`` is the shared verdict on it, as plain dicts; ``fm_sim_cameras.camera_info``
 builds the CameraInfo from a checked camera. Each backend then refuses what it cannot
@@ -21,8 +22,10 @@ import re
 
 import yaml
 
-# The camera roles of the simulation contracts (§2).
-ROLES = ('chest', 'waist', 'wrist_right', 'wrist_left')
+# The camera roles of the simulation contracts (§2): the OpenArm's four, then the
+# Axol's head. New roles go last: depth_sensor.frame_rng seeds each frame's noise
+# with the role's index, so reordering would change every recorded frame's noise.
+ROLES = ('chest', 'waist', 'wrist_right', 'wrist_left', 'head')
 FRAME_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*')
 # camera_info distortion models and their coefficient counts.
 DISTORTION_MODELS = {'plumb_bob': 5, 'equidistant': 4}
@@ -121,11 +124,12 @@ def _check_intrinsics(intrinsics, where, allow_large_image):
 def check(data):
     """Return the cameras of a cameras file's contents as ``{role: camera}``.
 
-    A camera is ``{frame, rate_hz, intrinsics, allow_large_image}``, plain data
-    (JSON-serialisable). Refuses a role outside ``ROLES``, a bad frame name, a
+    A camera is ``{frame, rate_hz, intrinsics, allow_large_image, depth_sensor}``,
+    plain data (JSON-serialisable). Refuses a role outside ``ROLES``, a bad frame name, a
     ``rate_hz`` that is not a positive number, an image above
     ``MAX_IMAGE_PIXELS`` without ``allow_large_image: true``, and distortion
-    outside ``DISTORTION_MODELS`` or with the wrong coefficient count.
+    outside ``DISTORTION_MODELS`` or with the wrong coefficient count, and an
+    ``allow_large_image`` or ``depth_sensor`` that is not a bool.
     """
     if not isinstance(data, dict) or not isinstance(data.get('cameras'), dict):
         raise CameraError("a cameras file is a mapping with a 'cameras' mapping")
@@ -144,11 +148,15 @@ def check(data):
         allow_large_image = camera.get('allow_large_image', False)
         if not isinstance(allow_large_image, bool):
             raise CameraError(f'{where}: allow_large_image must be true or false')
+        sensor = camera.get('depth_sensor', False)
+        if not isinstance(sensor, bool):
+            raise CameraError(f'{where}: depth_sensor must be true or false')
         checked[role] = {
             'frame': frame,
             'rate_hz': float(rate),
             'intrinsics': _check_intrinsics(camera.get('intrinsics'), where, allow_large_image),
             'allow_large_image': allow_large_image,
+            'depth_sensor': sensor,
         }
     return checked
 

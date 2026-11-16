@@ -4,7 +4,7 @@ import os
 import subprocess
 import time
 
-from conftest import CHEST_D, CHEST_K, OPENARM_CAMERAS
+from conftest import AXOL_CAMERAS, CHEST_D, CHEST_K, OPENARM_CAMERAS
 import cv2
 from fm_sim_cameras import camera_node, cameras_file, depth, depth_sensor
 from fm_sim_cameras.camera_node import SimCamera
@@ -215,7 +215,7 @@ def test_thins_renders_above_the_rate(ros, tmp_path):
         rig.close()
 
 
-@pytest.mark.parametrize('role', ['head', '../chest', ''])
+@pytest.mark.parametrize('role', ['tail', '../chest', ''])
 def test_refuses_an_unknown_role(ros, role):
     with pytest.raises(cameras_file.CameraError, match='unknown camera role'):
         _camera(role=role)
@@ -234,13 +234,13 @@ def test_refuses_a_role_the_cameras_file_lacks(ros, tmp_path):
 def test_executable_exits_nonzero_on_a_bad_role():
     result = subprocess.run(
         ['ros2', 'run', 'fm_sim_cameras', 'sim_camera', '--ros-args',
-         '-p', 'role:=head', '-p', f'cameras_file:={OPENARM_CAMERAS}',
+         '-p', 'role:=tail', '-p', f'cameras_file:={OPENARM_CAMERAS}',
          '-p', f'render_topic:={RENDER_TOPIC}',
          '-p', f'depth_render_topic:={DEPTH_RENDER_TOPIC}'],
         capture_output=True, text=True, timeout=60, env=os.environ,
     )
     assert result.returncode != 0
-    assert "unknown camera role 'head'" in result.stderr
+    assert "unknown camera role 'tail'" in result.stderr
 
 
 def test_rate_hz_overrides_the_cameras_file(ros):
@@ -368,6 +368,19 @@ def test_no_depth_sensor_unless_enabled(ros):
     try:
         assert camera.depth_sensor_pub is None
         assert camera.count_publishers('/cam_chest/depth_sensor/compressed') == 0
+    finally:
+        camera.destroy_node()
+
+
+def test_the_cameras_file_turns_the_depth_sensor_on_and_a_run_off(ros):
+    camera = _camera(role='head', cameras_file=AXOL_CAMERAS)
+    try:
+        assert camera.count_publishers('/cam_head/depth_sensor/compressed') == 1
+    finally:
+        camera.destroy_node()
+    camera = _camera(role='head', cameras_file=AXOL_CAMERAS, depth_sensor=False)
+    try:
+        assert camera.depth_sensor_pub is None
     finally:
         camera.destroy_node()
 
