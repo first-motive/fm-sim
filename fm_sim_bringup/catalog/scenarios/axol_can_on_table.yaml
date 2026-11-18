@@ -3,7 +3,9 @@
 # arms start with the elbows at -1 rad, which puts the fingertips at world z 0.17, inside
 # can_on_table's table top (0.207). Here the table top is at world z 0.107, z -0.753 in the
 # Axol's base frame (axol_skills_config specs.yaml table_z), 6 cm under the resting
-# fingertips and within the right arm's reach of the pack's side grasp.
+# fingertips and within the right arm's reach of the pack's side grasp. The can stands
+# 0.12 m nearer the robot than in can_on_table: at rest the right hand hangs over world
+# x 0.40, and its fingers reach a can whose centre is past x 0.30.
 name: axol_can_on_table
 description: Pick the can and place it upright on the paper, for the Axol (right arm)
 available: true
@@ -34,7 +36,7 @@ objects:
     mass: 0.35
     friction: 1.0
     color: [0.1, 0.6, 0.2, 1.0]
-    pose: {xyz: [0.38, -0.15, 0.1755]}
+    pose: {xyz: [0.26, -0.15, 0.1755]}
     spawn:
       x: [-0.03, 0.03]
       y: [-0.02, 0.03]
@@ -108,8 +110,9 @@ params:
     default:
     - -0.03
     - 0.03
+    # Not past +0.035: the can's centre stays short of x 0.30, clear of the resting hand.
     min: -0.1
-    max: 0.1
+    max: 0.035
     step: 0.005
     unit: m
     advanced: true
