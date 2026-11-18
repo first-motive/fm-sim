@@ -1,0 +1,22 @@
+{
+  "attempted": 0,
+  "complete": false,
+  "ended_at": "2026-11-18T15:08:22Z",
+  "host": "fm_ws_01",
+  "runs": [],
+  "schema_version": 1,
+  "seeds": [
+    0
+  ],
+  "spec": {
+    "backend": "mujoco",
+    "controller": "fm_skills_classical",
+    "record": true,
+    "robot": "axol",
+    "scenario": "can_on_table"
+  },
+  "started_at": "2026-11-18T15:08:22Z",
+  "success_rate": 0.0,
+  "successes": 0,
+  "unscored": 0
+}
