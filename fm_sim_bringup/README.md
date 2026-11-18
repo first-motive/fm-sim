@@ -165,6 +165,7 @@ only rclpy and launch_ros). `test/test_run_params.py` uses them on this launch.
 | `axol` | Control rate (mujoco, advanced), each camera's rate (basic) and JPEG quality, and the head depth sensor (on by default; both advanced; all mujoco) |
 | `panda` | Control rate (mujoco), each JTC's end-velocity flag, and the hand servo's stiffness and force limit in the MJCF (all advanced) |
 | `openarm` | Control rate, each arm JTC's end-velocity flag, each camera's rate (at most the 10 Hz the engine renders and the bridge carries) and JPEG quality, each finger's stiffness and force limit (mujoco for all but the JTC flags; camera rates basic), and MoveIt Servo's joint speed (basic) and linear and rotational speeds for the `servo` launch role, on every backend, used only by a controller that activates `servo` |
+| `axol_can_on_table` | `can_on_table`'s, unchanged |
 | `can_on_table` | Can mass, friction and timeout (basic); can size (no taller than it is, since it spawns at a fixed height on the paper), spawn ranges, and the success tolerance, hold and at-rest speed, bounded so a success is still a can standing placed on the paper (advanced) |
 
 Not tunable, by design: frames, joint and controller names, topics, paths,
@@ -233,6 +234,7 @@ The robot is not reset; a controller under test returns it to its start.
 |----------|---------|---------|
 | `empty` | none | none |
 | `can_on_table` | `table` (top at 0.207), `paper` (A4), `can` (66 mm x 135 mm, 0.35 kg, spawned in a 60 mm x 50 mm box with any yaw) | `can` upright on the paper (`target`) for 2 s within 120 s |
+| `axol_can_on_table` | `can_on_table`'s objects, regions and success, 0.10 m lower (table top at 0.107): the Axol's arms start with their fingertips at 0.17, inside `can_on_table`'s table | as `can_on_table` |
 | `table_only` | `can_on_table`'s `table` and `paper`, no can: the empty scene a background-difference detector subtracts | none |
 | `tabletop_can`, `tabletop_block`, `tabletop_puck` | `can_on_table`'s `table`, an A5 `paper` whose centre a top-down release reaches, and one shared layout: green `can` (66 mm x 135 mm, 0.35 kg), red `block` (120 mm x 50 mm x 40 mm, 0.15 kg), blue `puck` (60 mm x 40 mm, 0.10 kg), each spawned in a 40 mm x 40 mm box, can and block with any yaw and puck at a fixed yaw | The named object on the paper (`target`, at its resting height) for 2 s within 120 s |
 | `tabletop_tags` | `tabletop_can` plus three ChArUco boards fixed flat on the table, clear of the paper and the right arm's reach, for the twin's fiducial mode. MuJoCo only | As `tabletop_can` |
@@ -449,6 +451,7 @@ is the contract for that output.
 
 | Test | Checks |
 |------|--------|
+| `test_axol_scenario.py` | `axol_can_on_table` is `can_on_table` 0.10 m lower and nothing else, and its table top is `axol_skills_config`'s in the Axol's base frame |
 | `test_catalog.py` | Lookup, unknown and unavailable entries, `requires_packages` (a missing package lists the entry as unavailable and is named when it is refused), schema validation (`robot_profile` a name or `null`, launch role shape, controller `launch_args`), run-owned `launch_args` names refused, `catalog --json` against the schema, path confinement, robot roles against the controllers file, `can_on_table` geometry, malformed scenarios |
 | `test_tabletop_scenarios.py` | The three tabletop entries share one layout; the named object is the success object; target at its resting height; worst-case spawns never overlap, start on the paper or as a success, and stay reachable and on the table; colours clearly apart. `tabletop_tags` is `tabletop_can` plus its boards, which lie flat at the paper's height, stay on the table and apart, keep clear of the paper, every worst-case spawn and the arm's reach, are published at their yaml poses, and are refused by Gazebo and Isaac |
 | `test_run.py` | Description args, active and inactive controller sets for `idle` and `teleop` on every robot, launch roles and what they require, OpenArm's `servo` role, unknown values, unsupported robot-backend pairs, a launch controller on a robot with no profile, the controller launch's arguments, `seed` and `timeout_s` parsing, the world per backend, mesh roots, the stage arguments, when the scenario node runs, the cameras per backend and robot, OpenArm's camera mounts, both cameras files shipped, and — with the mujoco binding — every OpenArm and Axol camera in the compiled world at the description's camera frames at a random arm pose (Axol's on its optical links, at the real image size). The OpenArm rows skip without its private description |
