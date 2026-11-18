@@ -1,9 +1,9 @@
 # Catalog entry (fm_sim.robots): the bimanual Almond Bot Axol on its Ox cart, in
 # fm-robot's axol names. As on the OpenArm, each arm's forward position controller
 # commands its seven joints and then the finger, so there is no gripper controller:
-# the finger moves only while the forward controller is active. No robot profile
-# describes it yet, so a controller with a launch of its own is refused on it; idle
-# and teleop run.
+# the finger moves only while the forward controller is active. Its robot profile is
+# fm-skills' axol (axol_skills_config config/robot_profiles/axol.yaml), so fm-skills'
+# controllers run on it beside idle and teleop.
 name: axol
 description: Almond Bot Axol on the Ox cart, two 7-DOF arms with grippers (fm-robot axol names)
 available: true
@@ -35,7 +35,7 @@ controller_roles:
   arm_trajectory: [axol_left_jtc, axol_right_jtc]
   arm_forward_position:
     [axol_left_forward_position_controller, axol_right_forward_position_controller]
-robot_profile: null
+robot_profile: axol
 supported_backends: [mujoco, gazebo, isaac]
 # Run tunables (fm_sim_bringup.params).
 params:

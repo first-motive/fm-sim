@@ -405,8 +405,10 @@ when a run resolves the robot. OpenArm has one launch role:
 The SO-101, Axol and Panda entries expand fm-robot's `so101.sim.urdf.xacro`,
 `axol.sim.urdf.xacro` and `panda.sim.urdf.xacro` with no extra args, and own their
 controllers files under `config/so101/`, `config/axol/` and `config/panda/`, named as
-fm_ros2's `fm_bringup` names them. No robot profile describes any of them yet, so
-their `robot_profile` is `null`.
+fm_ros2's `fm_bringup` names them. The Axol's `robot_profile` is `axol`, fm-skills'
+profile in `axol_skills_config` (`config/robot_profiles/axol.yaml`), so fm-skills'
+controllers run on it. No robot profile describes the SO-101 or the Panda yet, so their
+`robot_profile` is `null`.
 
 | Robot | `arm_trajectory` | `gripper` |
 |-------|------------------|-----------|
