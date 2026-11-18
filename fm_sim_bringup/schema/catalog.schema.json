@@ -251,6 +251,12 @@
               "$ref": "#/definitions/vector3",
               "description": "Where the MJCF model's origin sits in the description's root frame. The MuJoCo generator mounts the model there, so the MuJoCo world and the description's world coincide. Default [0, 0, 0]."
             },
+            "fixed_joints": {
+              "description": "Movable joints of the description that no ros2_control system claims, made fixed at their origin in the expanded description every backend and robot_state_publisher read, so /tf stays one tree. Each must name a joint of the description.",
+              "type": "array",
+              "items": {"type": "string", "minLength": 1},
+              "uniqueItems": true
+            },
             "mesh_roots": {
               "description": "Mesh URI prefixes the robot's URDF uses that no package resolves (a path relative to the URDF file, a package:// name no package has), each mapped to the share directory it means. A resolved mesh must stay under its directory.",
               "type": "array",

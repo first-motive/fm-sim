@@ -177,6 +177,7 @@ def _launch_setup(context):
                 **described.xacro_args,
             },
         ).toxml()
+        robot_description = run.fix_joints(robot_description, robot.get('fixed_joints', []))
         cameras = run.sim_cameras(backend, robot, robot_description, robot_mjcf)
         world = run.world_model(backend, robot, scenario, seed, robot_mjcf, world_dir, cameras)
         scenario_parameters = run.scenario_node_parameters(backend, scenario, seed, timeout_s)

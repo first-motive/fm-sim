@@ -659,3 +659,38 @@ def test_live_rows_skip_only_a_compiled_mjcf_without_the_binding(
     robot, backend, has_binding, skipped
 ):
     assert (skip_reason(robot, backend, has_binding) is not None) == skipped
+
+
+FIXED_JOINTS_URDF = (
+    '<robot name="r"><link name="cart"/><link name="root"/><link name="arm"/>'
+    '<joint name="lift" type="prismatic"><origin xyz="0.1 0 0.3"/>'
+    '<parent link="cart"/><child link="root"/></joint>'
+    '<joint name="shoulder" type="revolute"><parent link="root"/><child link="arm"/></joint>'
+    '</robot>'
+)
+
+
+def _joint_types(description):
+    return {j.get('name'): j.get('type') for j in ET.fromstring(description).findall('joint')}
+
+
+def test_fix_joints_makes_only_the_named_joints_fixed():
+    fixed = run.fix_joints(FIXED_JOINTS_URDF, ['lift'])
+    assert _joint_types(fixed) == {'lift': 'fixed', 'shoulder': 'revolute'}
+    lift = next(j for j in ET.fromstring(fixed).findall('joint') if j.get('name') == 'lift')
+    assert lift.find('origin').get('xyz') == '0.1 0 0.3'
+
+
+def test_fix_joints_with_none_named_leaves_the_description_as_it_is():
+    assert run.fix_joints(FIXED_JOINTS_URDF, ()) == FIXED_JOINTS_URDF
+
+
+def test_fix_joints_refuses_a_name_that_is_no_joint():
+    with pytest.raises(catalog.CatalogError, match='elbow'):
+        run.fix_joints(FIXED_JOINTS_URDF, ['lift', 'elbow'])
+
+
+def test_the_axol_entry_fixes_its_lift_and_the_openarm_entry_fixes_nothing():
+    robots = {name: catalog.load('robots', name) for name in ('axol', 'openarm')}
+    assert robots['axol'].get('fixed_joints') == ['lift']
+    assert 'fixed_joints' not in robots['openarm']
