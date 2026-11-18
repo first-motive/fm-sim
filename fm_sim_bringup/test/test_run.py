@@ -169,6 +169,22 @@ def test_resolve_refuses_a_launch_controller_on_a_robot_without_profile(monkeypa
     assert catalog.load('robots', 'openarm')['robot_profile'] == 'loader_openarm_v2'
 
 
+def test_resolve_accepts_a_launch_controller_on_the_axol_and_passes_its_profile(monkeypatch):
+    load = catalog.require_available
+
+    def idle_with_a_launch(kind, name):
+        entry = load(kind, name)
+        if kind == 'controllers':
+            entry['launch'] = {'package': 'fake_pkg', 'path': 'launch/run.launch.py'}
+        return entry
+
+    monkeypatch.setattr(catalog, 'require_available', idle_with_a_launch)
+    entries = run.resolve('mujoco', 'axol', 'empty', 'idle')
+    arguments = run.controller_launch_arguments(entries['controller'], entries['robot'], 'empty', 'true')
+    # fm-skills' sim.launch.py finds axol_skills_config from this name.
+    assert arguments['robot_profile'] == 'axol'
+
+
 def test_resolve_refuses_a_backend_the_robot_does_not_support(monkeypatch):
     load = catalog.require_available
 
