@@ -14,6 +14,11 @@ description_args: {}
 # fm_sim_models compiles the MJCF from fm_description's axol_ox_cart.urdf. Its origin
 # is the description's root (world), so it mounts at the default [0, 0, 0].
 mjcf: axol
+# The Ox cart's lift: no ros2_control system claims it, so it has no state and
+# robot_state_publisher would never publish cart -> root, splitting /tf in two. It
+# is fixed at 0 (fully raised) in the description every backend reads, as the
+# MJCF fixes it (fm_sim_models.axol) and fm-axol does on the real robot.
+fixed_joints: [lift]
 # The vendored URDF names its meshes relative to its own file; the generators write
 # the expanded description elsewhere, so they resolve them here.
 mesh_roots:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import json
 import math
 import os
+import xml.etree.ElementTree as ET
 
 from fm_sim_bringup import catalog, params
 from fm_sim_cameras import cameras_file, fisheye, mount
@@ -254,6 +255,27 @@ def description_overrides(entries, overrides):
             patch = target['mjcf']
             mjcf.append((patch['element'], patch['name'], patch['attribute'], text))
     return DescriptionOverrides(xacro_args, tuple(mjcf))
+
+
+def fix_joints(robot_description, names):
+    """Return the expanded description with each named joint made fixed at its origin.
+
+    A joint no ros2_control system claims has no state, so robot_state_publisher
+    never publishes it and /tf splits at it; fixed, it is published on /tf_static.
+    A name that is not a joint of the description raises CatalogError.
+    """
+    if not names:
+        return robot_description
+    robot = ET.fromstring(robot_description)
+    joints = {joint.get('name'): joint for joint in robot.findall('joint')}
+    missing = [name for name in names if name not in joints]
+    if missing:
+        raise catalog.CatalogError(
+            f'fixed_joints names no joint of the description: {", ".join(missing)}'
+        )
+    for name in names:
+        joints[name].set('type', 'fixed')
+    return ET.tostring(robot, encoding='unicode')
 
 
 def patched_mjcf(robot_mjcf, patches, out_dir):
